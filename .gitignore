@@ -3,6 +3,9 @@ node_modules
 .output
 *.zip
 .DS_Store
+# Local build secrets: Gmail OAuth client id + extension key.
+.env
+*.pem
 debug/captures/
 debug/logs/
 # Screenshots captured during debugging contain filled-in PII.

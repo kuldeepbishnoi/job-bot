@@ -8,41 +8,37 @@ removes all of that: the background reads the newest `no-reply@us.greenhouse-mai
 The code degrades gracefully: with no OAuth configured, `chrome.identity` fails and `getOtp` falls
 back to the tab scrape. So this setup is optional but recommended.
 
-## What you configure
-Two env vars, passed at build time:
-- `EXTENSION_KEY` — pins the extension ID so the OAuth client keeps matching across reloads.
-- `GMAIL_OAUTH_CLIENT_ID` — the OAuth 2.0 **Chrome App** client ID.
+## Already done for you
+- A signing key was generated at `~/.jobbot/extension-key.pem` (keep it; don't commit — `*.pem` is
+  git-ignored). Its public half is written to `.env` as `EXTENSION_KEY`, which pins the extension ID.
+- **Your extension ID is `hajmnimjcboohangbokbekphbcdonkff`** — use it verbatim in step 3 below.
+- `.env` is pre-filled with the key and an empty `GMAIL_OAUTH_CLIENT_ID` waiting for step 3's value.
 
-## Steps
+So the only thing you must do is create the OAuth client in your Google account and paste its ID.
 
-1. **Pin the extension ID (`EXTENSION_KEY`).**
-   - Build once (`npm run build`) and load `.output/chrome-mv3` unpacked at `chrome://extensions`.
-   - Get the stable public key: easiest is to pack the extension once (`chrome://extensions` →
-     "Pack extension") and read the `key` from the generated manifest, or copy it from an already
-     published item. Set it as `EXTENSION_KEY` (the long base64 string, no `-----` lines).
-   - The extension ID is derived from this key and stays constant.
+## Steps (account-bound — must be done in the Console UI)
 
-2. **Google Cloud project + Gmail API.**
+1. **Google Cloud project + Gmail API.**
    - Create/select a project at <https://console.cloud.google.com>.
    - APIs & Services → Library → enable **Gmail API**.
 
-3. **OAuth consent screen.**
+2. **OAuth consent screen.**
    - User type: External. Fill the required app name/email.
    - Add scope `https://www.googleapis.com/auth/gmail.readonly`.
    - Add your Google account under **Test users** (so you can consent without app verification).
 
-4. **OAuth client ID.**
+3. **OAuth client ID.**
    - APIs & Services → Credentials → Create Credentials → OAuth client ID.
    - Application type: **Chrome App** (a.k.a. Chrome Extension).
-   - Application ID: your extension ID from step 1.
-   - Copy the client ID → that's `GMAIL_OAUTH_CLIENT_ID`.
+   - Application ID: **`hajmnimjcboohangbokbekphbcdonkff`** (already pinned by the generated key).
+   - Copy the client ID → paste it into `.env` as `GMAIL_OAUTH_CLIENT_ID`.
 
-5. **Build with the env vars and reload.**
+4. **Rebuild and reload.**
    ```
-   GMAIL_OAUTH_CLIENT_ID=xxxxx.apps.googleusercontent.com EXTENSION_KEY=MIIB... npm run build
+   npm run build   # picks up .env automatically
    ```
-   Reload the unpacked extension. Open the popup → **Connect Gmail…** → grant consent.
-   The button flips to "Gmail connected ✓" and the background reads OTPs via the API from then on.
+   Reload the unpacked extension at `chrome://extensions`. Open the popup → **Connect Gmail…** →
+   grant consent. The button flips to "Gmail connected ✓" and the background reads OTPs via the API.
 
 ## Notes
 - Scope is **read-only** (`gmail.readonly`) — the extension only searches recent Greenhouse mail.
