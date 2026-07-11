@@ -1,6 +1,6 @@
 import { SITES } from '@/sites';
 import { stats } from '@/platform/store';
-import { pickProfileDir } from '@/platform/fs-config';
+import { pickProfileDir, loadProfileAndResume } from '@/platform/fs-config';
 import { send, type Msg } from '@/platform/messaging';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -19,10 +19,19 @@ function renderSites(): void {
 
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
-  setStatus('Starting…');
-  const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId });
-  if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
-  btn.disabled = false;
+  try {
+    // Load the profile HERE (popup has the File System Access permission + user gesture);
+    // the background service worker cannot request that permission.
+    setStatus('Reading profile…');
+    const { profile, resume } = await loadProfileAndResume();
+    setStatus('Starting…');
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume });
+    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+  } catch (e) {
+    setStatus(`⚠ ${(e as Error).message}`);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function refreshStats(): Promise<void> {
