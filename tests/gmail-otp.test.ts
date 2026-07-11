@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scrapeGmailCode } from '@/platform/gmail-otp';
+import { scrapeGmailCode, scrapeGmailCodes } from '@/platform/gmail-otp';
 
 // The real Greenhouse email — note the decoys: "security" and "resubmit" are both 8 chars.
 function emailDoc(codeMarkup: string): Document {
@@ -29,5 +29,22 @@ describe('scrapeGmailCode', () => {
   it('returns null for unrelated mail', () => {
     const doc = new DOMParser().parseFromString('<div class="a3s">Your Amazon order shipped</div>', 'text/html');
     expect(scrapeGmailCode(doc)).toBeNull();
+  });
+});
+
+describe('scrapeGmailCodes', () => {
+  it('collects every distinct code so a fresh one can be told from stale leftovers', () => {
+    // Two OTP emails open in a thread: an earlier apply's code and the newest one.
+    const html = `
+      <div class="a3s">paste this code into the security code field: <h1>STALE001</h1> then resubmit</div>
+      <div class="a3s">paste this code into the security code field: <h1>FRESH999</h1> then resubmit</div>
+    `;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const codes = scrapeGmailCodes(doc);
+    expect(codes).toContain('STALE001');
+    expect(codes).toContain('FRESH999');
+    // Excluding the pre-submit snapshot leaves exactly the fresh code.
+    const stale = ['STALE001'];
+    expect(codes.filter((c) => !stale.includes(c))).toEqual(['FRESH999']);
   });
 });

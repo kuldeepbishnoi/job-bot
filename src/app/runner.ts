@@ -13,7 +13,8 @@ export interface RunPorts {
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId
   apply(tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
-  getOtp(): Promise<string | null>;
+  seenOtps(): Promise<string[]>; // codes already in Gmail (stale) — snapshot before submitting
+  getOtp(exclude: readonly string[]): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
   capture(tabId: number): Promise<string | null>; // PNG dataURL of the worker tab, best-effort
   record(app: Application): Promise<void>;
@@ -55,6 +56,9 @@ export async function applyOne(
 ): Promise<Application> {
   try {
     const tabId = await ports.openJob(job.url);
+    // Snapshot the codes already in Gmail BEFORE we submit — the fresh code this apply triggers
+    // isn't there yet, so anything we see now is a stale leftover to exclude when polling.
+    const staleCodes = await ports.seenOtps().catch(() => [] as string[]);
     const res = await ports.apply(tabId, profile, job, resume);
     // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
     // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
@@ -67,7 +71,7 @@ export async function applyOne(
     if (res.status === 'submitted') return rec('applied');
 
     // needs_otp: at-least-once + idempotency (Ch10: you cannot have exactly-once delivery).
-    const code = await ports.getOtp();
+    const code = await ports.getOtp(staleCodes);
     if (!code) return rec('parked', 'OTP not found (is Gmail open?)');
     const otp = await ports.sendOtp(tabId, code, profile.auto_submit);
     const shot2 = await ports.capture(tabId).catch(() => null);

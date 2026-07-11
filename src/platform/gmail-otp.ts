@@ -22,31 +22,56 @@ function findCode(root: Element): string | null {
   return m?.[1] ?? null;
 }
 
-/** Runs in the Gmail content script: scrape newest Greenhouse code from the DOM. */
-export function scrapeGmailCode(doc: Document): string | null {
+/** Runs in the Gmail content script: scrape EVERY Greenhouse code currently in the DOM. */
+export function scrapeGmailCodes(doc: Document): string[] {
+  const found = new Set<string>();
   const bodies = Array.from(doc.querySelectorAll<HTMLElement>('div.a3s, div.ii, span.y2'));
   for (const body of bodies) {
     const text = body.textContent ?? '';
     if (!/security code|verification code|greenhouse/i.test(text)) continue;
     const code = findCode(body);
-    if (code) return code;
+    if (code) found.add(code);
   }
-  return null;
+  return [...found];
 }
 
-/** Background side: find a Gmail tab and ask it for the code, polling briefly. */
-export async function getOtp(timeoutMs = 60_000): Promise<string | null> {
+/** Back-compat single-code read (first match). */
+export function scrapeGmailCode(doc: Document): string | null {
+  return scrapeGmailCodes(doc)[0] ?? null;
+}
+
+/** Ask every open Gmail tab for the codes it can see right now. */
+async function queryCodes(): Promise<string[]> {
+  const all: string[] = [];
+  for (const tab of await chrome.tabs.query({ url: 'https://mail.google.com/*' })) {
+    if (tab.id === undefined) continue;
+    // Message type MUST match gmail.content.ts's listener ('getCode').
+    const codes = await chrome.tabs
+      .sendMessage(tab.id, { t: 'getCode' })
+      .then((r: { codes?: string[] } | undefined) => r?.codes ?? [])
+      .catch(() => [] as string[]);
+    all.push(...codes);
+  }
+  return all;
+}
+
+/** Snapshot the codes already sitting in Gmail before we submit — these are stale by definition. */
+export async function seenOtps(): Promise<string[]> {
+  return queryCodes();
+}
+
+/**
+ * Background side: poll Gmail for a FRESH code — one that wasn't already present before we
+ * submitted. Old OTP emails from earlier applies linger in the tab, so returning the first
+ * code we see would replay a stale (wrong) code; excluding the pre-submit snapshot guarantees
+ * we wait for the email this apply just triggered.
+ */
+export async function getOtp(exclude: readonly string[] = [], timeoutMs = 60_000): Promise<string | null> {
+  const skip = new Set(exclude);
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    for (const tab of await chrome.tabs.query({ url: 'https://mail.google.com/*' })) {
-      if (tab.id === undefined) continue;
-      // Message type MUST match gmail.content.ts's listener ('getCode').
-      const code = await chrome.tabs
-        .sendMessage(tab.id, { t: 'getCode' })
-        .then((r: { code: string | null } | undefined) => r?.code ?? null)
-        .catch(() => null);
-      if (code) return code;
-    }
+    const fresh = (await queryCodes()).find((c) => !skip.has(c));
+    if (fresh) return fresh;
     await new Promise((r) => setTimeout(r, 3000));
   }
   return null;

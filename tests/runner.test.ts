@@ -30,6 +30,7 @@ function fakePorts(
     appliedIds: async () => new Set<string>(),
     openJob: async () => 1,
     apply,
+    seenOtps: async () => [],
     getOtp: async () => '12345678',
     sendOtp: async (): Promise<OtpOutcome> => ({ status: 'submitted' }),
     capture: async () => null,
@@ -56,6 +57,22 @@ describe('runner (fake ports)', () => {
       apply: async (): Promise<ApplyOutcome> => ({ status: 'needs_otp' }),
     });
     await run(site, profile, resume, ports);
+    expect(recorded[0]?.status).toBe('applied');
+  });
+
+  it('excludes stale Gmail codes so a lingering old OTP is never replayed', async () => {
+    let excluded: readonly string[] = [];
+    const { ports, recorded } = fakePorts({
+      jobs: [job('1')],
+      apply: async (): Promise<ApplyOutcome> => ({ status: 'needs_otp' }),
+      seenOtps: async () => ['STALE001'], // an old apply's code still sitting in Gmail
+      getOtp: async (exclude) => {
+        excluded = exclude;
+        return 'FRESH999';
+      },
+    });
+    await run(site, profile, resume, ports);
+    expect(excluded).toEqual(['STALE001']); // snapshot taken before submit was passed through
     expect(recorded[0]?.status).toBe('applied');
   });
 

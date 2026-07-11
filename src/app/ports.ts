@@ -1,6 +1,6 @@
 import type { RunPorts } from './runner';
 import { openJob, closeWorker } from '../platform/worker-window';
-import { getOtp } from '../platform/gmail-otp';
+import { getOtp, seenOtps } from '../platform/gmail-otp';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
@@ -31,6 +31,7 @@ export function chromePorts(): RunPorts {
       await waitForFrame(tabId);
       return sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
     },
+    seenOtps,
     getOtp,
     sendOtp: (tabId, code, autoSubmit) => sendToTab<OtpOutcome>(tabId, { t: 'otp', code, autoSubmit }),
     capture: async (tabId) => {
