@@ -22,7 +22,7 @@ export async function ensureWorker(): Promise<number> {
   return tabId;
 }
 
-/** Navigate the worker tab to a job and wait for load. */
+/** Navigate the worker tab to a job and wait for load (bounded — never hangs the queue). */
 export async function openJob(url: string): Promise<number> {
   const id = await ensureWorker();
   await chrome.tabs.update(id, { url });
@@ -30,15 +30,24 @@ export async function openJob(url: string): Promise<number> {
   return id;
 }
 
-function waitForComplete(id: number): Promise<void> {
+function waitForComplete(id: number, timeoutMs = 30_000): Promise<void> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(timer);
+      resolve();
+    };
     const listener = (updatedId: number, info: chrome.tabs.TabChangeInfo) => {
-      if (updatedId === id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
+      if (updatedId === id && info.status === 'complete') finish();
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // Guard the race where the tab reached 'complete' before the listener attached.
+    chrome.tabs.get(id).then((tab) => tab.status === 'complete' && finish()).catch(() => {});
+    // Never block the queue forever; the content-script readiness ping handles the rest.
+    const timer = setTimeout(finish, timeoutMs);
   });
 }
 
