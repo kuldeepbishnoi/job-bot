@@ -8,8 +8,9 @@ export default defineConfig({
     name: 'JobBot',
     description: 'Auto-apply to jobs. Datadog today; more companies later.',
     // Least privilege: only what the code actually uses.
-    // storage = save applications/stats; tabs = drive the worker tab + find the Gmail tab.
-    permissions: ['storage', 'tabs'],
+    // storage = applications/stats + run state; tabs = drive the worker tab + find Gmail;
+    // alarms = step the queue across service-worker restarts.
+    permissions: ['storage', 'tabs', 'alarms'],
     // host_permissions gate content-script injection + the discovery fetch. Kept as narrow as possible.
     host_permissions: [
       'https://careers.datadoghq.com/*',

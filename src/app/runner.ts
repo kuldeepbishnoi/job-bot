@@ -45,7 +45,7 @@ export async function run(
   }
 }
 
-async function applyOne(
+export async function applyOne(
   site: Site,
   job: Job,
   profile: Profile,

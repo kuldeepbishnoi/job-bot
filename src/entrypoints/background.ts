@@ -1,25 +1,25 @@
 import { defineBackground } from 'wxt/sandbox';
-import { siteById } from '@/sites';
-import { run } from '@/app/runner';
+import { startRun, step, STEP_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
-import { loadProfileAndResume } from '@/platform/fs-config';
 import type { Msg } from '@/platform/messaging';
 
-// Main: wires concrete ports to the pure runner and triggers runs. Owns nothing else.
+// Main: wires concrete ports to the alarm-driven stepper.
+// The run is NOT a single long await (MV3 would kill the SW) — each job is one alarm wake.
 export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
     if (msg.t !== 'run') return;
     (async () => {
-      const site = siteById(msg.siteId);
-      if (!site) return sendResponse({ ok: false, error: `unknown site ${msg.siteId}` });
       try {
-        const { profile, resume } = await loadProfileAndResume();
-        await run(site, profile, resume, chromePorts());
+        await startRun(msg.siteId, msg.profile, msg.resume, chromePorts());
         sendResponse({ ok: true });
       } catch (e) {
         sendResponse({ ok: false, error: String((e as Error).message) });
       }
     })();
     return true; // async response
+  });
+
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === STEP_ALARM) void step(chromePorts());
   });
 });
