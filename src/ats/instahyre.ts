@@ -2,63 +2,82 @@ import { click, labelText } from './dom';
 
 // Instahyre apply adapter — pure DOM, no chrome/network, so it unit-tests in happy-dom.
 //
-// Instahyre is an AngularJS SPA. Unlike Greenhouse there is NO form, NO resume upload, NO OTP:
-// applying is a single in-page button (`ng-click="submitChoice(opp, true)"`) clicked while the
-// user is logged in. The opportunities view is a modal-style stepper — applying advances to the
-// next opportunity. This module only *locates* the controls; the content script runs the loop.
+// Instahyre is an AngularJS SPA. Unlike Greenhouse there is NO form, NO resume upload, NO OTP.
+// Verified against the live logged-in opportunities page:
+//   - Each listing card `.employer-block` has a title link `openApplyModal(opp)` that opens the
+//     apply modal, plus an inline `submitChoice(opp, false)` ("Not interested").
+//   - The Apply control is a DIV `.apply[ng-click="submitChoice(opp, true)"]` that exists ONLY
+//     inside the open modal (`.candidate-apply-modal`). There is NO inline Apply on the card.
+//   - Applying advances the modal to the next opportunity (`swipeOpp(opp, 'next')`).
+//   - External jobs surface `#apply-external-modal` ("Apply on company site") — can't be completed
+//     here, so they're skipped.
+// This module only *locates* controls + reads the current opportunity's identity; the content
+// script drives the open→apply→advance loop.
 
-/** An element is "shown" if AngularJS hasn't hidden it with the ng-hide class. */
+/** Visible = AngularJS hasn't ng-hidden it and it's actually laid out. */
 function shown(el: Element | null): el is Element {
   if (!el) return false;
-  if (el.classList.contains('ng-hide')) return false;
-  // A parent ng-hide hides the child too.
-  return !el.closest('.ng-hide');
+  if (el.classList.contains('ng-hide') || el.closest('.ng-hide')) return false;
+  return (el as HTMLElement).offsetParent !== null || el.getClientRects().length > 0;
 }
 
-/** The internal "Apply" control for the current opportunity (`submitChoice(opp, true)`).
- *  The ng-click lives on the wrapping `div.apply`; we return the clickable button inside it. */
-export function applyButton(doc: Document): HTMLElement | null {
-  const wrap = [...doc.querySelectorAll('[ng-click*="submitChoice"]')].find(
-    (el) => /submitChoice\([^,]+,\s*true\s*\)/.test(el.getAttribute('ng-click') ?? '') && shown(el),
+/** A listing card's link that opens the apply modal (`openApplyModal(opp)`). Used to enter the
+ *  modal flow when none is open. Returns the first still-visible card. */
+export function openModalLink(doc: Document): HTMLElement | null {
+  const link = [...doc.querySelectorAll('.employer-block [ng-click*="openApplyModal"], [ng-click*="openApplyModal"]')].find(
+    (el) => shown(el),
   );
-  if (!wrap) return null;
-  const btn = wrap.matches('button') ? wrap : wrap.querySelector('button');
-  return (btn as HTMLElement) ?? (wrap as HTMLElement);
+  return (link as HTMLElement) ?? null;
 }
 
-/** True when the current opportunity is an external "Apply on company site" job. We can't complete
- *  those inside Instahyre, so the loop must skip them. */
+/** The Apply control inside the open modal (`submitChoice(opp, true)`) — a DIV, not a <button>. */
+export function applyButton(doc: Document): HTMLElement | null {
+  const el = [...doc.querySelectorAll('[ng-click*="submitChoice"]')].find(
+    (e) => /submitChoice\([^,]+,\s*true\s*\)/.test(e.getAttribute('ng-click') ?? '') && shown(e),
+  );
+  return (el as HTMLElement) ?? null;
+}
+
+/** True when the current opportunity is an external "Apply on company site" job (skip it). */
 export function isExternal(doc: Document): boolean {
   return shown(doc.querySelector('#apply-external-modal'));
 }
 
-/** The "apply to all similar jobs at <company>" bulk modal's confirm button, when it's showing.
- *  Owner's rule: when a company posts several roles, apply to all of them. */
+/** The "apply to all similar roles at <company>" confirm button, when that modal is showing.
+ *  Owner's rule: apply to all of them. Targets the applyBulk() action (not applyBulkCancel()). */
 export function bulkApplyAllButton(doc: Document): HTMLElement | null {
-  const modal = doc.querySelector('candidate-apply-all-modal, #candidate-apply-all-modal, .apply-all-modal');
-  if (!shown(modal)) return null;
-  const btn =
-    modal!.querySelector('[ng-click*="applyBulk"]') ??
-    [...modal!.querySelectorAll('button')].find((b) => /apply/i.test(labelText(b)));
-  return (btn as HTMLElement) ?? null;
-}
-
-/** Advance to the next opportunity without applying (used to skip external jobs). Prefers an
- *  explicit next/swipe control; falls back to the "Not interested"-adjacent skip if present. */
-export function nextButton(doc: Document): HTMLElement | null {
-  const next = [...doc.querySelectorAll('[ng-click*="swipeOpp"], [ng-click*="nextOpp"], .next-opp')].find(
-    (el) => /next/i.test(el.getAttribute('ng-click') ?? '') || el.classList.contains('next-opp'),
+  const el = [...doc.querySelectorAll('[ng-click*="applyBulk"]')].find(
+    (e) => !/cancel/i.test(e.getAttribute('ng-click') ?? '') && shown(e),
   );
-  return shown(next ?? null) ? (next as HTMLElement) : null;
+  return (el as HTMLElement) ?? null;
 }
 
-/** Best-effort identity of the opportunity on screen, for the on-disk application record. */
+/** Advance to the next opportunity without applying (`swipeOpp(opp, 'next')`) — used to skip
+ *  external jobs and as a fallback if applying doesn't auto-advance. */
+export function nextButton(doc: Document): HTMLElement | null {
+  const el = [...doc.querySelectorAll('[ng-click*="swipeOpp"], [ng-swipe-left]')].find(
+    (e) => /next/.test(e.getAttribute('ng-click') ?? e.getAttribute('ng-swipe-left') ?? '') && shown(e),
+  );
+  return (el as HTMLElement) ?? null;
+}
+
+/** Identity of the opportunity currently shown in the modal, for the on-disk record + detecting
+ *  when the modal has advanced to the next job. */
 export function currentJob(doc: Document): { id: string; title: string; company: string } {
-  const scope = doc.querySelector('.opportunity, .employer-block, #apply-modal, .apply-modal') ?? doc.body;
-  const title = labelText(scope.querySelector('.job-title, .opportunity-title, h1, h2') ?? scope).slice(0, 120);
-  const company = labelText(scope.querySelector('.company-name, .employer-name, .company') ?? scope).slice(0, 80);
+  const modal = doc.querySelector('.candidate-apply-modal, .application-modal') ?? doc.body;
+  const company = labelText(modal.querySelector('.company-name') ?? modal).slice(0, 80);
+  const titleEl = modal.querySelector('.job-title, .position-title, .opportunity-title');
+  const title = (titleEl ? labelText(titleEl) : companyTitleGuess(modal, company)).slice(0, 120);
   const id = `${company}::${title}`.replace(/\s+/g, ' ').trim() || `instahyre-${Date.now()}`;
   return { id, title: title || 'Instahyre opportunity', company: company || 'Instahyre' };
+}
+
+// The modal's job title has no stable class; fall back to the heading nearest the company name.
+function companyTitleGuess(modal: Element, company: string): string {
+  const companyEl = modal.querySelector('.company-name');
+  const near = companyEl?.parentElement?.querySelector('.ng-binding:not(.company-name)');
+  const t = near ? labelText(near) : '';
+  return t && t !== company ? t : '';
 }
 
 export { click };

@@ -1,73 +1,114 @@
 import { describe, it, expect } from 'vitest';
-import { applyButton, isExternal, bulkApplyAllButton, nextButton, currentJob } from '@/ats/instahyre';
+import {
+  openModalLink,
+  applyButton,
+  isExternal,
+  bulkApplyAllButton,
+  nextButton,
+  currentJob,
+} from '@/ats/instahyre';
 
-// Fixtures reconstruct the Instahyre opportunities DOM the owner captured from the live, logged-in
-// page (AngularJS 1.2). Not a HAR capture — the apply flow needs a session — so these lock in the
-// selector contract; live timing/advance is validated by the owner's one-button run.
+// Fixtures mirror the live logged-in Instahyre opportunities DOM (AngularJS 1.2), verified via the
+// Chrome MCP: listing cards open a modal (`openApplyModal`), and the Apply DIV
+// (`submitChoice(opp, true)`) lives ONLY inside that modal. happy-dom has no layout, so shown()'s
+// offsetParent check is exercised by presence/ng-hide here; live timing is the owner's run.
 
 const parse = (html: string): Document => new DOMParser().parseFromString(html, 'text/html');
 
+// happy-dom reports offsetParent null for everything; give attached, non-ng-hide nodes a rect so
+// shown() treats them as visible (matches a real laid-out element).
+function visible(doc: Document): void {
+  for (const el of doc.querySelectorAll('*')) {
+    (el as HTMLElement).getClientRects = () => [{ width: 1, height: 1 }] as unknown as DOMRectList;
+  }
+}
+
+const listing = `
+  <div class="employer-block">
+    <a class="row text-link" ng-click="openApplyModal(opp)">Razorpay - AI Engineer</a>
+    <button class="button-not-interested btn" ng-click="submitChoice(opp, false)">Not interested</button>
+  </div>`;
+
+const modal = (external = false) => `
+  <div class="application-modal candidate-apply-modal">
+    <div class="side-section"><div class="company-name ng-binding">Razorpay</div><div class="ng-binding">AI Engineer</div></div>
+    <div class="apply ng-scope" ng-click="submitChoice(opp, true)">Apply</div>
+    <div ng-click="!disableSwipe ? swipeOpp(opp, 'next'): ''">next</div>
+  </div>
+  <div id="apply-external-modal"${external ? '' : ' class="ng-hide"'}><button>Apply on company site</button></div>`;
+
 describe('instahyre adapter — control location', () => {
-  it('finds the internal Apply button (submitChoice(opp, true))', () => {
-    const doc = parse(`
-      <div class="opportunity">
-        <div class="apply" ng-click="submitChoice(opp, true)"><button class="btn btn-primary new-btn">Apply</button></div>
-        <button class="btn decline new-btn" ng-click="submitChoice(opp, false)">Not interested</button>
-      </div>`);
+  it('finds the card link that opens the apply modal', () => {
+    const doc = parse(listing);
+    visible(doc);
+    expect(openModalLink(doc)).not.toBeNull();
+    expect(openModalLink(doc)!.getAttribute('ng-click')).toContain('openApplyModal');
+  });
+
+  it('has NO apply button on the bare listing (Apply only exists in the modal)', () => {
+    const doc = parse(listing);
+    visible(doc);
+    expect(applyButton(doc)).toBeNull();
+  });
+
+  it('finds the Apply div (submitChoice(opp, true)) once the modal is open', () => {
+    const doc = parse(modal());
+    visible(doc);
     const btn = applyButton(doc);
     expect(btn).not.toBeNull();
-    expect(btn!.tagName).toBe('BUTTON');
     expect(btn!.textContent).toContain('Apply');
   });
 
-  it('does NOT return the decline button as an apply target', () => {
-    const doc = parse(`
-      <div class="apply" ng-click="submitChoice(opp, false)"><button>Not interested</button></div>`);
+  it('never returns the "Not interested" (submitChoice false) control as an apply target', () => {
+    const doc = parse(listing);
+    visible(doc);
     expect(applyButton(doc)).toBeNull();
   });
 
-  it('ignores an ng-hidden apply control (already applied / off-screen)', () => {
-    const doc = parse(`
-      <div class="apply ng-hide" ng-click="submitChoice(opp, true)"><button>Apply</button></div>`);
+  it('ignores an ng-hidden apply control', () => {
+    const doc = parse(`<div class="apply ng-hide" ng-click="submitChoice(opp, true)">Apply</div>`);
+    visible(doc);
     expect(applyButton(doc)).toBeNull();
   });
 
-  it('detects an external-apply opportunity so the loop can skip it', () => {
-    const shown = parse(`<div id="apply-external-modal"><button>Apply on company site</button></div>`);
-    expect(isExternal(shown)).toBe(true);
-    const hidden = parse(`<div id="apply-external-modal" class="ng-hide"><button>Apply on company site</button></div>`);
-    expect(isExternal(hidden)).toBe(false);
-    expect(isExternal(parse('<div></div>'))).toBe(false);
+  it('detects external vs internal opportunities', () => {
+    const ext = parse(modal(true));
+    visible(ext);
+    expect(isExternal(ext)).toBe(true);
+    const internal = parse(modal(false));
+    visible(internal);
+    expect(isExternal(internal)).toBe(false);
   });
 
-  it('finds the "apply to all similar roles" bulk button only when its modal shows', () => {
+  it('finds the bulk apply-all button only when shown, and not the cancel', () => {
     const open = parse(`
-      <candidate-apply-all-modal>
-        <p>Want to apply to other similar jobs at Acme?</p>
+      <div class="candidate-apply-all-modal">
+        <p>Want to apply to other similar jobs at Razorpay?</p>
         <button ng-click="applyBulk()">Apply all</button>
-      </candidate-apply-all-modal>`);
-    expect(bulkApplyAllButton(open)).not.toBeNull();
-
-    const closed = parse(`<candidate-apply-all-modal class="ng-hide"><button ng-click="applyBulk()">Apply all</button></candidate-apply-all-modal>`);
-    expect(bulkApplyAllButton(closed)).toBeNull();
-    expect(bulkApplyAllButton(parse('<div></div>'))).toBeNull();
-  });
-
-  it('finds a next/swipe control to advance past a skipped job', () => {
-    const doc = parse(`<button ng-click="swipeOpp(opp, 'next')">Next</button>`);
-    expect(nextButton(doc)).not.toBeNull();
-    expect(nextButton(parse('<div></div>'))).toBeNull();
-  });
-
-  it('extracts a stable-ish job identity for the record', () => {
-    const doc = parse(`
-      <div class="opportunity">
-        <div class="company-name">Acme Corp</div>
-        <h2 class="job-title">Senior Backend Engineer</h2>
+        <button ng-click="applyBulkCancel()">No thanks</button>
       </div>`);
+    visible(open);
+    const btn = bulkApplyAllButton(open);
+    expect(btn).not.toBeNull();
+    expect(btn!.getAttribute('ng-click')).toBe('applyBulk()');
+
+    const hidden = parse(`<div class="ng-hide"><button ng-click="applyBulk()">Apply all</button></div>`);
+    visible(hidden);
+    expect(bulkApplyAllButton(hidden)).toBeNull();
+  });
+
+  it('finds the swipe-next control to advance/skip', () => {
+    const doc = parse(modal());
+    visible(doc);
+    expect(nextButton(doc)).not.toBeNull();
+  });
+
+  it('reads the opportunity identity from the modal', () => {
+    const doc = parse(modal());
+    visible(doc);
     const job = currentJob(doc);
-    expect(job.title).toContain('Senior Backend Engineer');
-    expect(job.company).toContain('Acme Corp');
-    expect(job.id).toContain('Senior Backend Engineer');
+    expect(job.company).toContain('Razorpay');
+    expect(job.title).toContain('AI Engineer');
+    expect(job.id).toContain('Razorpay');
   });
 });
