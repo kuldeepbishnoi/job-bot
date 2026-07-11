@@ -26,6 +26,11 @@ describe('greenhouse extract (real form fixture)', () => {
     expect(cities?.required).toBe(true);
   });
 
+  it('detects a single react-select (closest .select__control works on the real DOM)', () => {
+    expect(byId('question_67885027')?.kind).toBe('select'); // "I certify…" dropdown
+    expect(byId('country')?.kind).toBe('select');
+  });
+
   it('maps custom questions to intents by text', () => {
     expect(byId('question_67885025')?.intent).toBe('identity.linkedin');
     expect(byId('question_67885029')?.intent).toBe('answers.work_authorization');

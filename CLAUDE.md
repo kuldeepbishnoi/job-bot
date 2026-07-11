@@ -78,8 +78,15 @@ fixtures/    real captured data for offline tests
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)
-- **Least privilege**: permissions are only `storage` + `tabs`; no `scripting`/`alarms` unless code
-  uses them. host_permissions are the specific hosts we touch, not `*://*`.
+- **Least privilege**: permissions are `storage`, `tabs`, `alarms` — each used (alarms steps the
+  queue across SW restarts). No `scripting`. host_permissions are the specific hosts we touch, not `*://*`.
+- **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
+  alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage.
+- **Profile loading happens in the popup** (`loadProfileAndResume` needs the File System Access
+  permission + user gesture); the profile is passed to the background in the `run` message. The SW
+  must never call `showDirectoryPicker`/`requestPermission`.
+- **Frame readiness**: the Greenhouse form is a late async iframe; the background pings (`t:'ping'`)
+  until the content script answers before sending `apply` (`app/ports.ts#waitForFrame`).
 - **Single purpose**: apply to jobs. Nothing else.
 - **No remote code**: everything is bundled by WXT; no eval, no CDN scripts.
 - **Privacy**: the résumé and profile never leave the machine; applications/stats live in

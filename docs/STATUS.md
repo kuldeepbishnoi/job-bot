@@ -20,10 +20,21 @@ Snapshot for the next agent/session. Update it as things land.
 - **Config** — `config/schema.ts` (zod) + `profile/profile.example.yaml`. Read live from a picked
   folder via File System Access (`platform/fs-config.ts`).
 
+## Code-review blockers fixed (PR #1 review round 1)
+- OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
+- Profile now loads in the popup and is passed to the SW (FS-access can't run in a service worker).
+- Run is an alarm-driven **stepper** (`app/stepper.ts`) — survives MV3 SW termination.
+- `waitForComplete` has a timeout + already-complete guard (no more queue hangs).
+- Frame-readiness **ping** before `apply` (Greenhouse form is a late iframe).
+- react-select: control via `closest('.select__control')` (correct field), multi-menu not toggled shut.
+
 ## Not done / next
 1. **Live end-to-end verification** in a real browser on one Datadog job (the big one — no
-   substitute for it). Watch: react-select option matching, the 8-box OTP widget selectors, the
-   confirmation-page detector. Adjust selectors in `ats/greenhouse.ts` if the live DOM differs.
+   substitute for it). Still-unverified live assumptions: the 8-box OTP widget selectors
+   (`otpBoxes` maxLength===1), the confirmation-page detector (`confirmed()` wording), and that a
+   Gmail email must be **opened** for the scrape. Adjust in `ats/greenhouse.ts` / `platform/gmail-otp.ts`.
+2. Remaining review items to weigh: boolean "No" substring match (`resolver.ts`), no re-scan for
+   follow-up fields revealed by a select, duplicate-apply risk if `confirmed()` misfires.
 2. **Gmail API (read-only)** to replace tab-scrape — swap only `platform/gmail-otp.ts#getOtp`.
 3. **Playwright e2e**: load the built extension, open `fixtures/greenhouse-form.html`, assert fill,
    stop before submit.
