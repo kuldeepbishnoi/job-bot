@@ -47,4 +47,15 @@ describe('scrapeGmailCodes', () => {
     const stale = ['STALE001'];
     expect(codes.filter((c) => !stale.includes(c))).toEqual(['FRESH999']);
   });
+
+  it('floats the newest UNREAD inbox row to the front, ahead of older read ones', () => {
+    // Gmail inbox list view: an unread (.zE) fresh code plus an older, already-read one.
+    const rows = `
+      <table><tbody>
+        <tr class="zA zE"><td><span class="y2">greenhouse security code — on your application: FRESH999 — resubmit</span></td></tr>
+        <tr class="zA yO"><td><span class="y2">greenhouse security code — on your application: STALE001 — resubmit</span></td></tr>
+      </tbody></table>`;
+    const doc = new DOMParser().parseFromString(rows, 'text/html');
+    expect(scrapeGmailCodes(doc)[0]).toBe('FRESH999');
+  });
 });
