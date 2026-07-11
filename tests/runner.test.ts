@@ -32,6 +32,7 @@ function fakePorts(
     apply,
     getOtp: async () => '12345678',
     sendOtp: async (): Promise<OtpOutcome> => ({ status: 'submitted' }),
+    capture: async () => null,
     record: async (a) => void recorded.push(a),
     progress: () => {},
     cleanup: async () => {},
@@ -65,6 +66,19 @@ describe('runner (fake ports)', () => {
     });
     await run(site, profile, resume, ports);
     expect(recorded[0]).toMatchObject({ status: 'parked', note: 'missing X' });
+  });
+
+  it('threads filled fields + a screenshot into the recorded application', async () => {
+    const filled = [{ id: 'first_name', label: 'First Name', value: 'K' }];
+    const { ports, recorded } = fakePorts({
+      jobs: [job('1')],
+      apply: async (): Promise<ApplyOutcome> => ({ status: 'submitted', filled }),
+      capture: async () => 'data:image/png;base64,AAAA',
+    });
+    await run(site, profile, resume, ports);
+    expect(recorded[0]).toMatchObject({
+      jobId: '1', status: 'applied', fields: filled, screenshot: 'data:image/png;base64,AAAA',
+    });
   });
 
   it('skips jobs already applied to', async () => {

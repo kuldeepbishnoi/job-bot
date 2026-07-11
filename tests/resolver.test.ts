@@ -65,6 +65,19 @@ describe('resolver', () => {
     expect(resolve(f({ label: 'Expected salary?' }), profile, job).kind).toBe('unknown');
   });
 
+  it('checks a required checkbox (submit gate); skips an optional one', () => {
+    const consent = f({ kind: 'checkbox', label: 'By checking this box, I consent…', required: true });
+    expect(resolve(consent, profile, job)).toEqual({ kind: 'check', value: true });
+    const optional = f({ kind: 'checkbox', label: 'Subscribe to updates', required: false });
+    expect(resolve(optional, profile, job)).toEqual({ kind: 'unknown' });
+  });
+
+  it('honors a boolean override targeting a checkbox', () => {
+    const p = parseProfile({ ...base, overrides: { 'Subscribe to updates': false } });
+    const optional = f({ kind: 'checkbox', label: 'Subscribe to updates', required: false });
+    expect(resolve(optional, p, job)).toEqual({ kind: 'check', value: false });
+  });
+
   it('matchOptions is bidirectional/contains-based', () => {
     expect(matchOptions(['Paris, France'], ['Paris'])).toEqual(['Paris, France']);
     expect(matchOptions(['Yes', 'No'], ['yes'])).toEqual(['Yes']);

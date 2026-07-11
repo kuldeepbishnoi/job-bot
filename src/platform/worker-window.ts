@@ -1,24 +1,22 @@
-// A dedicated, unfocused-but-visible window that processes jobs one tab at a time.
-// Your main window (Netflix) keeps focus; this one sits behind it and still renders
-// (visibilityState stays "visible" as long as it isn't minimized), so react-select
-// and reCAPTCHA behave normally.
+// A single reusable tab in the user's current window that processes jobs one at a time.
+// We keep it the ACTIVE tab so it stays visible — a backgrounded tab reports
+// visibilityState "hidden", which throttles timers and can break react-select/reCAPTCHA.
+// One tab, reused across the whole queue, so we never spawn a separate window.
 
-let windowId: number | undefined;
 let tabId: number | undefined;
 
 export async function ensureWorker(): Promise<number> {
-  if (windowId !== undefined) {
+  if (tabId !== undefined) {
     try {
-      await chrome.windows.get(windowId);
-      return tabId!;
+      await chrome.tabs.get(tabId);
+      return tabId;
     } catch {
-      windowId = undefined; // was closed
+      tabId = undefined; // was closed
     }
   }
-  const win = await chrome.windows.create({ focused: false, width: 1100, height: 900, url: 'about:blank' });
-  windowId = win.id;
-  tabId = win.tabs?.[0]?.id;
-  if (tabId === undefined) throw new Error('worker window has no tab');
+  const tab = await chrome.tabs.create({ url: 'about:blank', active: true });
+  if (tab.id === undefined) throw new Error('worker tab has no id');
+  tabId = tab.id;
   return tabId;
 }
 
@@ -52,13 +50,12 @@ function waitForComplete(id: number, timeoutMs = 30_000): Promise<void> {
 }
 
 export async function closeWorker(): Promise<void> {
-  if (windowId !== undefined) {
+  if (tabId !== undefined) {
     try {
-      await chrome.windows.remove(windowId);
+      await chrome.tabs.remove(tabId);
     } catch {
       /* already gone */
     }
-    windowId = undefined;
     tabId = undefined;
   }
 }

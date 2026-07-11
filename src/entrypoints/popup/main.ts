@@ -1,6 +1,6 @@
 import { SITES } from '@/sites';
-import { stats } from '@/platform/store';
-import { pickProfileDir, loadProfileAndResume } from '@/platform/fs-config';
+import { stats, getProgress, needsAttention } from '@/platform/store';
+import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/fs-config';
 import { send, type Msg } from '@/platform/messaging';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -40,12 +40,46 @@ async function refreshStats(): Promise<void> {
   $('yesterday').textContent = String(s.yesterday);
   $('total').textContent = String(s.total);
   const review = $<HTMLButtonElement>('review');
-  if (s.needsReview > 0) {
+  const notes: string[] = [];
+  if (s.needsReview > 0) notes.push(`⚠ ${s.needsReview} need review`);
+  if (s.failed > 0) notes.push(`✗ ${s.failed} failed`);
+  if (notes.length) {
     review.hidden = false;
-    review.textContent = `⚠ ${s.needsReview} need review`;
+    review.textContent = notes.join(' · ');
   } else {
     review.hidden = true;
+    $('review-list').hidden = true;
   }
+}
+
+// Clicking the review summary toggles a list of the parked/failed jobs and WHY, so the
+// reason (e.g. "No answer for required: …") is visible instead of just a count.
+async function renderReviewList(): Promise<void> {
+  const list = $<HTMLUListElement>('review-list');
+  const items = await needsAttention();
+  list.innerHTML = '';
+  for (const a of items) {
+    const li = document.createElement('li');
+    const mark = a.status === 'failed' ? '✗' : '⚠';
+    li.textContent = `${mark} ${a.title} — ${a.note ?? a.status}`;
+    li.title = a.note ?? a.status;
+    list.appendChild(li);
+  }
+}
+
+$('review').addEventListener('click', async () => {
+  const list = $('review-list');
+  list.hidden = !list.hidden;
+  if (!list.hidden) await renderReviewList();
+});
+
+// The worker tab activating closes this popup, so live 'progress' messages are usually missed.
+// Read the persisted run status on open (and while open) so there's always visibility.
+async function refreshProgress(): Promise<void> {
+  const p = await getProgress();
+  if (!p) return;
+  if (p.phase === 'running') setStatus(`Applying ${p.done + 1}/${p.total} · ${p.current}`);
+  else setStatus(`Run finished · ${p.total} processed`);
 }
 
 function setStatus(text: string): void {
@@ -61,14 +95,32 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
   }
 });
 
-$('pick').addEventListener('click', async () => {
+const pick = $('pick');
+pick.addEventListener('click', async () => {
   try {
     await pickProfileDir();
-    setStatus('Profile folder linked ✓');
+    reflectLinked(true);
   } catch (e) {
     setStatus(`⚠ ${(e as Error).message}`);
   }
 });
 
-renderSites();
-refreshStats();
+// Show whether a folder is already linked so it doesn't look "unselected" on reopen.
+function reflectLinked(linked: boolean): void {
+  pick.textContent = linked ? 'Change profile folder…' : 'Choose profile folder…';
+  if (linked) setStatus('Profile folder linked ✓');
+}
+
+async function init(): Promise<void> {
+  renderSites();
+  await refreshStats();
+  reflectLinked(await hasProfileDir());
+  await refreshProgress(); // after reflectLinked so an active run's status line wins
+  // Poll while the popup happens to stay open, so counts + status stay live.
+  setInterval(() => {
+    void refreshStats();
+    void refreshProgress();
+  }, 2000);
+}
+
+void init();

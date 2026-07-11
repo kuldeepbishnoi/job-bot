@@ -3,8 +3,14 @@ node_modules
 .output
 *.zip
 .DS_Store
+debug/captures/
+debug/logs/
+# Screenshots captured during debugging contain filled-in PII.
+debug/e2e/
 # Never commit personal data or the actual resume.
 profile/profile.yaml
 profile/resume/*
+# On-disk application records (personal: names, answers, screenshots).
+profile/applications/
 !profile/resume/.gitkeep
 !profile/profile.example.yaml

@@ -1,5 +1,5 @@
 import type { Answer, Field, FieldKind, Intent } from '../engine/types';
-import { click, labelText, setFile, setReactValue, waitFor } from './dom';
+import { click, labelText, setFile, setReactValue } from './dom';
 
 // Greenhouse embedded application form (job-boards.greenhouse.io iframe).
 // Verified against fixtures/greenhouse-form.html.
@@ -32,6 +32,7 @@ function reactSelectControl(el: Element): Element | null {
 
 function kindOf(id: string, el: Element | null): FieldKind {
   if (isFileInput(el)) return 'file';
+  if (el instanceof HTMLInputElement && el.type === 'checkbox') return 'checkbox';
   if (el instanceof HTMLInputElement && el.type === 'tel') return 'tel';
   if (el instanceof HTMLInputElement && el.type === 'email') return 'email';
   if (id.endsWith('[]')) return 'multiselect';
@@ -46,7 +47,11 @@ export function extract(doc: Document): Field[] {
     // Note: ids may contain "[]" for multi-selects (e.g. "question_67885030[]"). getElementById
     // matches that literally, so we always use the raw id — never strip the brackets.
     const id = label.getAttribute('for')!;
-    if (id === 'resume_text' || id === 'resume-dropbox') continue; // alt resume modes
+    // Alternate input modes for the resume/cover-letter file inputs — the form shows
+    // paste-text and file-drop variants that share the same slot. We want the plain
+    // `resume` / `cover_letter` file inputs only; the *_text variants are textareas
+    // with different fill semantics we don't support yet.
+    if (id === 'resume_text' || id === 'resume-dropbox' || id === 'cover_letter_text') continue;
     const el = doc.getElementById(id);
     const text = labelText(label);
     const required = text.includes('*') || el?.getAttribute('aria-required') === 'true';
@@ -57,6 +62,31 @@ export function extract(doc: Document): Field[] {
   return fields;
 }
 
+/**
+ * Open a react-select's menu, tolerating that it may not be hydrated/interactive yet
+ * (a fresh apply fires ~1s after load). Retries the open click a few times. If a menu is
+ * already open (multi-select keeps it open between picks), returns that one.
+ */
+async function openMenu(doc: Document, control: Element): Promise<Element> {
+  // react-select flips the combobox's aria-expanded to "true" while its menu is open.
+  // Gate the open-click on that flag: a second click on a hydrated, already-open control
+  // toggles the menu shut, and clicks fired before the widget hydrates are harmless no-ops.
+  // So only click when it's not already expanded, and wait for a menu that has rendered
+  // options (aria-expanded can flip before the options paint).
+  const combobox = control.querySelector('[role="combobox"]');
+  const openMenuEl = (): Element | null => {
+    const menu = doc.querySelector('.select__menu');
+    return menu?.querySelector('.select__option') ? menu : null;
+  };
+  for (let i = 0; i < 30; i++) {
+    const menu = openMenuEl();
+    if (menu) return menu;
+    if (combobox?.getAttribute('aria-expanded') !== 'true') click(control);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error('select menu did not open');
+}
+
 /** Read the labels a select currently offers (open it first if needed). */
 export async function optionsFor(doc: Document, field: Field): Promise<string[]> {
   if (field.kind !== 'select' && field.kind !== 'multiselect') return [];
@@ -64,14 +94,36 @@ export async function optionsFor(doc: Document, field: Field): Promise<string[]>
   if (!el) return [];
   const control = reactSelectControl(el);
   if (!control) return [];
-  click(control);
   try {
-    const menu = await waitFor(() => doc.querySelector('.select__menu'), 2000);
+    const menu = await openMenu(doc, control);
     return Array.from(menu.querySelectorAll('.select__option')).map(labelText);
   } catch {
     return [];
   } finally {
-    click(control); // close
+    if (doc.querySelector('.select__menu')) click(control); // close if still open
+  }
+}
+
+/**
+ * Pick options in a react-select by clicking the menu entries that match `values`.
+ * Prefers an exact (case-insensitive) label match, then falls back to a substring match,
+ * so "India" doesn't accidentally select "British Indian Ocean Territory".
+ */
+async function pickOptions(
+  doc: Document,
+  control: Element,
+  fieldId: string,
+  values: readonly string[],
+): Promise<void> {
+  for (const value of values) {
+    const menu = await openMenu(doc, control);
+    const opts = Array.from(menu.querySelectorAll('.select__option'));
+    const lc = value.toLowerCase();
+    const opt =
+      opts.find((o) => labelText(o).toLowerCase() === lc) ??
+      opts.find((o) => labelText(o).toLowerCase().includes(lc));
+    if (!opt) throw new Error(`option "${value}" not found for ${fieldId}`);
+    click(opt);
   }
 }
 
@@ -84,7 +136,26 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
     if (resume) setFile(el, resume);
     return;
   }
+  if (answer.kind === 'check') {
+    if (el.checked === answer.value) return;
+    click(el); // a click toggles the checkbox (spec activation behavior) + fires React's onChange
+    if (el.checked !== answer.value) {
+      // Fallback for a controlled checkbox that ignored the synthetic click: force the state via
+      // the native setter and notify React with change only — NOT click, which would toggle it back.
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set?.call(el, answer.value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    return;
+  }
   if (answer.kind === 'text') {
+    // A react-select (e.g. Country) is a combobox: typing filters but never commits a
+    // selection, so a required field would submit empty. Route through option-picking.
+    const control = reactSelectControl(el);
+    if (control) {
+      await pickOptions(doc, control, field.id, [answer.value]);
+      return;
+    }
     setReactValue(el, answer.value);
     return;
   }
@@ -94,18 +165,22 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
       setReactValue(el, answer.values[0] ?? '');
       return;
     }
-    for (const value of answer.values) {
-      // Open only if closed: a single-select closes its menu after a pick, but a multi-select
-      // keeps it open — so re-clicking the control there would TOGGLE it shut and time out.
-      if (!doc.querySelector('.select__menu')) click(control);
-      const menu = await waitFor(() => doc.querySelector('.select__menu'), 2000);
-      const opt = Array.from(menu.querySelectorAll('.select__option')).find((o) =>
-        labelText(o).toLowerCase().includes(value.toLowerCase()),
-      );
-      if (!opt) throw new Error(`option "${value}" not found for ${field.id}`);
-      click(opt);
-    }
+    await pickOptions(doc, control, field.id, answer.values);
   }
+}
+
+/**
+ * Did a text answer actually land and stick? Greenhouse remounts the form after the async
+ * résumé upload, which wipes plain inputs we set earlier — so we re-check and re-fill.
+ * Only plain inputs/textareas are verifiable this way; react-selects keep their value
+ * elsewhere, and files/choices are checked by their own controls, so treat those as fine.
+ */
+export function textFilled(doc: Document, field: Field, answer: Answer): boolean {
+  if (answer.kind !== 'text') return true;
+  if (answer.value.trim().length === 0) return true; // nothing to assert (e.g. blank website)
+  const el = doc.getElementById(field.id) as HTMLInputElement | null;
+  if (!el || reactSelectControl(el)) return true;
+  return el.value.trim().length > 0;
 }
 
 export function submitButton(doc: Document): HTMLButtonElement | null {

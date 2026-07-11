@@ -21,11 +21,18 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
 };
 
 export function resolve(field: Field, profile: Profile, job: Job, options: readonly string[] = []): Answer {
-  if (field.kind === 'file') return { kind: 'file' };
+  // Only fill file inputs when we know they want the resume — otherwise (cover letter,
+  // transcripts, portfolio uploads) leave them alone. Any file field without resume intent
+  // was previously getting the resume attached, which is wrong.
+  if (field.kind === 'file') return field.intent === 'resume' ? { kind: 'file' } : { kind: 'unknown' };
 
   // 1. verbatim override wins.
   const override = profile.overrides[field.label.trim()];
   if (override !== undefined) return toAnswer(override, field, options);
+
+  // 2. checkboxes: an explicit boolean override aside, a REQUIRED checkbox is a submit gate
+  // (consent/acknowledgement) — checking it is the only way to proceed. Optional ones we skip.
+  if (field.kind === 'checkbox') return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
 
   const intent = field.intent;
   if (!intent) return { kind: 'unknown' };
@@ -53,6 +60,7 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
 
   // Boolean answer -> the yes/no option (or literal "Yes"/"No" for a text field).
   if (typeof val === 'boolean') {
+    if (field.kind === 'checkbox') return { kind: 'check', value: val };
     if (field.kind === 'text') return { kind: 'text', value: val ? 'Yes' : 'No' };
     const synonyms = val ? YES : NO;
     const picked = options.filter((o) => synonyms.some((s) => o.toLowerCase().includes(s)));

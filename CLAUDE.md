@@ -111,7 +111,17 @@ npm run dev          # load unpacked dev extension in Chrome (HMR)
 npm run build        # production build -> .output/chrome-mv3
 npm test             # unit tests against fixtures (must stay green)
 npm run compile      # tsc --noEmit (must stay clean)
+npm run mitm         # start mitmweb + Chrome (scratch profile) — see debug/README.md
+npm run mitm:stop    # kill scratch Chrome + mitmweb
+npm run mitm:reset   # clear debug/captures/
 ```
+
+## Debugging live forms
+Don't guess at DOM changes — capture them. `npm run mitm -- <url>` boots mitmweb and a
+Chrome instance (with the built extension pre-loaded) routed through it, dumping every
+relevant response body to `debug/captures/`. See `debug/README.md` for the full workflow
+including `USE_MY_PROFILE=1` for running against your real Chrome session (Gmail login,
+cookies) — must quit Chrome first.
 
 ## Workflow rules (from the repo owner)
 - **Never push to `master`/`main` directly.** Work on a branch and open a PR; the owner + Claude

@@ -12,7 +12,7 @@ export interface Job {
 }
 
 /** A single input rendered in an application form. */
-export type FieldKind = 'text' | 'email' | 'tel' | 'file' | 'select' | 'multiselect';
+export type FieldKind = 'text' | 'email' | 'tel' | 'file' | 'select' | 'multiselect' | 'checkbox';
 
 export interface Field {
   readonly id: string; // DOM id, e.g. "first_name" or "question_67885030[]"
@@ -50,10 +50,18 @@ export type Intent =
 export type Answer =
   | { readonly kind: 'text'; readonly value: string }
   | { readonly kind: 'choice'; readonly values: readonly string[] } // 1 for select, N for multiselect
+  | { readonly kind: 'check'; readonly value: boolean } // check/uncheck a checkbox
   | { readonly kind: 'file' }
   | { readonly kind: 'unknown' }; // no confident answer -> park/skip per policy
 
 export type ApplyStatus = 'applied' | 'parked' | 'failed';
+
+/** One field we actually filled, with the exact value we put in — for the on-disk record. */
+export interface AppliedField {
+  readonly id: string;
+  readonly label: string;
+  readonly value: string; // display value (text, joined choices, "checked", or resume filename)
+}
 
 export interface Application {
   readonly company: string;
@@ -63,4 +71,6 @@ export interface Application {
   readonly date: string; // ISO yyyy-mm-dd
   readonly status: ApplyStatus;
   readonly note?: string; // parked/failed reason
+  readonly fields?: readonly AppliedField[]; // exactly what we filled
+  readonly screenshot?: string; // transient PNG dataURL — written to disk, NOT kept in storage
 }

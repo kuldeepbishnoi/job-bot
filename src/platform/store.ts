@@ -7,6 +7,26 @@ import { appliedJobIds, computeStats, type Stats } from '../engine/stats';
 // Pure computation lives in engine/stats.ts; this file just supplies data + clock.
 const KEY = 'applications';
 const STATE_KEY = 'run_state';
+const PROGRESS_KEY = 'run_progress';
+
+// Live run status, persisted so the (ephemeral MV3) popup can show what's happening even after it
+// closes — the worker tab activating closes the popup, so in-memory progress would otherwise be lost.
+export interface RunProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly current: string;
+  readonly phase: 'running' | 'done';
+  readonly at: number; // epoch ms of last update
+}
+
+export async function saveProgress(p: RunProgress): Promise<void> {
+  await chrome.storage.local.set({ [PROGRESS_KEY]: p });
+}
+
+export async function getProgress(): Promise<RunProgress | null> {
+  const got = await chrome.storage.local.get(PROGRESS_KEY);
+  return (got[PROGRESS_KEY] as RunProgress | undefined) ?? null;
+}
 
 /** Persisted run state, so an alarm-driven step survives service-worker termination. */
 export interface RunState {
@@ -37,7 +57,10 @@ async function readAll(): Promise<Application[]> {
 
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
-  await chrome.storage.local.set({ [KEY]: [...all, app] });
+  // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
+  // chrome.storage quota over a run. It's written to disk (fs-config.writeRecord) instead.
+  const { screenshot: _omit, ...lean } = app;
+  await chrome.storage.local.set({ [KEY]: [...all, lean] });
 }
 
 export async function appliedIds(): Promise<Set<string>> {
@@ -46,6 +69,11 @@ export async function appliedIds(): Promise<Set<string>> {
 
 export async function parked(): Promise<Application[]> {
   return (await readAll()).filter((a) => a.status === 'parked');
+}
+
+/** Most-recent-first list of jobs that need attention (parked or failed), with their notes. */
+export async function needsAttention(): Promise<Application[]> {
+  return (await readAll()).filter((a) => a.status === 'parked' || a.status === 'failed').reverse();
 }
 
 export async function stats(): Promise<Stats> {

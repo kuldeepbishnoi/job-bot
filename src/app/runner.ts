@@ -1,4 +1,4 @@
-import type { Application, Job } from '../engine/types';
+import type { AppliedField, Application, ApplyStatus, Job } from '../engine/types';
 import type { Profile } from '../config/schema';
 import type { Site } from '../sites';
 import type { ApplyOutcome, OtpOutcome } from '../platform/messaging';
@@ -15,6 +15,7 @@ export interface RunPorts {
   apply(tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
   getOtp(): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
+  capture(tabId: number): Promise<string | null>; // PNG dataURL of the worker tab, best-effort
   record(app: Application): Promise<void>;
   progress(done: number, total: number, current: string): void;
   cleanup(): Promise<void>;
@@ -55,23 +56,43 @@ export async function applyOne(
   try {
     const tabId = await ports.openJob(job.url);
     const res = await ports.apply(tabId, profile, job, resume);
+    // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
+    // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
+    const shot = await ports.capture(tabId).catch(() => null);
+    const rec = (status: ApplyStatus, note?: string): Application =>
+      mk(site, job, ports.today(), status, note, res.filled, shot);
 
-    if (res.status === 'parked') return mk(site, job, ports.today(), 'parked', res.note);
+    if (res.status === 'parked') return rec('parked', res.note);
     if (res.status === 'error') return mk(site, job, ports.today(), 'failed', res.note);
-    if (res.status === 'submitted') return mk(site, job, ports.today(), 'applied');
+    if (res.status === 'submitted') return rec('applied');
 
     // needs_otp: at-least-once + idempotency (Ch10: you cannot have exactly-once delivery).
     const code = await ports.getOtp();
-    if (!code) return mk(site, job, ports.today(), 'parked', 'OTP not found (is Gmail open?)');
+    if (!code) return rec('parked', 'OTP not found (is Gmail open?)');
     const otp = await ports.sendOtp(tabId, code, profile.auto_submit);
-    if (otp.status === 'submitted') return mk(site, job, ports.today(), 'applied');
-    if (otp.status === 'ready') return mk(site, job, ports.today(), 'parked', 'Filled + code entered; awaiting your submit');
-    return mk(site, job, ports.today(), 'failed', otp.note);
+    const shot2 = await ports.capture(tabId).catch(() => null);
+    const rec2 = (status: ApplyStatus, note?: string): Application =>
+      mk(site, job, ports.today(), status, note, res.filled, shot2 ?? shot);
+    if (otp.status === 'submitted') return rec2('applied');
+    if (otp.status === 'ready') return rec2('parked', 'Filled + code entered; awaiting your submit');
+    return rec2('failed', otp.note);
   } catch (e) {
     return mk(site, job, ports.today(), 'failed', String((e as Error).message));
   }
 }
 
-function mk(site: Site, job: Job, date: string, status: Application['status'], note?: string): Application {
-  return { company: site.id, jobId: job.id, title: job.title, url: job.url, date, status, note };
+function mk(
+  site: Site,
+  job: Job,
+  date: string,
+  status: ApplyStatus,
+  note?: string,
+  fields?: readonly AppliedField[],
+  screenshot?: string | null,
+): Application {
+  return {
+    company: site.id, jobId: job.id, title: job.title, url: job.url, date, status, note,
+    ...(fields && fields.length ? { fields } : {}),
+    ...(screenshot ? { screenshot } : {}),
+  };
 }

@@ -1,7 +1,8 @@
 import type { RunPorts } from './runner';
 import { openJob, closeWorker } from '../platform/worker-window';
 import { getOtp } from '../platform/gmail-otp';
-import { record, appliedIds } from '../platform/store';
+import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
+import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -32,10 +33,27 @@ export function chromePorts(): RunPorts {
     },
     getOtp,
     sendOtp: (tabId, code, autoSubmit) => sendToTab<OtpOutcome>(tabId, { t: 'otp', code, autoSubmit }),
-    record,
-    progress: (done, total, current) => void send({ t: 'progress', done, total, current }).catch(() => {}),
+    capture: async (tabId) => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.windowId === undefined) return null;
+        return await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      } catch {
+        return null; // best-effort — a failed capture must never fail the apply
+      }
+    },
+    record: async (app) => {
+      await record(app); // chrome.storage (store strips the screenshot dataURL)
+      await writeRecord(app); // full record to the profile folder on disk
+    },
+    progress: (done, total, current) => {
+      void send({ t: 'progress', done, total, current }).catch(() => {}); // reaches the popup if open
+      void saveProgress({ done, total, current, phase: 'running', at: Date.now() }); // survives popup close
+    },
     cleanup: async () => {
       await closeWorker();
+      const p = await getProgress();
+      if (p) await saveProgress({ ...p, phase: 'done', at: Date.now() });
       await send({ t: 'runDone' }).catch(() => {});
     },
     today: () => new Date().toISOString().slice(0, 10),

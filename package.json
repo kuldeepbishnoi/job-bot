@@ -11,11 +11,16 @@
     "compile": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "wxt prepare"
+    "postinstall": "wxt prepare",
+    "mitm": "debug/launch.sh",
+    "mitm:stop": "debug/stop.sh",
+    "mitm:reset": "debug/reset.sh"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/chrome": "^0.0.268",
     "happy-dom": "^15.0.0",
+    "playwright": "^1.61.1",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0",
     "wxt": "^0.19.0"

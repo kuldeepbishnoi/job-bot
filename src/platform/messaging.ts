@@ -1,21 +1,22 @@
 // Typed message bus. Background orchestrates; the form frame does DOM work;
 // the Gmail frame yields the code; the popup starts runs and shows progress.
-import type { Job } from '../engine/types';
+import type { AppliedField, Job } from '../engine/types';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 
+// `filled` carries what we actually put in the form back to the orchestrator, for the on-disk record.
 export type ApplyOutcome =
-  | { status: 'submitted' }
-  | { status: 'needs_otp' }
-  | { status: 'parked'; note: string }
-  | { status: 'error'; note: string };
+  | { status: 'submitted'; filled?: AppliedField[] }
+  | { status: 'needs_otp'; filled?: AppliedField[] }
+  | { status: 'parked'; note: string; filled?: AppliedField[] }
+  | { status: 'error'; note: string; filled?: AppliedField[] };
 
 export type OtpOutcome = { status: 'submitted' } | { status: 'ready' } | { status: 'error'; note: string };
 
 export type Msg =
   // background -> form frame
   | { t: 'ping' } // readiness handshake: is the form content script injected?
-  | { t: 'apply'; profile: Profile; job: Job; resume: SerializedFile; autoSubmit: boolean }
+  | { t: 'apply'; profile: Profile; job: Job; resume: SerializedFile; autoSubmit: boolean; dryRun?: boolean }
   | { t: 'otp'; code: string; autoSubmit: boolean }
   // background -> gmail frame
   | { t: 'getCode' }

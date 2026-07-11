@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { fill } from '@/ats/greenhouse';
-import type { Field } from '@/engine/types';
+import { fill, textFilled } from '@/ats/greenhouse';
+import type { Answer, Field } from '@/engine/types';
 
 // Build a minimal react-select-like widget that behaves like the real one:
 //  - opens its menu on control mousedown (and won't reopen if already open)
@@ -48,6 +48,47 @@ describe('greenhouse fill — react-select', () => {
 
     const picked = [...w.querySelectorAll('.select__option[data-picked]')].map((o) => o.textContent);
     expect(picked.sort()).toEqual(['Bangalore', 'Paris']);
+  });
+
+  it('picks a react-select option for a TEXT answer (Country) instead of typing it', async () => {
+    const doc = new DOMParser().parseFromString('<div id="root"></div>', 'text/html');
+    // Country renders as a react-select; a text answer must open + click, not just type.
+    const w = makeSelect(doc, 'country', ['British Indian Ocean Territory', 'India'], false);
+    doc.getElementById('root')!.appendChild(w);
+
+    await fill(doc, field('country', 'select'), { kind: 'text', value: 'India' });
+
+    // Exact match wins over the substring-containing "British Indian Ocean Territory".
+    expect(w.getAttribute('data-value')).toBe('India');
+  });
+
+  it('textFilled detects a reverted (blanked) text input so it gets re-filled', () => {
+    const doc = new DOMParser().parseFromString(
+      '<input id="first_name" type="text" value="">',
+      'text/html',
+    );
+    const f = field('first_name', 'text');
+    const ans: Answer = { kind: 'text', value: 'Kuldeep' };
+    // Empty input after a remount -> needs re-fill.
+    expect(textFilled(doc, f, ans)).toBe(false);
+    (doc.getElementById('first_name') as HTMLInputElement).value = 'Kuldeep';
+    expect(textFilled(doc, f, ans)).toBe(true);
+    // Non-text answers are never re-checked this way.
+    expect(textFilled(doc, field('resume', 'file'), { kind: 'file' })).toBe(true);
+  });
+
+  it('checks a required consent checkbox (a submit gate)', async () => {
+    const doc = new DOMParser().parseFromString(
+      '<input id="gdpr_consent" type="checkbox">',
+      'text/html',
+    );
+    const box = doc.getElementById('gdpr_consent') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    await fill(doc, field('gdpr_consent', 'checkbox'), { kind: 'check', value: true });
+    expect(box.checked).toBe(true);
+    // Idempotent: filling again leaves it checked (doesn't toggle back off).
+    await fill(doc, field('gdpr_consent', 'checkbox'), { kind: 'check', value: true });
+    expect(box.checked).toBe(true);
   });
 
   it('fills the field’s OWN control, not a sibling’s (#7)', async () => {

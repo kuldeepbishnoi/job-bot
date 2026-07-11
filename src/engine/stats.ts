@@ -6,6 +6,7 @@ export interface Stats {
   yesterday: number;
   total: number;
   needsReview: number;
+  failed: number;
 }
 
 export function computeStats(all: readonly Application[], todayIso: string, yesterdayIso: string): Stats {
@@ -15,6 +16,7 @@ export function computeStats(all: readonly Application[], todayIso: string, yest
     yesterday: applied.filter((a) => a.date === yesterdayIso).length,
     total: applied.length,
     needsReview: all.filter((a) => a.status === 'parked').length,
+    failed: all.filter((a) => a.status === 'failed').length,
   };
 }
 
