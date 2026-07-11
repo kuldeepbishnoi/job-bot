@@ -20,15 +20,14 @@ function isFileInput(el: Element | null): el is HTMLInputElement {
   return !!el && el instanceof HTMLInputElement && el.type === 'file';
 }
 
-/** Locate the react-select control associated with a labeled element, if any. */
+/**
+ * Locate the react-select control for a labeled element.
+ * react-select nests the labeled `<input class="select__input">` inside its OWN
+ * `.select__control`, so `closest` returns exactly this field's control — never a sibling
+ * question's. (A climbing querySelector would grab the first control in a shared ancestor.)
+ */
 function reactSelectControl(el: Element): Element | null {
-  let node: Element | null = el;
-  for (let i = 0; i < 6 && node; i++) {
-    const ctrl = node.querySelector?.(':scope .select__control') ?? node.parentElement?.querySelector('.select__control');
-    if (ctrl) return ctrl;
-    node = node.parentElement;
-  }
-  return null;
+  return el.closest('.select__control');
 }
 
 function kindOf(id: string, el: Element | null): FieldKind {
@@ -96,7 +95,9 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
       return;
     }
     for (const value of answer.values) {
-      click(control);
+      // Open only if closed: a single-select closes its menu after a pick, but a multi-select
+      // keeps it open — so re-clicking the control there would TOGGLE it shut and time out.
+      if (!doc.querySelector('.select__menu')) click(control);
       const menu = await waitFor(() => doc.querySelector('.select__menu'), 2000);
       const opt = Array.from(menu.querySelectorAll('.select__option')).find((o) =>
         labelText(o).toLowerCase().includes(value.toLowerCase()),
