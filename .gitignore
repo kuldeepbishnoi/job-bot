@@ -1,0 +1,10 @@
+node_modules
+.wxt
+.output
+*.zip
+.DS_Store
+# Never commit personal data or the actual resume.
+profile/profile.yaml
+profile/resume/*
+!profile/resume/.gitkeep
+!profile/profile.example.yaml

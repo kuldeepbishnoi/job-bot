@@ -1,0 +1,27 @@
+{
+  "name": "jobbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generic job auto-apply engine. Datadog is the first site pack; add more by dropping in a site.",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "postinstall": "wxt prepare"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "happy-dom": "^15.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "wxt": "^0.19.0"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0",
+    "zod": "^3.23.0"
+  }
+}
