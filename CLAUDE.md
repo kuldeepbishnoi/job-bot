@@ -102,6 +102,13 @@ fixtures/    real captured data for offline tests
 - **New ATS (Lever/Workday)**: add `src/ats/<ats>.ts` with the same surface as `greenhouse.ts`
   (`extract`, `optionsFor`, `fill`, `submitButton`, `needsOtp`, `fillOtp`, `confirmed`); reference it
   from a content script matched to that host.
+- **In-page ATS (Instahyre)**: some sites have no form/resume/OTP — applying is one in-page click in
+  the user's *already-logged-in* tab. These bypass the discover→worker-window→OTP pipeline entirely.
+  Pattern (see Instahyre): pure DOM adapter `src/ats/<co>.ts` (locate the apply/skip/bulk controls,
+  unit-tested in happy-dom) + a content script `src/entrypoints/<co>.content.ts` matched to the host
+  that runs the click loop in-page + `src/app/<co>-run.ts` (find/focus the logged-in tab, ping-ready,
+  kick off, record each apply into the shared store) wired from `background.ts` + its own popup button.
+  Do NOT register it in `src/sites/` — that path assumes a worker window + Greenhouse form.
 - **New question type**: add a rule in `engine/matcher.ts` + a default in `profile.example.yaml` + a
   case in `tests/matcher.test.ts`. New standard decline-style answer → add a token in
   `engine/answer-tokens.ts`.
