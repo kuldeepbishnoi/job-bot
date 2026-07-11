@@ -34,15 +34,16 @@ export function scrapeGmailCode(doc: Document): string | null {
   return null;
 }
 
-/** Background side: find/focus a Gmail tab and ask it for the code, polling briefly. */
+/** Background side: find a Gmail tab and ask it for the code, polling briefly. */
 export async function getOtp(timeoutMs = 60_000): Promise<string | null> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    const tab = (await chrome.tabs.query({ url: 'https://mail.google.com/*' }))[0];
-    if (tab?.id !== undefined) {
+    for (const tab of await chrome.tabs.query({ url: 'https://mail.google.com/*' })) {
+      if (tab.id === undefined) continue;
+      // Message type MUST match gmail.content.ts's listener ('getCode').
       const code = await chrome.tabs
-        .sendMessage(tab.id, { t: 'otp:get' })
-        .then((r: { code: string | null }) => r?.code)
+        .sendMessage(tab.id, { t: 'getCode' })
+        .then((r: { code: string | null } | undefined) => r?.code ?? null)
         .catch(() => null);
       if (code) return code;
     }
