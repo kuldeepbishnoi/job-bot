@@ -81,5 +81,7 @@ export async function stats(): Promise<Stats> {
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const y = new Date(now);
   y.setDate(now.getDate() - 1);
-  return computeStats(await readAll(), iso(now), iso(y));
+  const w = new Date(now);
+  w.setDate(now.getDate() - 6); // 7-day window inclusive of today
+  return computeStats(await readAll(), iso(now), iso(y), iso(w));
 }

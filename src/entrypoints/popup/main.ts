@@ -39,6 +39,17 @@ async function refreshStats(): Promise<void> {
   $('today').textContent = String(s.today);
   $('yesterday').textContent = String(s.yesterday);
   $('total').textContent = String(s.total);
+
+  // Insights line: recent activity + how often an attempt actually lands an application.
+  const insights = $<HTMLParagraphElement>('insights');
+  if (s.attempts > 0) {
+    const rate = Math.round((s.total / s.attempts) * 100);
+    insights.hidden = false;
+    insights.textContent = `${s.thisWeek} applied this week · ${rate}% success (${s.total}/${s.attempts})`;
+  } else {
+    insights.hidden = true;
+  }
+
   const review = $<HTMLButtonElement>('review');
   const notes: string[] = [];
   if (s.needsReview > 0) notes.push(`⚠ ${s.needsReview} need review`);
