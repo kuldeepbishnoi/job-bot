@@ -12,6 +12,10 @@ export default defineContentScript({
   allFrames: true,
   main() {
     chrome.runtime.onMessage.addListener((msg: Msg, _s, respond) => {
+      if (msg.t === 'ping') {
+        respond({ pong: true }); // readiness handshake for the background orchestrator
+        return true;
+      }
       if (msg.t === 'apply') {
         applyForm(msg).then(respond);
         return true;

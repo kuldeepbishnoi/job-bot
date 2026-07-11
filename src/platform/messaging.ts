@@ -14,12 +14,13 @@ export type OtpOutcome = { status: 'submitted' } | { status: 'ready' } | { statu
 
 export type Msg =
   // background -> form frame
+  | { t: 'ping' } // readiness handshake: is the form content script injected?
   | { t: 'apply'; profile: Profile; job: Job; resume: SerializedFile; autoSubmit: boolean }
   | { t: 'otp'; code: string; autoSubmit: boolean }
   // background -> gmail frame
   | { t: 'getCode' }
-  // popup -> background
-  | { t: 'run'; siteId: string }
+  // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
+  | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile }
   // background -> popup (broadcast)
   | { t: 'progress'; done: number; total: number; current: string }
   | { t: 'runDone' };
