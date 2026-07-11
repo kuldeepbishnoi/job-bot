@@ -176,7 +176,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
 async function doOtp(code: string, autoSubmit: boolean): Promise<OtpOutcome> {
   try {
-    gh.fillOtp(document, code);
+    await gh.fillOtp(document, code);
     if (!autoSubmit) return { status: 'ready' };
     click(gh.submitButton(document)!);
     const ok = await waitForConfirm();

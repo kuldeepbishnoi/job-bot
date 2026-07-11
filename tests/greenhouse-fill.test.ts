@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fill, textFilled } from '@/ats/greenhouse';
+import { fill, textFilled, fillOtp } from '@/ats/greenhouse';
 import type { Answer, Field } from '@/engine/types';
 
 // Build a minimal react-select-like widget that behaves like the real one:
@@ -89,6 +89,14 @@ describe('greenhouse fill — react-select', () => {
     // Idempotent: filling again leaves it checked (doesn't toggle back off).
     await fill(doc, field('gdpr_consent', 'checkbox'), { kind: 'check', value: true });
     expect(box.checked).toBe(true);
+  });
+
+  it('types the OTP into all 8 segmented boxes so React holds the full code', async () => {
+    const boxes = Array.from({ length: 8 }, (_, i) => `<input id="b${i}" maxlength="1">`).join('');
+    const doc = new DOMParser().parseFromString(`<p>enter the 8-character code</p>${boxes}`, 'text/html');
+    await fillOtp(doc, 'CLCIPpJ7');
+    const got = [...doc.querySelectorAll('input')].map((i) => (i as HTMLInputElement).value).join('');
+    expect(got).toBe('CLCIPpJ7');
   });
 
   it('fills the field’s OWN control, not a sibling’s (#7)', async () => {

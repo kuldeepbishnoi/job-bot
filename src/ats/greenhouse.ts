@@ -201,14 +201,33 @@ export function needsOtp(doc: Document): boolean {
   return otpBoxes(doc).length === 8;
 }
 
-export function fillOtp(doc: Document, code: string): void {
+/**
+ * Enter the 8-char code into the segmented boxes. These are React-controlled inputs whose
+ * "Submit" gate only enables once React's own state holds all 8 chars — so we type each char
+ * like a real keystroke (keydown → native value set → input → keyup) and yield a tick between
+ * boxes to let React flush its onChange + advance focus before the next char. Filling every box
+ * synchronously (or firing a blur between them, as setReactValue does) leaves React's aggregate
+ * code incomplete and the button greyed out.
+ */
+export async function fillOtp(doc: Document, code: string): Promise<void> {
   const boxes = otpBoxes(doc);
-  [...code].forEach((ch, i) => {
+  const chars = [...code];
+  for (let i = 0; i < chars.length; i++) {
     const box = boxes[i];
-    if (!box) return;
-    box.focus();
-    setReactValue(box, ch);
-  });
+    const ch = chars[i];
+    if (!box || ch === undefined) continue;
+    typeChar(box, ch);
+    await new Promise((r) => setTimeout(r, 40));
+  }
+}
+
+/** Simulate a real single-character keystroke into a React-controlled input. */
+function typeChar(el: HTMLInputElement, ch: string): void {
+  el.focus();
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true }));
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, ch);
+  el.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+  el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true }));
 }
 
 export function confirmed(doc: Document): boolean {
