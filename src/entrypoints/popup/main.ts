@@ -1,6 +1,7 @@
 import { SITES } from '@/sites';
 import { stats, getProgress, needsAttention } from '@/platform/store';
 import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/fs-config';
+import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -122,10 +123,29 @@ function reflectLinked(linked: boolean): void {
   if (linked) setStatus('Profile folder linked ✓');
 }
 
+// Connect Gmail so the OTP is read via the Gmail API (no need to keep mail.google.com open).
+// The interactive consent must run on this user gesture; the background then reuses the token.
+const gmail = $('gmail');
+gmail.addEventListener('click', async () => {
+  if (!gmailApiAvailable()) {
+    setStatus('⚠ Gmail OAuth not configured (see docs/gmail-oauth.md)');
+    return;
+  }
+  const token = await getToken(true);
+  reflectGmail(!!token);
+  setStatus(token ? 'Gmail connected ✓' : '⚠ Gmail not connected');
+});
+
+function reflectGmail(connected: boolean): void {
+  gmail.hidden = !gmailApiAvailable();
+  gmail.textContent = connected ? 'Gmail connected ✓' : 'Connect Gmail…';
+}
+
 async function init(): Promise<void> {
   renderSites();
   await refreshStats();
   reflectLinked(await hasProfileDir());
+  reflectGmail(!!(await getToken(false))); // silent check: already connected?
   await refreshProgress(); // after reflectLinked so an active run's status line wins
   // Poll while the popup happens to stay open, so counts + status stay live.
   setInterval(() => {

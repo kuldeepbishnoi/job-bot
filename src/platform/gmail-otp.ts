@@ -1,5 +1,6 @@
-// v1: read the 8-char Greenhouse code from an open Gmail tab (zero setup).
-// Isolated behind getOtp() so swapping to the Gmail API later is a one-file change.
+// The 8-char Greenhouse OTP source. Primary path is the Gmail API (gmail-api.ts); the DOM scrape
+// below is the zero-setup fallback used until the user connects their Gmail account.
+import { apiGreenhouseCodes, getToken } from './gmail-api';
 
 const EXACT_8 = /^[A-Za-z0-9]{8}$/;
 const SENDER = 'no-reply@us.greenhouse-mail.io';
@@ -7,8 +8,8 @@ const SENDER = 'no-reply@us.greenhouse-mail.io';
 const RELEVANT = /security code|verification code|greenhouse/i;
 
 // Pull the code out of a chunk of text: the token right after the instruction phrase. Used for
-// list-row snippets (no bold markup) and as the body fallback.
-function findCodeInText(text: string): string | null {
+// list-row snippets (no bold markup), the Gmail-API message body, and as the DOM body fallback.
+export function findCodeInText(text: string): string | null {
   const m =
     text.match(/application[:\s]+([A-Za-z0-9]{8})\b/i) ??
     text.match(/paste this code[^A-Za-z0-9]+([A-Za-z0-9]{8})/i) ??
@@ -88,22 +89,40 @@ async function queryCodes(): Promise<string[]> {
   return all;
 }
 
-/** Snapshot the codes already sitting in Gmail before we submit — these are stale by definition. */
-export async function seenOtps(): Promise<string[]> {
+/**
+ * Read the current Greenhouse codes, newest-first. Prefers the Gmail API (no open tab needed, no
+ * DOM fragility); only if the user hasn't connected their account — or the API call fails — does it
+ * fall back to scraping an open Gmail tab. When the API answers (even with an empty list) we trust
+ * it, so a stale tab can't reintroduce an old code.
+ */
+async function collectCodes(): Promise<string[]> {
+  const token = await getToken(false);
+  if (token) {
+    try {
+      return await apiGreenhouseCodes(token);
+    } catch {
+      /* token/network hiccup — fall through to the tab scrape */
+    }
+  }
   return queryCodes();
 }
 
+/** Snapshot the codes already sitting in Gmail before we submit — these are stale by definition. */
+export async function seenOtps(): Promise<string[]> {
+  return collectCodes();
+}
+
 /**
- * Background side: poll Gmail for a FRESH code — one that wasn't already present before we
- * submitted. Old OTP emails from earlier applies linger in the tab, so returning the first
- * code we see would replay a stale (wrong) code; excluding the pre-submit snapshot guarantees
- * we wait for the email this apply just triggered.
+ * Background side: poll for a FRESH code — one that wasn't already present before we submitted.
+ * Old OTP emails from earlier applies linger, so returning the first code we see would replay a
+ * stale (wrong) code; excluding the pre-submit snapshot guarantees we wait for the email this
+ * apply just triggered.
  */
 export async function getOtp(exclude: readonly string[] = [], timeoutMs = 60_000): Promise<string | null> {
   const skip = new Set(exclude);
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    const fresh = (await queryCodes()).find((c) => !skip.has(c));
+    const fresh = (await collectCodes()).find((c) => !skip.has(c));
     if (fresh) return fresh;
     await new Promise((r) => setTimeout(r, 3000));
   }

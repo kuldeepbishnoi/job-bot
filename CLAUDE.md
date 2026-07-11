@@ -78,8 +78,10 @@ fixtures/    real captured data for offline tests
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)
-- **Least privilege**: permissions are `storage`, `tabs`, `alarms` — each used (alarms steps the
-  queue across SW restarts). No `scripting`. host_permissions are the specific hosts we touch, not `*://*`.
+- **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity` — each used (alarms
+  steps the queue across SW restarts; identity fetches the read-only Gmail token for the OTP). No
+  `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
+  OTP read), not `*://*`.
 - **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
   alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage.
 - **Profile loading happens in the popup** (`loadProfileAndResume` needs the File System Access
@@ -131,12 +133,16 @@ cookies) — must quit Chrome first.
 
 ## Status & next steps
 See `docs/STATUS.md`. Built + unit-tested: pure core, discovery, Greenhouse extract/fill/OTP,
-ports-based orchestration, popup. **Not yet**: live end-to-end run in a real browser, Gmail API
-(v1 scrapes an open Gmail tab), Playwright e2e, a second site/ATS pack.
+ports-based orchestration, popup. OTP reads via the **Gmail API** (`platform/gmail-api.ts`) when the
+user connects their account (see `docs/gmail-oauth.md`), falling back to the open-Gmail-tab scrape.
+**Not yet**: live end-to-end run in a real browser, Playwright e2e, a second site/ATS pack.
 
 ## Gotchas
 - React inputs ignore `el.value = x`; use `setReactValue` (native setter + input/change events).
 - The worker window must stay **visible (unfocused)** — if minimized, `visibilityState:hidden`
   throttles timers and can hurt reCAPTCHA. Don't minimize it.
-- Gmail scrape (v1) needs a Gmail tab open. `platform/gmail-otp.ts#getOtp` is the seam to swap for
-  the Gmail API later — change that one file only.
+- OTP: `platform/gmail-otp.ts#getOtp` prefers the Gmail API (`gmail-api.ts`) and falls back to
+  scraping an open Gmail tab. The API path needs one-time OAuth setup (`docs/gmail-oauth.md`) enabled
+  via `GMAIL_OAUTH_CLIENT_ID` + `EXTENSION_KEY` build env; without them it's tab-scrape only.
+  Freshness matters: getOtp excludes codes seen before submit and reads newest-first, so a lingering
+  old code is never replayed.
