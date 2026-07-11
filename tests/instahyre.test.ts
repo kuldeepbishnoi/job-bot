@@ -1,10 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   openModalLink,
+  openModalLinks,
+  cardId,
   applyButton,
   isExternal,
   bulkApplyAllButton,
   nextButton,
+  nextPageButton,
+  searchExpander,
+  showResultsButton,
+  closeModalButton,
   currentJob,
 } from '@/ats/instahyre';
 
@@ -110,5 +116,52 @@ describe('instahyre adapter — control location', () => {
     expect(job.company).toContain('Razorpay');
     expect(job.title).toContain('AI Engineer');
     expect(job.id).toContain('Razorpay');
+  });
+});
+
+// The "Search other jobs" board: a paginated list of `openApplyModal` cards, reached by expanding
+// the search panel (`showSearchedJobs`) then running an empty search (`searchCustomJobs`). Verified
+// live: 30 cards/page, "Next »" (`nextPage`) pager, modal closed via `closeApplyModal`.
+const searchList = `
+  <div class="search-panel">
+    <a ng-click="showSearchedJobs()">Search other jobs</a>
+    <button ng-click="searchCustomJobs(undefined, null, null, true)">Show results</button>
+  </div>
+  <div class="employer-block"><a ng-click="openApplyModal(opp)">Urban Harvest - Software Engineer</a></div>
+  <div class="employer-block"><a ng-click="openApplyModal(opp)">Infosys - Software Engineer</a></div>
+  <div class="employer-block"><a ng-click="openApplyModal(opp)">Impact Analytics - Architect</a></div>
+  <div class="pagination">
+    <a ng-click="nthPage(1)">1</a>
+    <a ng-click="nextPage()">Next »</a>
+  </div>`;
+
+describe('instahyre adapter — search-list fallback', () => {
+  it('lists every visible card and dedupes by identity', () => {
+    const doc = parse(searchList);
+    visible(doc);
+    const links = openModalLinks(doc);
+    expect(links).toHaveLength(3);
+    const ids = links.map((el) => cardId(el));
+    expect(ids[0]).toContain('Urban Harvest');
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('finds the search panel + show-results controls to enter the board', () => {
+    const doc = parse(searchList);
+    visible(doc);
+    expect(searchExpander(doc)!.getAttribute('ng-click')).toBe('showSearchedJobs()');
+    expect(showResultsButton(doc)!.getAttribute('ng-click')).toContain('searchCustomJobs');
+  });
+
+  it('finds the "Next »" pager but not the numbered page links', () => {
+    const doc = parse(searchList);
+    visible(doc);
+    expect(nextPageButton(doc)!.getAttribute('ng-click')).toBe('nextPage()');
+  });
+
+  it('finds the modal close control', () => {
+    const doc = parse(`<div class="application-modal"><a ng-click="closeApplyModal()">×</a></div>`);
+    visible(doc);
+    expect(closeModalButton(doc)!.getAttribute('ng-click')).toBe('closeApplyModal()');
   });
 });

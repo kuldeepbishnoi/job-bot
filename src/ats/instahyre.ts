@@ -24,10 +24,22 @@ function shown(el: Element | null): el is Element {
 /** A listing card's link that opens the apply modal (`openApplyModal(opp)`). Used to enter the
  *  modal flow when none is open. Returns the first still-visible card. */
 export function openModalLink(doc: Document): HTMLElement | null {
-  const link = [...doc.querySelectorAll('.employer-block [ng-click*="openApplyModal"], [ng-click*="openApplyModal"]')].find(
-    (el) => shown(el),
-  );
-  return (link as HTMLElement) ?? null;
+  return openModalLinks(doc)[0] ?? null;
+}
+
+/** Every still-visible card link that opens an apply modal. The "Search other jobs" results page
+ *  lists 30 cards at once (each an `openApplyModal(opp)`), so the search loop walks this whole list
+ *  and dedupes by `cardId`. */
+export function openModalLinks(doc: Document): HTMLElement[] {
+  return [
+    ...doc.querySelectorAll('.employer-block [ng-click*="openApplyModal"], [ng-click*="openApplyModal"]'),
+  ].filter((el) => shown(el)) as HTMLElement[];
+}
+
+/** Stable-enough identity for a search-result card ("<Company> - <Title>") so the loop never
+ *  re-opens a card it already applied to / skipped on the current session. */
+export function cardId(el: Element): string {
+  return labelText(el).slice(0, 120);
 }
 
 /** The Apply control inside the open modal (`submitChoice(opp, true)`) — a DIV, not a <button>. */
@@ -58,6 +70,38 @@ export function nextButton(doc: Document): HTMLElement | null {
   const el = [...doc.querySelectorAll('[ng-click*="swipeOpp"], [ng-swipe-left]')].find(
     (e) => /next/.test(e.getAttribute('ng-click') ?? e.getAttribute('ng-swipe-left') ?? '') && shown(e),
   );
+  return (el as HTMLElement) ?? null;
+}
+
+// --- "Search other jobs" fallback (the full 12k-job board, reached once the matching/Undecided
+// queue is drained). It's a normal paginated list — same `openApplyModal` cards, but the modal has
+// NO swipeOpp auto-advance, so the loop applies → closes the modal → opens the next card, and clicks
+// "Next »" when a page is exhausted. Getting there is two clicks: expand the panel
+// (`showSearchedJobs`) then run an empty search (`searchCustomJobs(...)`).
+
+/** The "Search other jobs" panel toggle — expands the search form on the opportunities page. */
+export function searchExpander(doc: Document): HTMLElement | null {
+  return firstShown(doc, '[ng-click*="showSearchedJobs"]');
+}
+
+/** The "Show results" button that runs the (empty = whole board) search. */
+export function showResultsButton(doc: Document): HTMLElement | null {
+  return firstShown(doc, '[ng-click*="searchCustomJobs"]');
+}
+
+/** The "Next »" pager on the search-results list (`nextPage()`), to advance past the 30-per-page. */
+export function nextPageButton(doc: Document): HTMLElement | null {
+  return firstShown(doc, '[ng-click*="nextPage"]');
+}
+
+/** The open apply modal's close control (`closeApplyModal()`) — search modals don't auto-advance, so
+ *  the loop closes back to the list after each apply/skip. */
+export function closeModalButton(doc: Document): HTMLElement | null {
+  return firstShown(doc, '[ng-click*="closeApplyModal"], [ng-click*="closeModal"]');
+}
+
+function firstShown(doc: Document, selector: string): HTMLElement | null {
+  const el = [...doc.querySelectorAll(selector)].find((e) => shown(e));
   return (el as HTMLElement) ?? null;
 }
 
