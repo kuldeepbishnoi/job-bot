@@ -9,7 +9,7 @@ import { selectJobs } from '../engine/select-jobs';
 // no chrome, no DOM, no network here, so it's unit-testable with fakes. Main (background)
 // supplies the concrete ports. This is the Dependency Rule: details plug into policy.
 export interface RunPorts {
-  discover(site: Site): Promise<Job[]>;
+  discover(site: Site, profile: Profile): Promise<Job[]>;
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId
   apply(tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
@@ -33,7 +33,7 @@ export async function run(
   ports: RunPorts,
 ): Promise<void> {
   const already = await ports.appliedIds();
-  const queue = selectJobs(await ports.discover(site), profile.want).filter((j) => !already.has(j.id));
+  const queue = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
 
   try {
     for (let done = 0; done < queue.length; done++) {
@@ -68,7 +68,7 @@ export async function applyOne(
 
     if (res.status === 'parked') return rec('parked', res.note);
     if (res.status === 'error') return mk(site, job, ports.today(), 'failed', res.note);
-    if (res.status === 'submitted') return rec('applied');
+    if (res.status === 'submitted') return rec('applied', res.note);
 
     // needs_otp: at-least-once + idempotency (Ch10: you cannot have exactly-once delivery).
     const code = await ports.getOtp(staleCodes);

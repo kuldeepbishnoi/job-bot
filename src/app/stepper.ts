@@ -23,7 +23,7 @@ export async function startRun(
   if (!site) throw new Error(`unknown site ${siteId}`);
 
   const already = await ports.appliedIds();
-  const queue = selectJobs(await ports.discover(site), profile.want).filter((j) => !already.has(j.id));
+  const queue = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   await saveRunState({ siteId, profile, resume, queue, cursor: 0 });
 
   await step(ports); // do the first one immediately (SW is alive during the click)
