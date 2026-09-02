@@ -89,7 +89,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       }
       // The visible card mounts its controls a beat after the page settles — wait for it rather
       // than burning iterations (seen live: Job-specific dropdowns appeared ~0.5s after load).
-      const form = await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 15_000).catch(() => null);
+      const form = await waitFor(() => (az.reviewMode(document) ? true : az.activeForm(document)), 15_000).catch(() => null);
       if (form === true) {
         reachedReview = true;
         break;
@@ -175,7 +175,14 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         }
       }
 
-      const next = await waitFor(() => az.continueButton(form), 5000).catch(() => null);
+      // Between forms the page transitions for a few seconds (save XHR → next form or review mode);
+      // a card can look "active" mid-transition. So wait for EITHER a Continue button OR review
+      // mode — never park on a page that is about to become the finish line.
+      const next = await waitFor(() => (az.reviewMode(document) ? true : az.continueButton(form)), 15_000).catch(() => null);
+      if (next === true) {
+        reachedReview = true;
+        break;
+      }
       if (!next) {
         log('no continue button; form buttons:', [...form.querySelectorAll('button, a.btn')].map((b) => b.textContent?.trim()).join(' | '));
         return parked(`No Continue button on form ${key} — ${az.describeState(document)}`);
@@ -204,7 +211,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         reachedReview = true;
         break;
       }
-      await sleep(600);
+      await sleep(1500); // let the transition to the next form (or review) finish before re-reading
     }
     if (!reachedReview) return parked(`Never reached Review & submit (filled ${filled.length}) — ${az.describeState(document)}`);
 

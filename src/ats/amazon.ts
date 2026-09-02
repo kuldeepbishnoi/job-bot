@@ -201,12 +201,9 @@ function fillChoices(node: HTMLElement, values: readonly string[]): void {
     if (input.checked) continue;
     input.click(); // a real click: sets checked + fires React's onChange
     if (input.checked) continue;
-    // Fallbacks: click the label (some layouts intercept the input), then force + notify.
+    // Fallback: click the label (some layouts intercept the input). Never set .checked by hand —
+    // React's value tracker would then see "no change" and skip onChange, leaving state unsaved.
     (input.id ? node.querySelector<HTMLElement>(`label[for="${input.id}"]`) : null)?.click();
-    if (input.checked) continue;
-    input.checked = true;
-    input.dispatchEvent(new Event('click', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 }
 
