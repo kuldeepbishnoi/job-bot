@@ -82,16 +82,19 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     const consent = msg.profile.amazon?.ai_consent ?? false;
     let reachedReview = false;
     for (let i = 0; i < MAX_FORMS; i++) {
-      // (a not-yet-rendered form burns one iteration — MAX_FORMS has slack for that)
-      if (az.reviewMode(document) && !az.activeForm(document)) {
+      // Review mode wins outright: every form is saved and the Submit button is up.
+      if (az.reviewMode(document)) {
         reachedReview = true;
         break;
       }
-      const form = az.activeForm(document);
-      if (!form) {
-        await sleep(500);
-        continue;
+      // The visible card mounts its controls a beat after the page settles — wait for it rather
+      // than burning iterations (seen live: Job-specific dropdowns appeared ~0.5s after load).
+      const form = await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 15_000).catch(() => null);
+      if (form === true) {
+        reachedReview = true;
+        break;
       }
+      if (!form) return parked(`No editable form appeared — ${az.describeState(document)}`);
       const key = az.formKey(form);
       await settle(form); // React mounts a section's controls a beat after the wrapper (seen live)
       log('form', key, az.progress(document));

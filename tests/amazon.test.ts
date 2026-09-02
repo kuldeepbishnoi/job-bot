@@ -177,6 +177,30 @@ describe('amazon adapter — duplicate question wrappers (seen live)', () => {
   });
 });
 
+describe('amazon adapter — active card is the VISIBLE editable one (seen live)', () => {
+  it('ignores a card flagged active whose questions are hidden and picks the card with visible controls', () => {
+    const doc = parse(`
+      <div class="card question-form form5 active"><div class="card-body">
+        <div class="question" data-questionId="REQUIRE_SPONSORSHIP_CAN" hidden><div class="question-label required"><label>Sponsorship?</label></div></div>
+      </div></div>
+      <div class="card question-form form3"><div class="card-body">
+        <div class="form-group"><div class="question" data-questionId="abc-AQ">
+          <div class="question question-text"><div class="question-label required"><label>Years?</label></div></div>
+          <div class="drop-down-menu"><select><option value=""></option><option value="1">less than 2 years</option><option value="5">more than 5 years</option></select></div>
+        </div></div>
+      </div></div>`);
+    visible(doc);
+    const form = activeForm(doc)!;
+    expect(form.classList.contains('form3')).toBe(true);
+    expect(extract(form).map((f) => f.id)).toEqual(['abc-AQ']);
+  });
+  it('returns null when no card has visible controls (review mode / still mounting)', () => {
+    const doc = parse(`<div class="card question-form form5 active"><div class="card-body"><div class="question" data-questionId="X"><div class="input-display-mode"><span>A. </span><span>Yes</span></div></div></div></div>`);
+    visible(doc);
+    expect(activeForm(doc)).toBeNull();
+  });
+});
+
 describe('amazon adapter — page states', () => {
   it('a not-yet-loaded shell (reviewing flag, no rail, no questions) is NOT review mode', () => {
     // Exactly what the first live run saw: forms=1 active=0 reviewing=1 submit=0 questions=0 nav=0

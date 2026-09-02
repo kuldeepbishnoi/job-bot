@@ -38,17 +38,17 @@ export function shown(el: Element | null): el is HTMLElement {
   return h.offsetParent !== null || h.getClientRects().length > 0;
 }
 
-/** The one form currently open for editing. Primary signal is the `active` class the bundle adds;
- *  fallback is "the visible form card that still has editable controls" (read-only cards render
- *  `.input-display-mode` spans, never inputs). */
+const hasControl = (n: Element): boolean => !!n.querySelector('select, input, textarea');
+
+/** The one form currently open for editing = the card whose question wrappers are VISIBLE and
+ *  carry controls. Verified live: the `active` class is not a reliable signal (a card flagged
+ *  active had every question hidden while the card the user sees, Job-specific questions, was
+ *  still mounting its dropdowns), and read-only cards render text spans, never inputs. In review
+ *  mode no card qualifies — callers check reviewMode() first. */
 export function activeForm(doc: Document): HTMLElement | null {
-  const flagged = [...doc.querySelectorAll<HTMLElement>('.question-form.active')].find(shown);
-  if (flagged) return flagged;
-  return (
-    [...doc.querySelectorAll<HTMLElement>('.question-form')].find(
-      (f) => shown(f) && !!f.querySelector('select, textarea, input[type="radio"], input[type="checkbox"], input[type="text"]'),
-    ) ?? null
-  );
+  const cards = [...doc.querySelectorAll<HTMLElement>('.question-form')].filter(shown);
+  const editable = (f: HTMLElement) => questionNodes(f).some(hasControl);
+  return cards.find((f) => f.classList.contains('active') && editable(f)) ?? cards.find(editable) ?? null;
 }
 
 /** Stable identity for a form card (its `formN` index class + heading), to notice when Continue
@@ -88,7 +88,6 @@ export function questionNodes(root: ParentNode): HTMLElement[] {
  *  order), so prefer the visible one inside the active form that actually has a control. */
 function questionNode(doc: Document, id: string): HTMLElement | null {
   const all = [...doc.querySelectorAll<HTMLElement>(`[data-questionid="${id}"]`)];
-  const hasControl = (n: Element) => !!n.querySelector('select, input, textarea');
   const form = activeForm(doc);
   return (
     all.find((n) => !!form && form.contains(n) && shown(n) && hasControl(n)) ??
