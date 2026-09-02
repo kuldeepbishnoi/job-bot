@@ -8,6 +8,14 @@ import type { Site } from '../sites';
 import { dlog } from '../platform/debug-log';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const APPLY_CAP_MS = 4 * 60 * 1000; // a content script that never answers must not hang the run
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} timed out after ${Math.round(ms / 1000)}s`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
 
 /** Poll the tab until the form content script answers — Greenhouse injects after the parent
  *  page's 'complete' (the form is a late async iframe) and Amazon's apply app renders after its
@@ -47,7 +55,11 @@ export function chromePorts(): RunPorts {
       await waitForFrame(tabId);
       dlog('apply', site.id, job.id, job.title);
       try {
-        const out = await sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
+        const out = await withTimeout(
+          sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit }),
+          APPLY_CAP_MS,
+          `apply ${job.id}`,
+        );
         dlog('outcome', job.id, out.status, 'note' in out ? out.note : '', 'filled', out.filled?.length ?? 0);
         return out;
       } catch (e) {

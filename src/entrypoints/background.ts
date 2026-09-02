@@ -1,5 +1,5 @@
 import { defineBackground } from 'wxt/sandbox';
-import { startRun, step, stopRun, runInProgress, STEP_ALARM } from '@/app/stepper';
+import { startRun, step, stopRun, runInProgress, watchdog, STEP_ALARM, WATCHDOG_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
@@ -51,6 +51,10 @@ export default defineBackground(() => {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === STEP_ALARM) {
       void step(chromePorts());
+      return;
+    }
+    if (alarm.name === WATCHDOG_ALARM) {
+      void watchdog(chromePorts());
       return;
     }
     // Daily hands-off run (enabled from the popup, which cached the profile + résumé for us).
