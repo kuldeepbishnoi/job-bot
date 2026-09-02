@@ -234,10 +234,33 @@ export function fill(doc: Document, field: Field, answer: Answer): void {
 const CONTINUE = /continue|^next$|start questionnaire/i;
 
 /** The active form's save-and-advance control. Desktop renders a <button> in .submit-button,
- *  narrow layouts an <a.btn>; a "Skip & continue" also exists on optional forms — never that. */
+ *  narrow layouts an <a.btn>; a "Skip & continue" also exists on optional forms — never that.
+ *  Falls back to the page-wide save-form footer (the footer can render outside the card). */
 export function continueButton(form: Element): HTMLElement | null {
-  const all = [...form.querySelectorAll<HTMLElement>('button, a.btn')];
-  return all.find((b) => shown(b) && CONTINUE.test(labelText(b)) && !/skip/i.test(labelText(b))) ?? null;
+  const pick = (root: ParentNode) =>
+    [...root.querySelectorAll<HTMLElement>('button, a.btn, a.btn-primary')].find(
+      (b) => shown(b) && CONTINUE.test(labelText(b)) && !/skip/i.test(labelText(b)) && !(b as HTMLButtonElement).disabled,
+    ) ?? null;
+  return pick(form) ?? pick(form.ownerDocument.querySelector('.save-form-container, .footer-button-group') ?? form);
+}
+
+/** Number of live controls in a form — used to wait until React has finished mounting it. */
+export function controlCount(form: Element): number {
+  return form.querySelectorAll('select, input, textarea').length;
+}
+
+/** One line per question wrapper in the form: id, controls inside, hidden flag — the structural
+ *  dump that explains a "no options" failure after the fact. */
+export function describeQuestions(form: Element): string {
+  return [...form.querySelectorAll<HTMLElement>('[data-questionid]')]
+    .map((n) => {
+      const sel = n.querySelector('select');
+      const radios = n.querySelectorAll('input[type="radio"]').length;
+      const boxes = n.querySelectorAll('input[type="checkbox"]').length;
+      const text = n.querySelectorAll('input:not([type="radio"]):not([type="checkbox"]), textarea').length;
+      return `${n.getAttribute('data-questionid')}[${shown(n) ? '' : 'HIDDEN,'}${sel ? `select:${sel.options.length}` : ''}${radios ? `radio:${radios}` : ''}${boxes ? `box:${boxes}` : ''}${text ? `text:${text}` : ''}]`;
+    })
+    .join(' ');
 }
 
 /** The final "Submit application" button, only once enabled. */

@@ -22,6 +22,18 @@ const STEP_TIMEOUT_MS = 15_000; // save round-trip + re-render after Continue
 const SUBMIT_TIMEOUT_MS = 25_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Wait until the form's control count has held still for 3 ticks (React finished mounting). */
+async function settle(form: Element): Promise<void> {
+  let prev = -1;
+  let stable = 0;
+  for (let i = 0; i < 25 && stable < 3; i++) {
+    const n = az.controlCount(form);
+    stable = n === prev ? stable + 1 : 0;
+    prev = n;
+    await sleep(300);
+  }
+}
 const log = (...a: unknown[]) => dlog('amazon', ...a);
 
 export default defineContentScript({
@@ -81,10 +93,22 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         continue;
       }
       const key = az.formKey(form);
+      await settle(form); // React mounts a section's controls a beat after the wrapper (seen live)
       log('form', key, az.progress(document));
+      log('questions', az.describeQuestions(form));
 
-      for (const field of az.extract(form).map(withIntent)) {
+      // Fill in passes: answering one question can reveal dependents (export-control follow-ups),
+      // so re-scan until a pass finds nothing left to fill.
+      for (let pass = 0; pass < 5; pass++) {
+      const todo = az.extract(form).map(withIntent).filter((f) => !az.isAnswered(document, f));
+      if (todo.length === 0) break;
+      log('pass', pass, 'unanswered', todo.map((f) => f.id));
+      for (const field of todo) {
         if (az.isAnswered(document, field)) continue; // reused from the last application — leave it
+        if (field.kind === 'select' || field.kind === 'multiselect') {
+          // Options for a dependent question mount after the question it depends on is answered.
+          await waitFor(() => (az.optionsFor(document, field).length ? true : null), 4000).catch(() => {});
+        }
         const options = az.optionsFor(document, field);
         let answer = resolve(field, msg.profile, msg.job, options);
         let guessed = false;
@@ -111,15 +135,20 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
           }
           filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) + (guessed ? ' (guessed)' : '') });
         } catch (e) {
-          log('fill FAILED', field.id, (e as Error).message, az.describeState(document));
+          log('fill FAILED', field.id, (e as Error).message, az.describeQuestions(form));
           if (field.required && msg.profile.on_unknown !== 'guess') return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);
           // guess policy = never stop here: press on; Amazon's own validation will say what's missing.
         }
         await sleep(150);
       }
+      await settle(form); // dependents revealed by this pass mount before the next scan
+      }
 
-      const next = az.continueButton(form);
-      if (!next) return parked(`No Continue button on form ${key}`);
+      const next = await waitFor(() => az.continueButton(form), 5000).catch(() => null);
+      if (!next) {
+        log('no continue button; form buttons:', [...form.querySelectorAll('button, a.btn')].map((b) => b.textContent?.trim()).join(' | '));
+        return parked(`No Continue button on form ${key} — ${az.describeState(document)}`);
+      }
       log('continue', key, 'filled so far', filled.length);
       next.click();
 
