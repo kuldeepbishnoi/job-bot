@@ -6,14 +6,15 @@ import type { SerializedFile } from './serialized-file';
 // background, where no user gesture is available. Everything stays in chrome.storage.local.
 export const DAILY_ALARM_PREFIX = 'jobbot-daily:';
 const KEY_PREFIX = 'daily_schedule:';
-const DEFAULT_HOUR = 9; // local time
+export const DAILY_HOUR = 9; // local time — the alarm repeats every 24h from the next 9:00
 
+/** The snapshot a daily run uses. It's the profile + résumé as loaded when the toggle was armed:
+ *  the service worker can't read the profile folder, so edits to profile.yaml only take effect
+ *  after re-arming. (~300 KB of résumé base64 per armed site — fine for chrome.storage.local.) */
 export interface DailySchedule {
   readonly siteId: string;
   readonly profile: Profile;
   readonly resume: SerializedFile;
-  readonly hour: number;
-  readonly enabledAt: number; // epoch ms
 }
 
 /** Next occurrence of `hour`:00 local time strictly after `now`. Pure; unit-tested. */
@@ -32,10 +33,10 @@ export function siteIdFromAlarm(name: string): string | null {
   return name.startsWith(DAILY_ALARM_PREFIX) ? name.slice(DAILY_ALARM_PREFIX.length) : null;
 }
 
-export async function enableDaily(siteId: string, profile: Profile, resume: SerializedFile, hour = DEFAULT_HOUR): Promise<void> {
-  const sched: DailySchedule = { siteId, profile, resume, hour, enabledAt: Date.now() };
+export async function enableDaily(siteId: string, profile: Profile, resume: SerializedFile): Promise<void> {
+  const sched: DailySchedule = { siteId, profile, resume };
   await chrome.storage.local.set({ [KEY_PREFIX + siteId]: sched });
-  await chrome.alarms.create(alarmName(siteId), { when: nextFire(hour, Date.now()), periodInMinutes: 24 * 60 });
+  await chrome.alarms.create(alarmName(siteId), { when: nextFire(DAILY_HOUR, Date.now()), periodInMinutes: 24 * 60 });
 }
 
 export async function disableDaily(siteId: string): Promise<void> {

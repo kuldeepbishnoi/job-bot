@@ -33,9 +33,11 @@ Snapshot for the next agent/session. Update it as things land.
 - **Answers** — new intents: `years_of_experience` (number → `engine/years.ts` bucket picker),
   `skills_experience`, `degree_bachelors/masters`, Canada self-ID (`indigenous`, `visible_minority`,
   `racial_identity`, `ex_military`, `reserve_forces`, `military_spouse` → `DECLINE` = "I choose not
-  to self-identify"), work-eligibility intents. All in `profile.example.yaml`.
+  to self-identify"), work-eligibility intents (commented in the example: Amazon pre-fills them).
+  All in `profile.example.yaml`.
 - **Daily runs** — `platform/schedule.ts` + popup "Run <site> daily at 9:00" toggle: caches
-  profile + résumé, 24h alarm, background starts the stepper (skips if a run is active).
+  profile + résumé (a snapshot — re-tick after editing profile.yaml), 24h alarm, background starts
+  the stepper (skips if a run is active).
 - **Unverified live**: the adapter has not yet driven a real apply (browser automation was
   unavailable during development). First run: watch the console (`[jobbot:amazon]`) for the form
   keys / field logs; the likeliest breakage is a selector (Continue button text, select2 change

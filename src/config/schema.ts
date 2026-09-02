@@ -31,10 +31,10 @@ export const AnswersSchema = z.record(AnswerValue);
 // Per-site knobs. Only what a site genuinely needs from the user; everything else is derived.
 export const AmazonSchema = z.object({
   // Paste the amazon.jobs search page URL with your filters applied (category, country,
-  // experience…). Discovery turns it into the JSON API query. Omit for the built-in default.
-  search_url: z.string().url().optional(),
+  // experience…). Discovery turns it into the JSON API query. Yours, not ours — no default.
+  search_url: z.string().url(),
   // Amazon asks once whether it may use AI to recommend jobs / refer you to recruiters.
-  ai_consent: z.boolean().default(true),
+  ai_consent: z.boolean().default(false),
 });
 
 export const ProfileSchema = z.object({
@@ -46,7 +46,8 @@ export const ProfileSchema = z.object({
   overrides: z.record(AnswerValue).default({}),
   on_unknown: z.enum(['park', 'skip']).default('park'),
   auto_submit: z.boolean().default(false),
-  amazon: AmazonSchema.default({}),
+  // Present only when the user runs that site (validated then; absent = the site is off-limits).
+  amazon: AmazonSchema.optional(),
 });
 
 export type Identity = z.infer<typeof IdentitySchema>;

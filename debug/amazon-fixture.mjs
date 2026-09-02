@@ -56,7 +56,7 @@ const military = forms.find((f) => f.id.startsWith('VOLUNTARY_SELF_IDENTIFICATIO
 const nav = forms.map((f) => `      <li id="NAV_${esc(f.id)}" class="form-list-item arrow_box ${f === active ? 'active' : f.completed ? 'finished' : ''}" role="presentation"><a class="form-link nav-link" role="tab">${esc(f.title)}</a></li>`).join('\n');
 
 const footer = `    <div class="card-footer py-0 save-form-container">
-      <div class="d-lg-none"><a href="javascript:void(0)" class="btn btn-primary w-100">Continue</a></div>
+      <div class="d-lg-none"><div class="footer-button-group"><button type="button" class="btn btn-info w-100">Skip &amp; continue</button><a href="javascript:void(0)" class="btn btn-primary w-100">Continue</a></div></div>
       <div class="d-none d-lg-inline-block"><div class="form-group submit-button mt-5"><button type="button" class="btn btn-primary">Continue</button></div></div>
     </div>`;
 

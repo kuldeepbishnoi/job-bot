@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { searchApiUrl, jobsFromResult, discoverAmazonJobs, parseLocations, DEFAULT_SEARCH_URL } from '@/sources/amazon-jobs';
+import { searchApiUrl, jobsFromResult, discoverAmazonJobs, parseLocations } from '@/sources/amazon-jobs';
 
 const fixture = JSON.parse(readFileSync('fixtures/amazon-search.json', 'utf8'));
 
@@ -55,7 +55,7 @@ describe('amazon.jobs discovery', () => {
       const offset = Number(new URL(url).searchParams.get('offset'));
       return { ok: true, json: async () => page(offset) } as unknown as Response;
     }) as unknown as typeof fetch;
-    const jobs = await discoverAmazonJobs(DEFAULT_SEARCH_URL, fetchImpl);
+    const jobs = await discoverAmazonJobs(PAGE_URL, fetchImpl);
     expect(calls).toHaveLength(2);
     expect(jobs).toHaveLength(175);
     expect(new Set(jobs.map((j) => j.id)).size).toBe(175);
@@ -63,6 +63,6 @@ describe('amazon.jobs discovery', () => {
 
   it('surfaces an API error instead of an empty queue', async () => {
     const fetchImpl = (async () => ({ ok: true, json: async () => ({ error: 'boom', hits: 0, jobs: [] }) }) as unknown as Response) as unknown as typeof fetch;
-    await expect(discoverAmazonJobs(DEFAULT_SEARCH_URL, fetchImpl)).rejects.toThrow(/boom/);
+    await expect(discoverAmazonJobs(PAGE_URL, fetchImpl)).rejects.toThrow(/boom/);
   });
 });

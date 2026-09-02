@@ -28,6 +28,7 @@ natively — so we never fight the anti-bot stack. **Do not** rewrite this as a 
 
 `fixtures/typesense-response.json` and `fixtures/greenhouse-form.html` are real captures; the tests
 run against them. They're the offline oracle — don't hand-edit; refresh from a new HAR if needed.
+(`fixtures/amazon-apply.html` is the one derived fixture — regenerate it, see below.)
 
 ### Amazon ground truth (from the live JSON API + the apply app's bundle, 2026-09-02)
 - Discovery: the search page `/en/search?…` is backed by **`/en/search.json`** with the same query
@@ -51,8 +52,10 @@ run against them. They're the offline oracle — don't hand-edit; refresh from a
 - Answers from the previous application are **reused** (pre-filled), so normally only the
   job-specific dropdowns are empty. The self-ID forms offer "I choose not to self-identify"
   (= `DECLINE`). A one-time `#aiPreferenceModal` (Yes/No + confirm) can gate submit.
-- `fixtures/amazon-apply.html` is **generated** (`debug/amazon-fixture.mjs`): real question schema
+- `fixtures/amazon-apply.html` is **generated** (`npm run fixture:amazon`): real question schema
   wrapped in markup transcribed from the bundle. Not a live page capture (needs the session).
+- Submit-by-navigation is declared per site (`Site.submittedUrl`, `src/sites/site.ts`) so the
+  apply port stays site-agnostic.
 
 ## Architecture — Clean Architecture, applied
 Dependency direction points **inward**: outer layers depend on inner, never the reverse
@@ -68,7 +71,7 @@ APPLICATION (orchestration; depends on ports, not details)
 ADAPTERS (details, behind interfaces)
   src/sources/    where jobs come from — typesense.ts · amazon-jobs.ts
   src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts (+ dom.ts)
-  src/sites/      a company = source + ATS — datadog.ts, amazon.ts, index.ts (registry)
+  src/sites/      a company = source + ATS — site.ts (interface), datadog.ts, amazon.ts, index.ts
   src/platform/   side effects, isolated — worker-window · gmail-otp · fs-config ·
                   messaging · serialized-file · store (chrome.storage repo) · schedule (daily alarm)
 MAIN (dirtiest; wires everything)
@@ -111,7 +114,8 @@ fixtures/    real captured data for offline tests
 - **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
   alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage. Daily
   hands-off runs are a second alarm (`platform/schedule.ts`): the popup caches the profile + résumé
-  (it alone has the FS-access gesture) and the background starts the same stepper on fire.
+  (it alone has the FS-access gesture) and the background starts the same stepper on fire. The
+  cache is a snapshot — profile.yaml edits apply only after re-ticking the toggle.
 - **Profile loading happens in the popup** (`loadProfileAndResume` needs the File System Access
   permission + user gesture); the profile is passed to the background in the `run` message. The SW
   must never call `showDirectoryPicker`/`requestPermission`.

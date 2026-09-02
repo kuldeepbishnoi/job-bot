@@ -2,9 +2,9 @@ import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
 import * as az from '@/ats/amazon';
-import { waitFor } from '@/ats/dom';
+import { waitFor, describeAnswer } from '@/ats/dom';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
-import type { AppliedField, Answer, Field } from '@/engine/types';
+import type { AppliedField } from '@/engine/types';
 
 // Runs in the user's logged-in amazon.jobs tab on /applicant/jobs/<id>/apply (and the /summary
 // page it redirects to). Same message contract as the Greenhouse script (ping / apply), driven by
@@ -40,15 +40,6 @@ export default defineContentScript({
   },
 });
 
-function answerValue(answer: Answer): string {
-  switch (answer.kind) {
-    case 'text': return answer.value;
-    case 'choice': return answer.values.join(', ');
-    case 'check': return answer.value ? 'checked' : 'unchecked';
-    default: return '';
-  }
-}
-
 async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcome> {
   const filled: AppliedField[] = [];
   const parked = (note: string): ApplyOutcome => ({ status: 'parked', note, filled });
@@ -61,7 +52,9 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
     await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 20_000);
 
+    const consent = msg.profile.amazon?.ai_consent ?? false;
     for (let i = 0; i < MAX_FORMS; i++) {
+      // (a not-yet-rendered form burns one iteration — MAX_FORMS has slack for that)
       if (az.reviewMode(document) && !az.activeForm(document)) break;
       const form = az.activeForm(document);
       if (!form) {
@@ -82,7 +75,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         }
         try {
           az.fill(document, field, answer);
-          filled.push({ id: field.id, label: field.label, value: answerValue(answer) });
+          filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) });
         } catch (e) {
           log('fill FAILED', field.id, (e as Error).message);
           if (field.required) return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);
@@ -122,8 +115,8 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       const step = az.aiConsentStep(document);
       if (step && !handled.has(step)) {
         handled.add(step);
-        log('answering AI-preference modal', step, { consent: msg.profile.amazon.ai_consent });
-        az.answerAiConsent(document, msg.profile.amazon.ai_consent);
+        log('answering AI-preference modal', step, { consent });
+        az.answerAiConsent(document, consent);
         return null;
       }
       const errs = az.validationErrors(document);

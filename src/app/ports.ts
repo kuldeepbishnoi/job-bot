@@ -4,7 +4,7 @@ import { getOtp, seenOtps } from '../platform/gmail-otp';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
-import { submittedByNavigation } from '../ats/amazon';
+import type { Site } from '../sites';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,14 +22,16 @@ async function waitForFrame(tabId: number, tries = 30): Promise<void> {
   throw new Error('form frame never became ready');
 }
 
-/** Amazon's apply app *navigates away* the instant a submit succeeds (to the summary page), which
- *  tears down the content script before it can answer — the message port closes. That closed
- *  port is the normal success signal there: confirm by looking at where the tab went. */
-async function outcomeAfterPortClosed(tabId: number, err: unknown): Promise<ApplyOutcome> {
+/** Some apply apps (Amazon) *navigate away* the instant a submit succeeds, tearing down the
+ *  content script before it can answer — the message port closes. For a site that declares
+ *  `submittedUrl`, that closed port is the normal success signal: confirm by where the tab went.
+ *  Every other site (Greenhouse) keeps the closed port as the error it is. */
+async function outcomeAfterPortClosed(site: Site, tabId: number, err: unknown): Promise<ApplyOutcome> {
+  if (!site.submittedUrl) throw err;
   await sleep(2000); // let the redirect commit
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const url = tab?.pendingUrl ?? tab?.url ?? '';
-  if (submittedByNavigation(url)) return { status: 'submitted', note: `submitted — page moved on to ${url}` };
+  if (site.submittedUrl(url)) return { status: 'submitted', note: `submitted — page moved on to ${url}` };
   throw err;
 }
 
@@ -40,12 +42,12 @@ export function chromePorts(): RunPorts {
     discover: (site, profile) => site.discover(profile),
     appliedIds,
     openJob,
-    apply: async (tabId, profile, job, resume) => {
+    apply: async (site, tabId, profile, job, resume) => {
       await waitForFrame(tabId);
       try {
         return await sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
       } catch (e) {
-        return outcomeAfterPortClosed(tabId, e);
+        return outcomeAfterPortClosed(site, tabId, e);
       }
     },
     seenOtps,

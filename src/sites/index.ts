@@ -1,4 +1,4 @@
-import type { Site } from './datadog';
+import type { Site } from './site';
 import { datadog } from './datadog';
 import { amazon } from './amazon';
 

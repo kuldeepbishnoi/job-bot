@@ -30,6 +30,7 @@ const load = (): Document => {
 const profile = parseProfile({
   identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+1', country: 'India' },
   resume: 'resume/cv.pdf',
+  amazon: { search_url: 'https://www.amazon.jobs/en/search?country[]=CAN' },
   answers: {
     years_of_experience: 6,
     skills_experience: true,
@@ -50,7 +51,8 @@ describe('amazon adapter — forms + questions', () => {
   it('finds the one active form and identifies it', () => {
     const form = activeForm(doc)!;
     expect(form).not.toBeNull();
-    expect(formKey(form)).toBe('form4:Job-specific questions');
+    expect(formKey(form)).toContain('Job-specific questions');
+    expect(formKey(form)).not.toBe(formKey(doc.querySelector('.question-form.form2')!)); // distinct per card
     expect(reviewMode(doc)).toBe(false);
   });
 
@@ -99,10 +101,11 @@ describe('amazon adapter — forms + questions', () => {
     expect(() => fill(doc, f!, { kind: 'choice', values: ['forty years'] })).toThrow(/no option "forty years"/);
   });
 
-  it('finds the Continue button and never a Skip', () => {
+  it('finds the Continue button and never the Skip one', () => {
     const btn = continueButton(activeForm(doc)!)!;
     expect(btn).not.toBeNull();
     expect(btn.textContent).toBe('Continue');
+    expect(activeForm(doc)!.textContent).toContain('Skip & continue'); // the fixture offers a Skip — not picked
     expect(submitButton(doc)).toBeNull(); // not in review mode yet
   });
 

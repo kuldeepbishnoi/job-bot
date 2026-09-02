@@ -9,9 +9,6 @@ import type { Job } from '../engine/types';
 // The user pastes their search-page URL (filters applied in the UI) into profile.yaml; this
 // module turns it into API pages. No HTML scraping, no clicking through result pages.
 
-export const DEFAULT_SEARCH_URL =
-  'https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant';
-
 const PAGE = 100; // result_limit the API accepts without complaint (verified: offset=100 pages fine)
 const MAX_PAGES = 30; // hard stop — 3k jobs is far beyond any sane filter
 const APPLY = (id: string) => `https://www.amazon.jobs/applicant/jobs/${id}/apply`;
@@ -95,7 +92,7 @@ async function fetchPage(url: string, fetchImpl: typeof fetch): Promise<SearchRe
 }
 
 /** Discover every job matching the search URL. `fetchImpl` is injectable for tests. */
-export async function discoverAmazonJobs(searchPageUrl = DEFAULT_SEARCH_URL, fetchImpl: typeof fetch = fetch): Promise<Job[]> {
+export async function discoverAmazonJobs(searchPageUrl: string, fetchImpl: typeof fetch = fetch): Promise<Job[]> {
   const first = await fetchPage(searchApiUrl(searchPageUrl, 0), fetchImpl);
   const pages = Math.min(MAX_PAGES, Math.max(1, Math.ceil(first.hits / PAGE)));
   const rest = await Promise.all(

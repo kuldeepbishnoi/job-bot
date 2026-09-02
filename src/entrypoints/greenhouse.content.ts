@@ -2,21 +2,10 @@ import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
 import * as gh from '@/ats/greenhouse';
-import { click, waitFor } from '@/ats/dom';
+import { click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg, OtpOutcome } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
-
-// Human-readable value we actually put in a field, for the on-disk record.
-function answerValue(answer: Answer, resumeName: string): string {
-  switch (answer.kind) {
-    case 'text': return answer.value;
-    case 'choice': return answer.values.join(', ');
-    case 'check': return answer.value ? 'checked' : 'unchecked';
-    case 'file': return resumeName;
-    default: return '';
-  }
-}
 
 // Runs inside the Greenhouse application iframe. Does all the DOM work.
 export default defineContentScript({
@@ -64,7 +53,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     const failed: { field: Field; note: string }[] = [];
     const handledIds = new Set<string>();
     const records = (): AppliedField[] =>
-      filled.map(({ field, answer }) => ({ id: field.id, label: field.label, value: answerValue(answer, msg.resume.name) }));
+      filled.map(({ field, answer }) => ({ id: field.id, label: field.label, value: describeAnswer(answer, msg.resume.name) }));
 
     // Resolve + fill one field. Returns a park reason if a REQUIRED field has no answer;
     // otherwise fills (or records a failure to retry) and returns null. Used by both the

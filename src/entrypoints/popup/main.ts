@@ -28,13 +28,14 @@ function renderSites(): void {
 }
 
 // "Run daily" — caches the profile + résumé (loaded here, where the FS-access gesture lives) and
-// arms a 24h alarm the background acts on. Unchecking clears both.
+// arms a 24h alarm the background acts on. Unchecking clears both. The cached snapshot is what
+// runs: after editing profile.yaml, untick + retick to pick the change up.
 function dailyToggle(siteId: string, label: string): HTMLElement {
   const wrap = document.createElement('label');
   wrap.className = 'daily';
   const box = document.createElement('input');
   box.type = 'checkbox';
-  wrap.append(box, document.createTextNode(` Run ${label} daily at 9:00`));
+  wrap.append(box, document.createTextNode(` Run ${label} daily at 9:00 (re-tick after editing profile.yaml)`));
   void dailySchedule(siteId).then((s) => (box.checked = !!s));
   box.onchange = async () => {
     try {

@@ -12,7 +12,7 @@ export interface RunPorts {
   discover(site: Site, profile: Profile): Promise<Job[]>;
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId
-  apply(tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
+  apply(site: Site, tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
   seenOtps(): Promise<string[]>; // codes already in Gmail (stale) — snapshot before submitting
   getOtp(exclude: readonly string[]): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
@@ -59,7 +59,7 @@ export async function applyOne(
     // Snapshot the codes already in Gmail BEFORE we submit — the fresh code this apply triggers
     // isn't there yet, so anything we see now is a stale leftover to exclude when polling.
     const staleCodes = await ports.seenOtps().catch(() => [] as string[]);
-    const res = await ports.apply(tabId, profile, job, resume);
+    const res = await ports.apply(site, tabId, profile, job, resume);
     // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
     // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
     const shot = await ports.capture(tabId).catch(() => null);
