@@ -66,6 +66,15 @@ describe('resolver', () => {
     expect(resolve(f({ kind: 'select', intent: 'answers.indigenous' }), parseProfile({ ...base, answers: { indigenous: false } }), job, ['Yes', 'I choose not to self-identify', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
 
+  it('years_of_experience: MAX always takes the top bucket and says Yes to any N+ years', () => {
+    const p = parseProfile({ ...base, answers: { years_of_experience: 'MAX' } });
+    const field = f({ kind: 'select', intent: 'answers.years_of_experience' });
+    expect(resolve(field, p, job, ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', 'more than 4 years'])).toEqual({ kind: 'choice', values: ['more than 4 years'] });
+    expect(resolve(field, p, job, ['0-1 years', '1-3 years', '3-5 years', '5-8 years', '8+ years'])).toEqual({ kind: 'choice', values: ['8+ years'] });
+    expect(resolve(field, p, job, ['1-2 years', '2-5 years', '5-10 years'])).toEqual({ kind: 'choice', values: ['5-10 years'] }); // no open-ended top: still the highest
+    expect(resolve(f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 10+ years of experience?' }), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
   it('maps DECLINE onto Amazon\'s "I choose not to self-identify"', () => {
     const p = parseProfile({ ...base, answers: { indigenous: 'DECLINE' } });
     const field = f({ kind: 'select', intent: 'answers.indigenous' });

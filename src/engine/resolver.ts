@@ -57,6 +57,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
 }
 
 function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): Answer {
+  // years_of_experience: MAX — always the top bucket / always "Yes" to "N+ years" (owner's rule).
+  if (val === 'MAX' && field.intent === 'answers.years_of_experience') val = Number.POSITIVE_INFINITY;
+
   // Canonical token (DECLINE, NOT_A_VETERAN…) -> the option that matches this form's wording.
   if (isAnswerToken(val)) {
     const opt = optionForToken(val, options);

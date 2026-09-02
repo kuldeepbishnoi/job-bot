@@ -31,7 +31,7 @@ answers:
   how_did_you_hear: "LinkedIn"    # single choice / free text
   languages: [English, Hindi]     # multi-select
   # Screening questions (Amazon "job-specific questions" and similar):
-  years_of_experience: 6          # number -> picks the "N to less than M years" bucket that contains it
+  years_of_experience: 6          # number -> the "N to less than M years" bucket containing it · MAX -> always the top bucket
   skills_experience: true         # answers Yes to EVERY "Do you have experience with/in …?"; false = No; omit = park for review
   degree_bachelors: true          # "Do you have a Bachelor's degree …?"
   degree_masters: false
