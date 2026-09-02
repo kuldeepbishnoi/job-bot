@@ -4,7 +4,7 @@ Read this first. It's the contract for working in this repo. Keep it accurate wh
 
 ## What this is
 A Chrome MV3 extension (WXT + TypeScript) that auto-applies to jobs from the user's **real
-browser**. **Datadog** is the first "site pack". The extension approach is deliberate: the real
+browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs) and **Instahyre** followed. The extension approach is deliberate: the real
 browser mints the reCAPTCHA token, carries the session/fingerprint, and uploads the resume
 natively — so we never fight the anti-bot stack. **Do not** rewrite this as a raw-HTTP API bot.
 
@@ -29,6 +29,31 @@ natively — so we never fight the anti-bot stack. **Do not** rewrite this as a 
 `fixtures/typesense-response.json` and `fixtures/greenhouse-form.html` are real captures; the tests
 run against them. They're the offline oracle — don't hand-edit; refresh from a new HAR if needed.
 
+### Amazon ground truth (from the live JSON API + the apply app's bundle, 2026-09-02)
+- Discovery: the search page `/en/search?…` is backed by **`/en/search.json`** with the same query
+  string, except the API only honours **`normalized_country_code[]`** (the page's `country[]` is
+  silently ignored → worldwide results). `result_limit=100` + `offset` pages; `hits` = total. Each
+  job has `id_icims` (the id in every URL) and `locations[]` (JSON strings with `city`).
+  `fixtures/amazon-search.json` is a real page.
+- Apply: **`/applicant/jobs/<id>/apply`** is Amazon's own React app (react-rails; NOT Greenhouse),
+  logged-in session required — so it runs in the user's real tab like Datadog. Already applied →
+  redirects to `/summary?result=duplicate` (`ApplicationDuplicateScreen`). Submit success →
+  the app **navigates away** (kills the content script → the closed port + new URL = success,
+  `app/ports.ts#outcomeAfterPortClosed`).
+- Questions come from `GET /api/apply/forms?job_id=<id>` (`fixtures/amazon-forms.json` = the real
+  schema for one job): forms in order, one **active** at a time (`.card.question-form.active`);
+  Continue = `POST /api/apply/forms/save` + next form; `.question-forms.reviewing` +
+  `.submit-application-button button.submit` at the end. Types: DROPDOWN = native `<select>` +
+  select2 (set value + dispatch `change`), RADIO_BUTTON = `input[name=<qid>][value=<key>]`,
+  BOOLEAN = one checkbox, MULTISELECT_DROPDOWN = `<select multiple>`, CHECK_LIST = checkboxes.
+  Every question sits in `[data-questionId=<id>]`; job-specific ids end in `-AQ` and change per
+  job; standard ids are stable (`REQUIRE_SPONSORSHIP_CAN`, `DIVERSITY_GENDER_CAN`…).
+- Answers from the previous application are **reused** (pre-filled), so normally only the
+  job-specific dropdowns are empty. The self-ID forms offer "I choose not to self-identify"
+  (= `DECLINE`). A one-time `#aiPreferenceModal` (Yes/No + confirm) can gate submit.
+- `fixtures/amazon-apply.html` is **generated** (`debug/amazon-fixture.mjs`): real question schema
+  wrapped in markup transcribed from the bundle. Not a live page capture (needs the session).
+
 ## Architecture — Clean Architecture, applied
 Dependency direction points **inward**: outer layers depend on inner, never the reverse
 (the Dependency Rule, Clean Architecture ch. 22). Inner = pure policy; outer = details.
@@ -41,14 +66,14 @@ INNER (pure: no chrome, no DOM, no network — unit-tested)
 APPLICATION (orchestration; depends on ports, not details)
   src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring)
 ADAPTERS (details, behind interfaces)
-  src/sources/    where jobs come from — typesense.ts
-  src/ats/        how a form is filled — greenhouse.ts (+ dom.ts)
-  src/sites/      a company = source + ATS — datadog.ts, index.ts (registry)
+  src/sources/    where jobs come from — typesense.ts · amazon-jobs.ts
+  src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts (+ dom.ts)
+  src/sites/      a company = source + ATS — datadog.ts, amazon.ts, index.ts (registry)
   src/platform/   side effects, isolated — worker-window · gmail-otp · fs-config ·
-                  messaging · serialized-file · store (chrome.storage repo)
+                  messaging · serialized-file · store (chrome.storage repo) · schedule (daily alarm)
 MAIN (dirtiest; wires everything)
-  src/entrypoints/  background.ts (assembles ports → runner) · greenhouse.content.ts ·
-                    gmail.content.ts · popup/
+  src/entrypoints/  background.ts (assembles ports → runner; daily alarm) · greenhouse.content.ts ·
+                    amazon.content.ts · instahyre.content.ts · gmail.content.ts · popup/
 profile/     the USER's data: profile.yaml + resume/ (git-ignored)
 fixtures/    real captured data for offline tests
 ```
@@ -65,9 +90,10 @@ fixtures/    real captured data for offline tests
 4. Boundary-crossing values are **plain data** (`Profile`, `Job`, `SerializedFile`, message unions
    in `platform/messaging.ts`) — never DOM nodes or class instances across the wire.
 5. Answers are **intent-based**, never keyed by exact question text (except `profile.overrides`):
-   raw label → `Intent` (`matcher.ts`) → value (`resolver.ts`). Same rules answer Datadog, Netflix…
+   raw label → `Intent` (`matcher.ts`) → value (`resolver.ts`). Same rules answer Datadog, Amazon…
 6. Answer values are **typed by question shape**: `boolean` (yes/no), `string` (single choice/free
-   text), `string[]` (multi), or a canonical **token** (`answer-tokens.ts`: `DECLINE`,
+   text), `string[]` (multi), `number` (a "how many years" ladder → `engine/years.ts` picks the
+   bucket), or a canonical **token** (`answer-tokens.ts`: `DECLINE`,
    `NOT_A_VETERAN`, `NO_DISABILITY`) that maps to each company's wording. No magic strings in config.
 7. Locations are **derived**, never typed: `resolveLocations` picks dropdown options ∩ (job's own
    location ∪ `want.locations`). One list drives both job selection and the cities answer.
@@ -83,7 +109,9 @@ fixtures/    real captured data for offline tests
   `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
   OTP read), not `*://*`.
 - **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
-  alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage.
+  alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage. Daily
+  hands-off runs are a second alarm (`platform/schedule.ts`): the popup caches the profile + résumé
+  (it alone has the FS-access gesture) and the background starts the same stepper on fire.
 - **Profile loading happens in the popup** (`loadProfileAndResume` needs the File System Access
   permission + user gesture); the profile is passed to the background in the `run` message. The SW
   must never call `showDirectoryPicker`/`requestPermission`.
@@ -99,6 +127,11 @@ fixtures/    real captured data for offline tests
 - **New Greenhouse company**: add `src/sources/<co>.ts` (discovery) + `src/sites/<co>.ts`
   (`{ id, label, ats:'greenhouse', discover }`) + one line in `src/sites/index.ts`. The popup button
   and pipeline light up automatically.
+- **Site with its own ATS (Amazon)**: `src/sources/amazon-jobs.ts` + `src/ats/amazon.ts` (pure DOM,
+  tested against the generated fixture) + `src/entrypoints/amazon.content.ts` (same ping/apply
+  contract as Greenhouse) + `src/sites/amazon.ts` with `ats:'amazon'`. It rides the normal
+  discover→worker-tab→stepper pipeline; no OTP. `Site.discover(profile)` gets the profile because the
+  search filters are the user's (`profile.amazon.search_url`).
 - **New ATS (Lever/Workday)**: add `src/ats/<ats>.ts` with the same surface as `greenhouse.ts`
   (`extract`, `optionsFor`, `fill`, `submitButton`, `needsOtp`, `fillOtp`, `confirmed`); reference it
   from a content script matched to that host.
@@ -140,12 +173,18 @@ cookies) — must quit Chrome first.
 
 ## Status & next steps
 See `docs/STATUS.md`. Built + unit-tested: pure core, discovery, Greenhouse extract/fill/OTP,
-ports-based orchestration, popup. OTP reads via the **Gmail API** (`platform/gmail-api.ts`) when the
+Amazon discovery + apply adapter, daily scheduling, ports-based orchestration, popup. OTP reads via the **Gmail API** (`platform/gmail-api.ts`) when the
 user connects their account (see `docs/gmail-oauth.md`), falling back to the open-Gmail-tab scrape.
-**Not yet**: live end-to-end run in a real browser, Playwright e2e, a second site/ATS pack.
+**Not yet**: a live Amazon run (adapter built from the bundle + API, not a page capture — verify
+selectors on the first real apply), Playwright e2e.
 
 ## Gotchas
 - React inputs ignore `el.value = x`; use `setReactValue` (native setter + input/change events).
+- Amazon's Contact-information / Resume / SMS steps are profile-level (different components, not
+  `.question-form`). The adapter assumes they're already complete; if one is active the apply
+  times out → `failed` with "waitFor: timeout" — finish it once by hand.
+- Amazon `want.locations` interplay: the search URL pins the country, but `selectJobs` still applies
+  `want.locations` — keep the searched cities in it (or empty).
 - The worker window must stay **visible (unfocused)** — if minimized, `visibilityState:hidden`
   throttles timers and can hurt reCAPTCHA. Don't minimize it.
 - OTP: `platform/gmail-otp.ts#getOtp` prefers the Gmail API (`gmail-api.ts`) and falls back to

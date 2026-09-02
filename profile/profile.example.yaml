@@ -27,15 +27,37 @@ answers:
   privacy_consent: true           # yes/no
   how_did_you_hear: "LinkedIn"    # single choice / free text
   languages: [English, Hindi]     # multi-select
+  # Screening questions (Amazon "job-specific questions" and similar):
+  years_of_experience: 6          # number -> picks the "N to less than M years" bucket that contains it
+  skills_experience: true         # "Do you have experience with/in …?" -> Yes
+  degree_bachelors: true          # "Do you have a Bachelor's degree …?"
+  degree_masters: false
+  willing_to_relocate: true
   # Canonical tokens (see src/engine/answer-tokens.ts) — map to each company's exact wording.
   gender: DECLINE
   hispanic_latino: DECLINE
   veteran_status: NOT_A_VETERAN
   disability: NO_DISABILITY
+  # Canada Employment Equity Act self-ID (Amazon CAN): DECLINE -> "I choose not to self-identify".
+  indigenous: DECLINE
+  visible_minority: DECLINE
+  racial_identity: DECLINE
+  ex_military: DECLINE
+  reserve_forces: DECLINE
+  military_spouse: DECLINE
 
 # Exact-question-text -> answer, for rare one-offs the intent rules don't cover (optional).
 overrides: {}
   # "please select all the languages you speak fluently": [English]
 
 on_unknown: park        # unmatched required question -> park (default) | skip
-auto_submit: false      # false = fill + OTP then you approve · true = hands-free
+auto_submit: false      # false = fill + OTP then you approve · true = hands-free (needed for daily runs)
+
+# Per-site knobs (optional).
+amazon:
+  # Apply your filters on amazon.jobs/en/search and paste the page URL. Discovery turns it into the
+  # JSON API query, so the queue = exactly what that page lists (all pages).
+  # NOTE: `want.locations` above still applies — include the cities you search (e.g. Toronto,
+  # Vancouver) or leave it empty, otherwise Canadian jobs get filtered out of an India-only list.
+  search_url: "https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant"
+  ai_consent: true      # Amazon's one-time "may we use AI to recommend jobs / refer you" prompt
