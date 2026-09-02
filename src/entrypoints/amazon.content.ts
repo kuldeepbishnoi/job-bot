@@ -96,6 +96,8 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       }
       if (!form) return parked(`No editable form appeared — ${az.describeState(document)}`);
       const key = az.formKey(form);
+      // The rail can name the active card before its controls exist — wait for the first one.
+      await waitFor(() => (az.controlCount(form) > 0 ? true : null), 10_000).catch(() => {});
       await settle(form); // React mounts a section's controls a beat after the wrapper (seen live)
       log('form', key, az.progress(document));
       log('questions', az.describeQuestions(form));

@@ -177,6 +177,26 @@ describe('amazon adapter — duplicate question wrappers (seen live)', () => {
   });
 });
 
+describe('amazon adapter — the progress rail decides the active card', () => {
+  it('picks the card the rail marks active even when another card is briefly editable', () => {
+    const doc = parse(`
+      <ul class="form-list">
+        <li class="form-list-item finished"><a class="form-link">Education</a></li>
+        <li class="form-list-item active"><a class="form-link">Job-specific questions</a></li>
+        <li class="form-list-item"><a class="form-link">Work Eligibility</a></li>
+      </ul>
+      <div class="card question-form form5 active"><div class="card-header"><h2>Work Eligibility</h2></div><div class="card-body">
+        <div class="question" data-questionId="REQUIRE_SPONSORSHIP_CAN"><input type="radio" name="REQUIRE_SPONSORSHIP_CAN" value="NO" id="r1"><label for="r1">No</label></div>
+      </div></div>
+      <div class="card question-form form4"><div class="card-header"><h2>Job-specific questions</h2></div><div class="card-body">
+        <div class="question" data-questionId="abc-AQ"><div class="question-label required"><label>Years?</label></div></div>
+      </div></div>`);
+    visible(doc);
+    const form = activeForm(doc)!;
+    expect(form.classList.contains('form4')).toBe(true); // not yet mounted its select, still the right card
+  });
+});
+
 describe('amazon adapter — active card is the VISIBLE editable one (seen live)', () => {
   it('ignores a card flagged active whose questions are hidden and picks the card with visible controls', () => {
     const doc = parse(`

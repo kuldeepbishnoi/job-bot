@@ -64,7 +64,9 @@ export function chromePorts(): RunPorts {
         return out;
       } catch (e) {
         dlog('port closed', job.id, String((e as Error).message));
-        return outcomeAfterPortClosed(site, tabId, e);
+        const out = await outcomeAfterPortClosed(site, tabId, e);
+        dlog('outcome', job.id, out.status, 'note' in out ? out.note : '');
+        return out;
       }
     },
     seenOtps,

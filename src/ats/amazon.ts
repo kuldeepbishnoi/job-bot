@@ -47,8 +47,23 @@ const hasControl = (n: Element): boolean => !!n.querySelector('select, input, te
  *  mode no card qualifies — callers check reviewMode() first. */
 export function activeForm(doc: Document): HTMLElement | null {
   const cards = [...doc.querySelectorAll<HTMLElement>('.question-form')].filter(shown);
+  // 1. The progress rail is Amazon's own activeFormIndex — match its active title to a card
+  //    heading. (During hydration every card is briefly visible with controls, which fooled the
+  //    controls-only heuristic; the rail never lies.)
+  const railTitle = progress(doc).find((p) => p.state === 'active')?.title.toLowerCase();
+  if (railTitle) {
+    const byRail = cards.find((f) => cardTitle(f).toLowerCase().startsWith(railTitle));
+    if (byRail) return byRail;
+  }
+  // 2. Fallbacks: the flagged card with controls, then any card with controls.
   const editable = (f: HTMLElement) => questionNodes(f).some(hasControl);
   return cards.find((f) => f.classList.contains('active') && editable(f)) ?? cards.find(editable) ?? null;
+}
+
+/** The card's own title (its header text, before any "Progress will be auto-saved" suffix). */
+export function cardTitle(form: Element): string {
+  const heading = form.querySelector('.card-header, h1, h2, h3, h4, .form-title');
+  return heading ? labelText(heading) : '';
 }
 
 /** Stable identity for a form card (its `formN` index class + heading), to notice when Continue
