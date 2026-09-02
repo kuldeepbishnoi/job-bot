@@ -96,4 +96,6 @@ export interface Application {
   readonly note?: string; // parked/failed reason
   readonly fields?: readonly AppliedField[]; // exactly what we filled
   readonly screenshot?: string; // transient PNG dataURL — written to disk, NOT kept in storage
+  readonly at?: string; // ISO timestamp, stamped by the repository when persisted
+  readonly account?: string; // which login made it (multi-account setups) — stamped by the repository
 }

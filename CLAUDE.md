@@ -155,6 +155,20 @@ fixtures/    real captured data for offline tests
   case in `tests/matcher.test.ts`. New standard decline-style answer → add a token in
   `engine/answer-tokens.ts`.
 
+## Local data & multi-account (owner's rules: complete, on disk, append-only, no repeats)
+- `profile/applications/applications.jsonl` — one line per application: the full record (every field
+  set / guessed / pre-filled), outcome, URL, timestamps, account, and that job's log lines.
+  `profile/applications/registry.jsonl` — job id → account → date. Written by the popup
+  (`fs-config.flushToDisk`, needs the folder grant) and by `node debug/export.mjs` straight from
+  Chrome's storage on disk. `node debug/outcomes.mjs` = today's summary in a few lines.
+- **Multi-account**: one Chrome profile per Gmail login (`profile.accounts`), each with JobBot loaded
+  (`~/.jobbot/extension`), the same `profile/` folder linked, and the account typed into the
+  popup's "Account" field (stored per extension instance, stamped on every record). Every run
+  excludes the registry's job ids (`run` message `exclude`), so N accounts never repeat a job.
+  `per_account_limit` (per day) or the ATS's own limit page ends the run with "switch to the next
+  account". Seeding a fresh registry from an existing account: `node debug/export.mjs --account <email>`.
+  Logging into the accounts is the user's job (credentials never touch the extension).
+
 ## Commands
 ```
 npm install          # once

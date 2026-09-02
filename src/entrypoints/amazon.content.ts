@@ -34,7 +34,8 @@ async function settle(form: Element): Promise<void> {
     await sleep(300);
   }
 }
-const log = (...a: unknown[]) => dlog('amazon', ...a);
+let currentJobId = '';
+const log = (...a: unknown[]) => dlog('amazon', currentJobId ? `[${currentJobId}]` : '', ...a);
 
 export default defineContentScript({
   matches: ['https://www.amazon.jobs/applicant/jobs/*', 'https://www.amazon.jobs/*/applicant/jobs/*'],
@@ -57,6 +58,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
   const filled: AppliedField[] = [];
   const parked = (note: string): ApplyOutcome => ({ status: 'parked', note, filled });
   try {
+    currentJobId = msg.job.id;
     log('apply start', { url: location.href, job: msg.job.title });
     if (az.isDuplicate(document) || /result=duplicate/.test(location.href)) {
       return { status: 'submitted', note: 'already applied (Amazon showed the duplicate-application screen)', filled };

@@ -12,7 +12,7 @@ export default defineBackground(() => {
     if (msg.t === 'run') {
       (async () => {
         try {
-          await startRun(msg.siteId, msg.profile, msg.resume, chromePorts());
+          await startRun(msg.siteId, msg.profile, msg.resume, chromePorts(), msg.exclude ?? []);
           sendResponse({ ok: true });
         } catch (e) {
           sendResponse({ ok: false, error: String((e as Error).message) });

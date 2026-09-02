@@ -1,6 +1,6 @@
 import { SITES } from '@/sites';
-import { stats, getProgress, needsAttention } from '@/platform/store';
-import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/fs-config';
+import { stats, getProgress, needsAttention, getAccount, setAccount, allRecords } from '@/platform/store';
+import { pickProfileDir, loadProfileAndResume, hasProfileDir, flushToDisk, readRegistry } from '@/platform/fs-config';
 import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
 import { enableDaily, disableDaily, dailySchedule } from '@/platform/schedule';
@@ -86,13 +86,26 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
     setStatus('Reading profile…');
     const { profile, resume } = await loadProfileAndResume();
     await ensureHosts();
-    setStatus('Starting…');
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume });
+    // Every account's applications live in the shared registry — never repeat one.
+    const exclude = [...(await readRegistry())];
+    setStatus(`Starting… (${exclude.length} jobs already applied across accounts)`);
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume, exclude });
     if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
     warn((e as Error).message);
   } finally {
     btn.disabled = false;
+  }
+}
+
+// Append-only local files: flush whatever the background recorded since the last flush.
+async function flush(): Promise<void> {
+  try {
+    const got = await chrome.storage.local.get('debug_log');
+    const n = await flushToDisk(await allRecords(), (got['debug_log'] as string[] | undefined) ?? []);
+    if (n) console.log('[jobbot popup] flushed', n, 'records to applications.jsonl');
+  } catch (e) {
+    dlog('popup', 'flush to disk failed', (e as Error).message);
   }
 }
 
@@ -227,6 +240,14 @@ function reflectGmail(connected: boolean): void {
 
 async function init(): Promise<void> {
   renderSites();
+  const acct = $<HTMLInputElement>('account');
+  acct.value = await getAccount();
+  acct.addEventListener('change', async () => {
+    await setAccount(acct.value);
+    setStatus(acct.value ? `Account: ${acct.value}` : 'Account cleared');
+  });
+  void flush();
+  setInterval(() => void flush(), 30_000);
   await refreshStats();
   reflectLinked(await hasProfileDir());
   reflectGmail(!!(await getToken(false))); // silent check: already connected?

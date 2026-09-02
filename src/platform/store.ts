@@ -55,12 +55,34 @@ async function readAll(): Promise<Application[]> {
   return (got[KEY] as Application[] | undefined) ?? [];
 }
 
+const ACCOUNT_KEY = 'account';
+
+/** Which login this extension instance applies from (one Chrome profile per account). */
+export async function getAccount(): Promise<string> {
+  const got = await chrome.storage.local.get(ACCOUNT_KEY);
+  return (got[ACCOUNT_KEY] as string | undefined) ?? '';
+}
+export async function setAccount(email: string): Promise<void> {
+  await chrome.storage.local.set({ [ACCOUNT_KEY]: email.trim() });
+}
+
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
   // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
   // chrome.storage quota over a run. It's written to disk (fs-config.writeRecord) instead.
   const { screenshot: _omit, ...lean } = app;
-  await chrome.storage.local.set({ [KEY]: [...all, lean] });
+  const stamped: Application = { ...lean, at: new Date().toISOString(), account: await getAccount() };
+  await chrome.storage.local.set({ [KEY]: [...all, stamped] });
+}
+
+/** Applications made today by this instance (per-account daily limits). */
+export async function appliedTodayCount(): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today).length;
+}
+
+export async function allRecords(): Promise<Application[]> {
+  return readAll();
 }
 
 export async function appliedIds(): Promise<Set<string>> {

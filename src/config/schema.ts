@@ -52,6 +52,13 @@ export const ProfileSchema = z.object({
   max_per_run: z.number().int().positive().optional(),
   // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
   careers: z.array(z.string().url()).default([]),
+  // Multi-account: every login you apply from (one Chrome profile each, all sharing this folder).
+  // The popup's "Account" field says which one THIS extension instance is; the shared
+  // applications/registry.jsonl makes every instance skip jobs any account already applied to.
+  accounts: z.array(z.string().email()).default([]),
+  // Applications per account per day; hitting it (or the ATS's own limit page) ends the run with
+  // a "switch account" note.
+  per_account_limit: z.number().int().positive().optional(),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),
 });

@@ -21,7 +21,7 @@ export type Msg =
   // background -> gmail frame
   | { t: 'getCode' }
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
-  | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile }
+  | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[] } // exclude = job ids any account applied to (registry)
   // popup -> background: abandon the current run (queue + alarm + worker tab)
   | { t: 'stop' }
   // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window)

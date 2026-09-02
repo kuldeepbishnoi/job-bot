@@ -73,6 +73,14 @@ careers:
   - https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years
   - https://careers.datadoghq.com/
 
+# Multi-account (optional): one Chrome profile per login, each with JobBot loaded and THIS folder
+# linked; type the account into the popup's "Account" field in each. applications/registry.jsonl
+# is shared, so no job is applied to twice. Seed it from an existing account: node debug/export.mjs
+accounts:
+  - you.01@gmail.com
+  - you.02@gmail.com
+per_account_limit: 40   # applications/day per account; hitting it ends the run with "switch account"
+
 # Per-site knobs (optional).
 amazon:
   # Apply your filters on amazon.jobs/en/search and paste the page URL. Discovery turns it into the

@@ -3,27 +3,13 @@
 //   node debug/outcomes.mjs            # today's outcomes per job + last 5 log lines
 //   node debug/outcomes.mjs --log 40   # last 40 log lines
 //   node debug/outcomes.mjs --job 10524137
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-
-const home = process.env.HOME;
-const base = join(home, 'Library/Application Support/Google/Chrome');
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] ?? true : d; };
 
-// Find every JobBot storage dir (any Chrome profile, any extension id) — pick the newest.
-const dirs = [];
-for (const prof of readdirSync(base).filter((d) => /^(Default|Profile \d+)$/.test(d))) {
-  const les = join(base, prof, 'Local Extension Settings');
-  try { for (const id of readdirSync(les)) dirs.push(join(les, id)); } catch {}
-}
-const isJobbot = (d) => { try { return readdirSync(d).some((f) => /\.(log|ldb)$/.test(f) && readFileSync(join(d, f), 'latin1').includes('"company":"')); } catch { return false; } };
-const dir = dirs.filter(isJobbot).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+import { storageDir, rawDump } from './storage.mjs';
+const dir = storageDir();
 if (!dir) { console.log('no JobBot storage found'); process.exit(1); }
-
-let s = '';
-for (const f of readdirSync(dir).filter((f) => /\.(log|ldb)$/.test(f)).sort((a, b) => statSync(join(dir, a)).mtimeMs - statSync(join(dir, b)).mtimeMs)) s += readFileSync(join(dir, f), 'latin1');
-s = s.replace(/\\"/g, '"');
+const s = rawDump(dir);
 
 const today = new Date().toISOString().slice(0, 10);
 const recs = new Map();

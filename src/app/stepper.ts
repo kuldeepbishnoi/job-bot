@@ -4,7 +4,7 @@ import { siteById } from '../sites';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
-import { saveRunState, getRunState, clearRunState, getProgress } from '../platform/store';
+import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress } from '../platform/store';
 
 // MV3 service workers get killed after ~30s idle (and can't run for hours). So we DON'T loop the
 // whole queue in one await. Instead: persist the queue, process ONE job, then schedule an alarm
@@ -38,11 +38,12 @@ export async function startRun(
   profile: Profile,
   resume: SerializedFile,
   ports: RunPorts,
+  exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
 ): Promise<void> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
-  const already = await ports.appliedIds();
+  const already = new Set([...(await ports.appliedIds()), ...exclude]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
   await saveRunState({ siteId, profile, resume, queue, cursor: 0 });
@@ -83,9 +84,16 @@ export async function step(ports: RunPorts): Promise<void> {
     const site = siteById(state.siteId);
     if (!site || state.cursor >= state.queue.length) return finish(ports);
 
+    // Per-account daily limit: stop here and say so — the next account takes over.
+    const limit = state.profile.per_account_limit;
+    if (limit && (await appliedTodayCount()) >= limit) return finish(ports, `limit ${limit} reached for this account — switch to the next account`);
+
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
-    await ports.record(await applyOne(site, job, state.profile, state.resume, ports));
+    const result = await applyOne(site, job, state.profile, state.resume, ports);
+    await ports.record(result);
+    // The ATS's own cap ("application limit reached") — no point continuing on this account.
+    if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return finish(ports, `${result.note} — switch to the next account`);
 
     await saveRunState({ ...state, cursor: state.cursor + 1 });
     await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
@@ -101,9 +109,13 @@ export async function stopRun(ports: RunPorts): Promise<void> {
   await finish(ports);
 }
 
-async function finish(ports: RunPorts): Promise<void> {
+async function finish(ports: RunPorts, note?: string): Promise<void> {
   await chrome.alarms.clear(STEP_ALARM);
   await chrome.alarms.clear(WATCHDOG_ALARM);
   await clearRunState();
   await ports.cleanup();
+  if (note) {
+    const p = await getProgress();
+    await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: note, phase: 'done', at: Date.now() });
+  }
 }

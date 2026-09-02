@@ -180,3 +180,83 @@ function idb(): Promise<IDBDatabase> {
     req.onerror = () => rej(req.error);
   });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Append-only local data (owner's rule: complete, persistent, on disk, never only in
+// chrome.storage). Written from EXTENSION PAGES (popup / logs page), which hold the folder grant:
+//   <profile>/applications/applications.jsonl — one line per application: the full record
+//     (every field: set / guessed / pre-filled), outcome, URL, timestamps, account, and that
+//     job's log lines.
+//   <profile>/applications/registry.jsonl — one line per job id any account applied to; every
+//     run excludes these, so N accounts never repeat a job.
+// `node debug/export.mjs` produces the same files straight from the extension's storage on disk.
+const APPLICATIONS_JSONL = 'applications.jsonl';
+const REGISTRY_JSONL = 'registry.jsonl';
+const FLUSHED_KEY = 'flushed_records';
+
+interface RegistryLine {
+  jobId: string;
+  company: string;
+  account: string;
+  date: string;
+  status: string;
+}
+
+async function recordsDir(): Promise<DirHandle | null> {
+  const dir = await getHandle();
+  if (!dir) return null;
+  if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') return null;
+  return dir.getDirectoryHandle(RECORDS_DIR, { create: true });
+}
+
+async function readText(dir: DirHandle, name: string): Promise<string> {
+  try {
+    return await (await (await dir.getFileHandle(name)).getFile()).text();
+  } catch {
+    return '';
+  }
+}
+
+/** Job ids applied to by ANY account (from the shared registry). Empty set when no folder. */
+export async function readRegistry(): Promise<Set<string>> {
+  const dir = await recordsDir();
+  if (!dir) return new Set();
+  const ids = new Set<string>();
+  for (const line of (await readText(dir, REGISTRY_JSONL)).split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as RegistryLine;
+      if (r.status === 'applied') ids.add(r.jobId);
+    } catch {
+      /* skip a bad line */
+    }
+  }
+  return ids;
+}
+
+/** Flush every not-yet-written record (with its log lines) to the append-only files.
+ *  Idempotent: flushed keys are remembered in chrome.storage. Returns how many were written. */
+export async function flushToDisk(records: readonly Application[], log: readonly string[]): Promise<number> {
+  const dir = await recordsDir();
+  if (!dir) return 0;
+  const got = await chrome.storage.local.get(FLUSHED_KEY);
+  const flushed = new Set((got[FLUSHED_KEY] as string[] | undefined) ?? []);
+  const key = (a: Application) => `${a.jobId}@${a.at ?? a.date}`;
+  const pending = records.filter((a) => a.at && !flushed.has(key(a)));
+  if (pending.length === 0) return 0;
+
+  let apps = await readText(dir, APPLICATIONS_JSONL);
+  let reg = await readText(dir, REGISTRY_JSONL);
+  for (const a of pending) {
+    const { screenshot: _omit, ...rec } = a;
+    const lines = log.filter((l) => l.includes(`[${a.jobId}]`) || l.includes(` ${a.jobId} `));
+    apps += JSON.stringify({ ...rec, log: lines }) + '\n';
+    const r: RegistryLine = { jobId: a.jobId, company: a.company, account: a.account ?? '', date: a.date, status: a.status };
+    reg += JSON.stringify(r) + '\n';
+    flushed.add(key(a));
+  }
+  await writeFile(dir, APPLICATIONS_JSONL, apps);
+  await writeFile(dir, REGISTRY_JSONL, reg);
+  await chrome.storage.local.set({ [FLUSHED_KEY]: [...flushed].slice(-5000) });
+  return pending.length;
+}
