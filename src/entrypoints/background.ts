@@ -2,6 +2,8 @@ import { defineBackground } from 'wxt/sandbox';
 import { startRun, step, STEP_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
+import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
+import { getRunState } from '@/platform/store';
 import type { Msg } from '@/platform/messaging';
 
 // Main: wires concrete ports to the alarm-driven stepper.
@@ -44,6 +46,26 @@ export default defineBackground(() => {
   });
 
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === STEP_ALARM) void step(chromePorts());
+    if (alarm.name === STEP_ALARM) {
+      void step(chromePorts());
+      return;
+    }
+    // Daily hands-off run (enabled from the popup, which cached the profile + résumé for us).
+    const siteId = siteIdFromAlarm(alarm.name);
+    if (siteId) void runScheduled(siteId);
   });
 });
+
+async function runScheduled(siteId: string): Promise<void> {
+  const sched = await dailySchedule(siteId);
+  if (!sched) return; // toggled off; a stray alarm
+  if (await getRunState()) {
+    console.log('[jobbot] daily run skipped: another run is still in progress');
+    return;
+  }
+  try {
+    await startRun(siteId, sched.profile, sched.resume, chromePorts());
+  } catch (e) {
+    console.error('[jobbot] daily run failed to start', e);
+  }
+}

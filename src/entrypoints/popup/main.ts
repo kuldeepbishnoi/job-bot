@@ -3,6 +3,7 @@ import { stats, getProgress, needsAttention } from '@/platform/store';
 import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/fs-config';
 import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
+import { enableDaily, disableDaily, dailySchedule } from '@/platform/schedule';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -15,6 +16,7 @@ function renderSites(): void {
     btn.textContent = `Apply for ${site.label}`;
     btn.onclick = () => startRun(site.id, btn);
     host.appendChild(btn);
+    host.appendChild(dailyToggle(site.id, site.label));
   }
   // Instahyre isn't a worker-window Site: it applies in-page in the user's logged-in tab, so it
   // gets its own button + start path rather than going through the Greenhouse discover/OTP pipeline.
@@ -23,6 +25,34 @@ function renderSites(): void {
   ih.textContent = 'Apply for Instahyre';
   ih.onclick = () => startInstahyre(ih);
   host.appendChild(ih);
+}
+
+// "Run daily" — caches the profile + résumé (loaded here, where the FS-access gesture lives) and
+// arms a 24h alarm the background acts on. Unchecking clears both.
+function dailyToggle(siteId: string, label: string): HTMLElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'daily';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  wrap.append(box, document.createTextNode(` Run ${label} daily at 9:00`));
+  void dailySchedule(siteId).then((s) => (box.checked = !!s));
+  box.onchange = async () => {
+    try {
+      if (box.checked) {
+        setStatus('Reading profile…');
+        const { profile, resume } = await loadProfileAndResume();
+        await enableDaily(siteId, profile, resume);
+        setStatus(`${label}: daily run armed ✓`);
+      } else {
+        await disableDaily(siteId);
+        setStatus(`${label}: daily run off`);
+      }
+    } catch (e) {
+      box.checked = false;
+      setStatus(`⚠ ${(e as Error).message}`);
+    }
+  };
+  return wrap;
 }
 
 async function startInstahyre(btn: HTMLButtonElement): Promise<void> {
