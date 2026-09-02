@@ -35,13 +35,18 @@ async function waitForFrame(tabId: number, tries = 30): Promise<void> {
  *  content script before it can answer — the message port closes. For a site that declares
  *  `submittedUrl`, that closed port is the normal success signal: confirm by where the tab went.
  *  Every other site (Greenhouse) keeps the closed port as the error it is. */
-async function outcomeAfterPortClosed(site: Site, tabId: number, err: unknown): Promise<ApplyOutcome> {
+async function outcomeAfterPortClosed(site: Site, tabId: number, jobId: string, err: unknown): Promise<ApplyOutcome> {
   if (!site.submittedUrl) throw err;
   await sleep(2000); // let the redirect commit
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const url = tab?.pendingUrl ?? tab?.url ?? '';
-  if (site.submittedUrl(url)) return { status: 'submitted', note: `submitted — page moved on to ${url}` };
-  throw err;
+  if (!site.submittedUrl(url)) throw err;
+  // The content script stashed what it filled right before clicking Submit.
+  const key = `pending_fields:${jobId}`;
+  const got = await chrome.storage.local.get(key);
+  const filled = (got[key] as ApplyOutcome extends { filled?: infer F } ? F : never) ?? undefined;
+  await chrome.storage.local.remove(key).catch(() => {});
+  return { status: 'submitted', note: `submitted — page moved on to ${url}`, ...(filled ? { filled } : {}) };
 }
 
 // Concrete ports, assembled from platform adapters. This is the "Main" seam (Ch26):
@@ -64,7 +69,7 @@ export function chromePorts(): RunPorts {
         return out;
       } catch (e) {
         dlog('port closed', job.id, String((e as Error).message));
-        const out = await outcomeAfterPortClosed(site, tabId, e);
+        const out = await outcomeAfterPortClosed(site, tabId, job.id, e);
         dlog('outcome', job.id, out.status, 'note' in out ? out.note : '');
         return out;
       }

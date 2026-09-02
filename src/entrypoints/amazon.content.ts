@@ -159,6 +159,14 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       await settle(form); // dependents revealed by this pass mount before the next scan
       }
 
+      // For the record: every question this section shows, including what Amazon had pre-filled,
+      // so a submitted application can be reviewed field by field.
+      for (const f of az.extract(form)) {
+        if (filled.some((x) => x.id === f.id)) continue;
+        const v = az.currentAnswer(document, f);
+        if (v) filled.push({ id: f.id, label: f.label, value: `${v} (pre-filled)` });
+      }
+
       // Preflight: never press Continue with a required question still empty — Amazon would just
       // bounce us. Log exactly which ones, then try them once more with the guess policy.
       const missing = az.extract(form).filter((f) => f.required && !az.isAnswered(document, f));
@@ -222,7 +230,10 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
     const submit = await waitFor(() => az.submitButton(document), 10_000).catch(() => null);
     if (!submit) return { status: 'error', note: 'Submit application button never became enabled', filled };
-    log('clicking Submit application');
+    // Submit navigates away and kills this script before it can answer — stash the field list
+    // so the background can attach it to the record (platform/messaging PENDING_FIELDS).
+    await chrome.storage.local.set({ [`pending_fields:${msg.job.id}`]: filled }).catch(() => {});
+    log('clicking Submit application', 'fields', filled.length);
     submit.click();
 
     // Success = the app navigates to its success page, which kills this script mid-await; the

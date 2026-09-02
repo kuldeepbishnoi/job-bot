@@ -18,11 +18,19 @@
       .line.err { color: #ff9b9b; } .line.out { color: #9be7a5; } .line.popup { color: #f0c674; }
       .time { color: var(--muted); }
       .empty { color: var(--muted); padding: 40px; text-align: center; }
+      button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .app { background: var(--card); border-radius: 10px; padding: 12px 14px; margin: 10px 0; font-family: system-ui, sans-serif; }
+      .app h3 { margin: 0 0 4px; font-size: 14px; } .app .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+      .app .st-applied { color: #9be7a5; } .app .st-parked { color: #f0c674; } .app .st-failed { color: #ff9b9b; }
+      .app table { width: 100%; border-collapse: collapse; font-size: 12px; } .app td { padding: 3px 6px; border-top: 1px solid #262844; vertical-align: top; }
+      .app td:first-child { color: var(--muted); width: 55%; } .app .guess { color: #f0c674; } .app .pre { color: var(--muted); }
     </style>
   </head>
   <body>
     <header>
       <h1>JobBot logs</h1>
+      <button id="tab-log" class="ghost">Log</button>
+      <button id="tab-apps" class="ghost">Applications</button>
       <input id="filter" placeholder="filter (e.g. outcome, 10524143, FAILED)" />
       <button id="copy">Copy all</button>
       <button id="clear" class="ghost">Clear</button>

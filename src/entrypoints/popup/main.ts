@@ -189,6 +189,7 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
 });
 
 $('logs').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('/logs.html') }));
+$('apps').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('/logs.html#apps') }));
 
 const pick = $('pick');
 pick.addEventListener('click', async () => {

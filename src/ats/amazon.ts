@@ -182,6 +182,18 @@ export function isAnswered(doc: Document, field: Field): boolean {
   return !!text && text.value.trim() !== '';
 }
 
+/** The value a question currently shows (selected option text, checked labels, typed text). */
+export function currentAnswer(doc: Document, field: Field): string {
+  const node = questionNode(doc, field.id);
+  if (!node) return '';
+  const select = node.querySelector<HTMLSelectElement>('select');
+  if (select && select.options.length > 1) return [...select.options].filter((o) => o.selected && o.value !== '').map((o) => o.text.trim()).join(', ');
+  const checked = choiceInputs(node).filter((i) => i.checked);
+  if (checked.length) return checked.map((i) => optionLabel(node, i) || i.value).join(', ');
+  const text = node.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
+  return text?.value?.trim() ?? '';
+}
+
 function findOption<T>(items: readonly T[], text: (t: T) => string, wanted: string): T | undefined {
   const w = wanted.trim().toLowerCase();
   return (
