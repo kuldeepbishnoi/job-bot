@@ -38,6 +38,7 @@ export default defineConfig({
       'https://boards.greenhouse.io/*',
       'https://job-boards.greenhouse.io/*',
       'https://gk6e3zbyuntvc5dap.a1.typesense.net/*',
+      'https://www.instahyre.com/*',
       'https://mail.google.com/*',
       'https://gmail.googleapis.com/*',
     ],
