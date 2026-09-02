@@ -141,9 +141,16 @@ $('review').addEventListener('click', async () => {
 async function refreshProgress(): Promise<void> {
   const p = await getProgress();
   if (!p) return;
+  $('stop').hidden = p.phase !== 'running';
   if (p.phase === 'running') setStatus(`Applying ${p.done + 1}/${p.total} · ${p.current}`);
   else setStatus(`Run finished · ${p.total} processed`);
 }
+
+$('stop').addEventListener('click', async () => {
+  const res = await send<{ ok: boolean; error?: string }>({ t: 'stop' }).catch((e: Error) => ({ ok: false, error: e.message }));
+  setStatus(res.ok ? 'Run stopped.' : `⚠ ${res.error}`);
+  $('stop').hidden = true;
+});
 
 function setStatus(text: string): void {
   $('status').textContent = text;

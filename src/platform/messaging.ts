@@ -22,6 +22,8 @@ export type Msg =
   | { t: 'getCode' }
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
   | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile }
+  // popup -> background: abandon the current run (queue + alarm + worker tab)
+  | { t: 'stop' }
   // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window)
   | { t: 'runInstahyre' }
   // background -> instahyre content script: run the in-page apply loop

@@ -59,6 +59,12 @@ export async function step(ports: RunPorts): Promise<void> {
   chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
 }
 
+/** Popup -> background: abandon the run. Whatever job is mid-flight in the worker tab is left as-is
+ *  (Amazon auto-saves progress server-side, so a half-filled apply can be resumed by hand). */
+export async function stopRun(ports: RunPorts): Promise<void> {
+  await finish(ports);
+}
+
 async function finish(ports: RunPorts): Promise<void> {
   await chrome.alarms.clear(STEP_ALARM);
   await clearRunState();

@@ -1,5 +1,5 @@
 import { defineBackground } from 'wxt/sandbox';
-import { startRun, step, runInProgress, STEP_ALARM } from '@/app/stepper';
+import { startRun, step, stopRun, runInProgress, STEP_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
@@ -19,6 +19,10 @@ export default defineBackground(() => {
         }
       })();
       return true; // async response
+    }
+    if (msg.t === 'stop') {
+      stopRun(chromePorts()).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      return true;
     }
     // Instahyre applies in-page in the user's logged-in tab; the content script drives the loop
     // and reports each apply back here so it lands in the same stats/records as Greenhouse.
