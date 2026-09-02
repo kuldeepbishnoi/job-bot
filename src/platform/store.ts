@@ -1,4 +1,5 @@
 import type { Application, Job } from '../engine/types';
+import type { Credentials } from './credentials';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 import { appliedJobIds, computeStats, type Stats } from '../engine/stats';
@@ -37,8 +38,8 @@ export interface RunState {
   readonly cursor: number;
   /** Set when the run is waiting for the user to log in as `nextAccount` (account rotation). */
   readonly paused?: { readonly reason: string; readonly nextAccount: string };
-  /** From profile/accounts.yaml when present — lets rotation log the next account in itself. */
-  readonly credentials?: { readonly password: string; readonly overrides?: Record<string, string> };
+  /** From profile/accounts.csv when present — lets rotation log the next account in itself. */
+  readonly credentials?: Credentials;
 }
 
 export async function saveRunState(s: RunState): Promise<void> {
@@ -83,6 +84,12 @@ export async function record(app: Application): Promise<void> {
 export async function appliedTodayCount(account: string): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
   return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
+}
+
+/** Accounts whose run hit the ATS's own limit page today (recorded as a failed note). */
+export async function accountsAtLimitToday(): Promise<Set<string>> {
+  const today = new Date().toISOString().slice(0, 10);
+  return new Set((await readAll()).filter((a) => a.date === today && /limit reached/i.test(a.note ?? '')).map((a) => a.account ?? ''));
 }
 
 export async function allRecords(): Promise<Application[]> {

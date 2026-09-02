@@ -42,6 +42,8 @@ async function outcomeAfterPortClosed(site: Site, tabId: number, jobId: string, 
   await sleep(2000); // let the redirect commit
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const url = tab?.pendingUrl ?? tab?.url ?? '';
+  // The ATS's own cap: Amazon answers a submit with code 203 → summary?result=application_limit_reach.
+  if (/result=application_limit_reach/.test(url)) return { status: 'error', note: 'Amazon application limit reached (limit page after submit)' };
   if (!site.submittedUrl(url)) throw err;
   // The content script stashed what it filled right before clicking Submit.
   const key = `pending_fields:${jobId}`;

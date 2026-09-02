@@ -52,6 +52,13 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     ['Are you a member of the Reserve Forces of your country?', 'answers.reserve_forces'],
     ['Are you a military spouse?', 'answers.military_spouse'],
     ['Preferred start date', undefined],
+    ['Education level', 'answers.education_level'],
+    ['School name', 'answers.school_name'],
+    ['Area(s) of study', 'answers.area_of_study'],
+    ['Are you currently a student?', 'answers.currently_student'],
+    ['When did you graduate?', 'answers.graduation'],
+    ['Have you had relevant non-internship professional experience?', 'answers.relevant_experience'],
+    ['If "Amazon Career Site" please specify', 'answers.how_did_you_hear_detail'],
   ];
   it.each(cases)('%s', (label, intent) => {
     expect(matchIntent(label)).toBe(intent);

@@ -4,6 +4,7 @@ import { parse } from 'yaml';
 import { parseProfile, type Profile } from '../config/schema';
 import { serializeFile, type SerializedFile } from './serialized-file';
 import type { Application } from '../engine/types';
+import { parseCredentialsCsv, type Credentials } from './credentials';
 
 const HANDLE_KEY = 'profileDirHandle';
 const RECORDS_DIR = 'applications';
@@ -181,16 +182,15 @@ function idb(): Promise<IDBDatabase> {
   });
 }
 
-/** profile/accounts.yaml (git-ignored): `password: <temporary shared password>` plus optional
- *  `overrides: { email: password }`. Absent = rotation pauses for a manual login instead. */
-export async function loadCredentials(): Promise<{ password: string; overrides?: Record<string, string> } | undefined> {
+/** profile/accounts.csv (git-ignored): `email,site,password` rows (see platform/credentials.ts).
+ *  Absent = rotation pauses for a manual login instead. */
+export async function loadCredentials(): Promise<Credentials | undefined> {
   const dir = await getHandle();
   if (!dir) return undefined;
   try {
-    const text = await (await (await dir.getFileHandle('accounts.yaml')).getFile()).text();
-    const raw = parse(text) as { password?: string; overrides?: Record<string, string> } | null;
-    if (!raw?.password) return undefined;
-    return { password: String(raw.password), overrides: raw.overrides };
+    const text = await (await (await dir.getFileHandle('accounts.csv')).getFile()).text();
+    const c = parseCredentialsCsv(text);
+    return Object.keys(c.bySite).length ? c : undefined;
   } catch {
     return undefined;
   }
