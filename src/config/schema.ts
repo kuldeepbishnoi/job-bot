@@ -50,6 +50,8 @@ export const ProfileSchema = z.object({
   auto_submit: z.boolean().default(false),
   // Cap the queue per run (e.g. 15 to test hands-free submission on a small batch). Omit = all.
   max_per_run: z.number().int().positive().optional(),
+  // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
+  careers: z.array(z.string().url()).default([]),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),
 });
