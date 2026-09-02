@@ -1,6 +1,7 @@
 import type { Answer, Field, Intent, Job } from './types';
 import type { AnswerValue, Profile } from '../config/schema';
 import { isAnswerToken, optionForToken } from './answer-tokens';
+import { pickYearsOption } from './years';
 
 // A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no.
 const YES = ['yes', 'i agree', 'i acknowledge', 'i understand', 'true', 'authorized', 'authorised'];
@@ -65,6 +66,16 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
     const synonyms = val ? YES : NO;
     const picked = options.filter((o) => synonyms.some((s) => o.toLowerCase().includes(s)));
     return picked.length ? { kind: 'choice', values: picked.slice(0, 1) } : { kind: 'choice', values: [val ? 'Yes' : 'No'] };
+  }
+
+  // Numeric answer (years_of_experience: 6) -> the range option that contains it, or the number
+  // itself for a free-text field.
+  if (typeof val === 'number') {
+    if (field.kind === 'select' || field.kind === 'multiselect') {
+      const opt = pickYearsOption(options, val);
+      return opt ? { kind: 'choice', values: [opt] } : { kind: 'unknown' };
+    }
+    return { kind: 'text', value: String(val) };
   }
 
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {

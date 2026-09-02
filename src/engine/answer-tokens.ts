@@ -1,7 +1,8 @@
 // Canonical answer tokens for standard demographic / self-ID questions.
 // The user writes the TOKEN in profile.yaml (e.g. `gender: DECLINE`); the resolver maps it to
 // whichever option wording a given company uses ("Decline to self-identify", "Prefer not to say",
-// "I don't wish to answer" …). One token, reusable across every site — no magic strings in config.
+// "I don't wish to answer", "I choose not to self-identify" …). One token, reusable across every
+// site — no magic strings in config.
 
 export const AnswerToken = {
   DECLINE: 'DECLINE', // prefer not to answer / decline to self-identify
@@ -16,12 +17,17 @@ const SYNONYMS: Record<AnswerToken, readonly string[]> = {
   DECLINE: [
     'decline to self-identify',
     'decline to identify',
+    'choose not to self-identify',
+    'choose not to identify',
+    'choose not to answer',
+    'choose not to',
     "don't wish to answer",
     'do not wish to answer',
     "don't want to answer",
     'do not want to answer',
     'prefer not to say',
     'prefer not to answer',
+    'prefer not to disclose',
   ],
   NOT_A_VETERAN: ['i am not a protected veteran', 'not a protected veteran', 'i am not a veteran', 'not a veteran'],
   NO_DISABILITY: [

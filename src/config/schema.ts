@@ -23,9 +23,19 @@ export const WantSchema = z.object({
 //   boolean  -> yes/no questions (work_authorization, needs_sponsorship, consents)
 //   string   -> single choice or free text (how_did_you_hear)
 //   string[] -> multi-select (languages, locations)
-export const AnswerValue = z.union([z.string(), z.boolean(), z.array(z.string())]);
+//   number   -> "how many years …" range dropdowns (years_of_experience)
+export const AnswerValue = z.union([z.string(), z.boolean(), z.number(), z.array(z.string())]);
 export type AnswerValue = z.infer<typeof AnswerValue>;
 export const AnswersSchema = z.record(AnswerValue);
+
+// Per-site knobs. Only what a site genuinely needs from the user; everything else is derived.
+export const AmazonSchema = z.object({
+  // Paste the amazon.jobs search page URL with your filters applied (category, country,
+  // experience…). Discovery turns it into the JSON API query. Omit for the built-in default.
+  search_url: z.string().url().optional(),
+  // Amazon asks once whether it may use AI to recommend jobs / refer you to recruiters.
+  ai_consent: z.boolean().default(true),
+});
 
 export const ProfileSchema = z.object({
   identity: IdentitySchema,
@@ -36,10 +46,12 @@ export const ProfileSchema = z.object({
   overrides: z.record(AnswerValue).default({}),
   on_unknown: z.enum(['park', 'skip']).default('park'),
   auto_submit: z.boolean().default(false),
+  amazon: AmazonSchema.default({}),
 });
 
 export type Identity = z.infer<typeof IdentitySchema>;
 export type Want = z.infer<typeof WantSchema>;
+export type AmazonConfig = z.infer<typeof AmazonSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export function parseProfile(raw: unknown): Profile {

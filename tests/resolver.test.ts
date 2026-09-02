@@ -19,6 +19,21 @@ const job: Job = {
 const f = (p: Partial<Field>): Field => ({ id: 'x', label: 'x', kind: 'text', required: true, ...p });
 
 describe('resolver', () => {
+  it('maps a numeric years answer onto the range option that contains it', () => {
+    const p = parseProfile({ ...base, answers: { years_of_experience: 6 } });
+    const field = f({ kind: 'select', intent: 'answers.years_of_experience' });
+    const ladder = ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', '4 years to less than 5 years', 'more than 5 years'];
+    expect(resolve(field, p, job, ladder)).toEqual({ kind: 'choice', values: ['more than 5 years'] });
+    expect(resolve(f({ kind: 'text', intent: 'answers.years_of_experience' }), p, job)).toEqual({ kind: 'text', value: '6' });
+    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // not a years ladder
+  });
+
+  it('maps DECLINE onto Amazon\'s "I choose not to self-identify"', () => {
+    const p = parseProfile({ ...base, answers: { indigenous: 'DECLINE' } });
+    const field = f({ kind: 'select', intent: 'answers.indigenous' });
+    expect(resolve(field, p, job, ['Yes', 'No', 'I choose not to self-identify'])).toEqual({ kind: 'choice', values: ['I choose not to self-identify'] });
+  });
+
   it('fills identity text', () => {
     expect(resolve(f({ intent: 'identity.first_name' }), profile, job)).toEqual({ kind: 'text', value: 'Kuldeep' });
   });
