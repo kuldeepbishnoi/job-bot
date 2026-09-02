@@ -24,12 +24,17 @@ describe('guessAnswer (on_unknown: guess — never stuck)', () => {
     expect(guessAnswer(sel, ['Yes', 'No', 'I choose not to self-identify'])).toEqual({ kind: 'choice', values: ['I choose not to self-identify'] });
     expect(guessAnswer(sel, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
     expect(guessAnswer(sel, ['No, I was NEVER a government employee.', 'Yes, I am a FORMER government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
-    expect(guessAnswer(sel, ['Yes'])).toBeNull();
+    expect(guessAnswer(sel, ['Yes'])).toEqual({ kind: 'choice', values: ['Yes'] }); // the only option there is
   });
-  it('has no safe guess for a country picker or free text — those still park', () => {
-    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'])).toBeNull(); // "No" ≠ "North"
-    expect(guessAnswer(f({ kind: 'text' }), [])).toBeNull();
+  it('picks the applicant\'s own country from a country list, and never "North Korea" for "No"', () => {
+    const p = parseProfile(base); // identity.country: India
+    expect(guessAnswer(sel, ['Afghanistan', 'British Indian Ocean Territory', 'India', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['India'] });
+    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['Afghanistan'] }); // last resort: first option
+  });
+  it('never stops: free text gets N/A, a checkbox gets checked, an empty select parks', () => {
+    expect(guessAnswer(f({ kind: 'text' }), [])).toEqual({ kind: 'text', value: 'N/A' });
     expect(guessAnswer(f({ kind: 'checkbox' }), [])).toEqual({ kind: 'check', value: true });
+    expect(guessAnswer(sel, ['', 'Select an option'])).toBeNull();
   });
 });
 

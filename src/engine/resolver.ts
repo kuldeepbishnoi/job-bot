@@ -103,17 +103,26 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
   return jobOpts.length ? { kind: 'choice', values: jobOpts } : { kind: 'unknown' };
 }
 
-/** The "safe obvious" choice for a required question nobody has an answer for (on_unknown: guess):
- *  a decline/prefer-not option if the form offers one, else "No"/"None"/"Not applicable" — the
- *  answer that opens no follow-up questions. Null when nothing safe exists (free text, a country
- *  picker…), in which case the caller parks. Checkboxes are handled by resolve() (required = check). */
-export function guessAnswer(field: Field, options: readonly string[]): Answer | null {
+/** The "obvious" choice for a required question nobody has an answer for (on_unknown: guess) —
+ *  the owner's rule is "never stuck", so this always returns something for a select/text:
+ *    1. a decline / prefer-not option, if offered;
+ *    2. the applicant's own country (identity.country) when the options are a country list;
+ *    3. "No" / "None" / "Not applicable" — the answer that opens no follow-up questions;
+ *    4. last resort: the first real option (select) or "N/A" (free text).
+ *  Callers mark the record "(guessed)" so a bad guess is visible after the fact. */
+export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
   if (field.kind === 'checkbox') return { kind: 'check', value: true };
+  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
   if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
   const decline = optionForToken('DECLINE', options);
   if (decline) return { kind: 'choice', values: [decline] };
+  const country = profile?.identity.country?.trim().toLowerCase();
+  const own = country ? options.find((o) => o.trim().toLowerCase() === country) : undefined;
+  if (own) return { kind: 'choice', values: [own] };
   const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
-  return no ? { kind: 'choice', values: [no] } : null;
+  if (no) return { kind: 'choice', values: [no] };
+  const first = options.find((o) => o.trim() !== '' && !/^select/i.test(o.trim()));
+  return first ? { kind: 'choice', values: [first] } : null;
 }
 
 /** Per wanted value, an exact option wins outright ("India" must not become "British Indian Ocean

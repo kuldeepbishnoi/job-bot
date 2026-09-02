@@ -89,7 +89,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         let answer = resolve(field, msg.profile, msg.job, options);
         let guessed = false;
         if (answer.kind === 'unknown' && field.required && msg.profile.on_unknown === 'guess') {
-          const g = guessAnswer(field, options);
+          const g = guessAnswer(field, options, msg.profile);
           if (g) {
             answer = g;
             guessed = true;

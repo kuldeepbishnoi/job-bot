@@ -62,7 +62,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       handledIds.add(field.id);
       const options = await gh.optionsFor(document, field);
       let answer = resolve(field, msg.profile, msg.job, options);
-      if (answer.kind === 'unknown' && field.required && msg.profile.on_unknown === 'guess') answer = guessAnswer(field, options) ?? answer;
+      if (answer.kind === 'unknown' && field.required && msg.profile.on_unknown === 'guess') answer = guessAnswer(field, options, msg.profile) ?? answer;
       log('field', { id: field.id, label: field.label, kind: field.kind, intent: field.intent, options, answer });
       if (answer.kind === 'unknown') {
         if (field.required && msg.profile.on_unknown !== 'skip') return `No answer for required: "${field.label}"`;
