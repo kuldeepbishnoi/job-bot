@@ -5,6 +5,7 @@ import { record, appliedIds, saveProgress, getProgress } from '../platform/store
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
+import { dlog } from '../platform/debug-log';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,9 +45,13 @@ export function chromePorts(): RunPorts {
     openJob,
     apply: async (site, tabId, profile, job, resume) => {
       await waitForFrame(tabId);
+      dlog('apply', site.id, job.id, job.title);
       try {
-        return await sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
+        const out = await sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
+        dlog('outcome', job.id, out.status, 'note' in out ? out.note : '', 'filled', out.filled?.length ?? 0);
+        return out;
       } catch (e) {
+        dlog('port closed', job.id, String((e as Error).message));
         return outcomeAfterPortClosed(site, tabId, e);
       }
     },

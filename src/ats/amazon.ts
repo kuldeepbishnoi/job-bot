@@ -59,11 +59,17 @@ export function formKey(form: Element): string {
   return `${idx}:${heading ? labelText(heading).slice(0, 60) : ''}`;
 }
 
-/** Review mode = every form saved: the bundle flags the forms container `reviewing` and renders
- *  the Submit application button. Require the flag — a first live run showed the loop ending
- *  before filling anything, and a lone button/container match is the likeliest false positive. */
+/** Have the forms arrived? The "My progress" rail (FormNavigation) renders only once
+ *  `allFormsLoaded`; before that the page is a shell that ALSO carries the `reviewing` flag
+ *  (verified live: forms=1 active=0 reviewing=1 questions=0 nav=0 right after load). */
+export function formsLoaded(doc: Document): boolean {
+  return doc.querySelectorAll('li.form-list-item').length > 0;
+}
+
+/** Review mode = every form saved: forms loaded, container flagged `reviewing`, and the Submit
+ *  application button rendered. All three — the flag alone is set on the not-yet-loaded shell. */
 export function reviewMode(doc: Document): boolean {
-  return !!doc.querySelector('.question-forms.reviewing');
+  return formsLoaded(doc) && !!doc.querySelector('.question-forms.reviewing') && !!doc.querySelector('.submit-application-button');
 }
 
 /** One-line description of the page state, for park/error notes — so a failed run explains

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  activeForm, formKey, extract, optionsFor, isAnswered, fill, continueButton, submitButton, reviewMode,
+  activeForm, formKey, extract, optionsFor, isAnswered, fill, continueButton, submitButton, reviewMode, formsLoaded,
   validationErrors, isDuplicate, isApplyPage, submittedByNavigation, aiConsentStep, answerAiConsent, progress,
 } from '@/ats/amazon';
 import { withIntent } from '@/engine/matcher';
@@ -154,8 +154,17 @@ describe('amazon adapter — self-identification radios (Canada wording)', () =>
 });
 
 describe('amazon adapter — page states', () => {
+  it('a not-yet-loaded shell (reviewing flag, no rail, no questions) is NOT review mode', () => {
+    // Exactly what the first live run saw: forms=1 active=0 reviewing=1 submit=0 questions=0 nav=0
+    const doc = parse(`<div class="question-forms reviewing"><div class="card question-form form0"></div></div>`);
+    visible(doc);
+    expect(formsLoaded(doc)).toBe(false);
+    expect(reviewMode(doc)).toBe(false);
+    expect(activeForm(doc)).toBeNull();
+  });
+
   it('review mode exposes the enabled Submit application button', () => {
-    const doc = parse(`<div class="question-forms reviewing"></div>
+    const doc = parse(`<ul class="form-list"><li class="form-list-item finished">General questions</li></ul><div class="question-forms reviewing"></div>
       <div class="submit-application-stickey-container"><div class="submit-application-button"><button class="btn btn-primary submit" type="submit">Submit application</button></div></div>`);
     visible(doc);
     expect(reviewMode(doc)).toBe(true);

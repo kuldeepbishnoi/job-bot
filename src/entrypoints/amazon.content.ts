@@ -5,6 +5,7 @@ import * as az from '@/ats/amazon';
 import { waitFor, describeAnswer } from '@/ats/dom';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
 import type { AppliedField } from '@/engine/types';
+import { dlog } from '@/platform/debug-log';
 
 // Runs in the user's logged-in amazon.jobs tab on /applicant/jobs/<id>/apply (and the /summary
 // page it redirects to). Same message contract as the Greenhouse script (ping / apply), driven by
@@ -21,7 +22,7 @@ const STEP_TIMEOUT_MS = 15_000; // save round-trip + re-render after Continue
 const SUBMIT_TIMEOUT_MS = 25_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const log = (...a: unknown[]) => console.log('[jobbot:amazon]', ...a);
+const log = (...a: unknown[]) => dlog('amazon', ...a);
 
 export default defineContentScript({
   matches: ['https://www.amazon.jobs/applicant/jobs/*', 'https://www.amazon.jobs/*/applicant/jobs/*'],
@@ -50,6 +51,12 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     }
     if (/result=application_limit_reach/.test(location.href)) return { status: 'error', note: 'Amazon application limit reached' };
 
+    // The apply app is a shell until its forms XHR lands (and the shell already carries the
+    // `reviewing` flag) — wait for the progress rail, then for an active form / real review mode.
+    await waitFor(() => (az.formsLoaded(document) ? true : null), 30_000).catch(() => {
+      throw new Error(`forms never loaded (30s) — ${az.describeState(document)}`);
+    });
+    log('forms loaded', az.describeState(document));
     await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 20_000).catch(() => {
       throw new Error(`no active form or review mode after 20s — ${az.describeState(document)}`);
     });
@@ -97,6 +104,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
       const next = az.continueButton(form);
       if (!next) return parked(`No Continue button on form ${key}`);
+      log('continue', key, 'filled so far', filled.length);
       next.click();
 
       const moved = await waitFor(() => {
@@ -105,8 +113,9 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         if (!now) return az.reviewMode(document) ? ('review' as const) : null;
         return az.formKey(now) !== key ? ('next' as const) : null;
       }, STEP_TIMEOUT_MS).catch(() => 'stuck' as const);
+      log('after continue', key, '→', moved, az.describeState(document));
       if (moved === 'errors') return parked(`Amazon rejected form ${key}: ${az.validationErrors(form).join('; ')}`);
-      if (moved === 'stuck') return parked(`Form ${key} did not advance after Continue`);
+      if (moved === 'stuck') return parked(`Form ${key} did not advance after Continue — ${az.describeState(document)}`);
       if (moved === 'review') {
         reachedReview = true;
         break;
