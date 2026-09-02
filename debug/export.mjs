@@ -4,6 +4,7 @@
 // Idempotent: a job@timestamp already present in applications.jsonl is skipped.
 //   node debug/export.mjs                     # account = profile.yaml identity.email
 //   node debug/export.mjs --account you.01@gmail.com
+//   JOBBOT_PROFILE=/path/to/profile node debug/export.mjs   # when run from a worktree without profile/
 import { readFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +15,9 @@ const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = process.env.JOBBOT_PROFILE ?? join(repo, 'profile');
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : undefined; };
-const profile = parse(readFileSync(join(profileDir, 'profile.yaml'), 'utf8'));
+const profile = existsSync(join(profileDir, 'profile.yaml')) ? parse(readFileSync(join(profileDir, 'profile.yaml'), 'utf8')) : {};
 const account = opt('--account') ?? profile.identity?.email ?? '';
+if (!account) { console.error('no account: pass --account <email> or set JOBBOT_PROFILE to a folder with profile.yaml'); process.exit(1); }
 
 const dir = storageDir();
 if (!dir) { console.error('no JobBot storage found'); process.exit(1); }
