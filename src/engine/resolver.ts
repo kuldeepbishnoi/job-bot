@@ -98,6 +98,7 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
   // select / multiselect: map desired value(s) onto real option labels.
   const wanted = Array.isArray(val) ? val : [val];
   const picked = matchOptions(options, wanted);
+  // No options yet (a live-search picker) → pass the text through; the adapter types it.
   if (picked.length === 0) return options.length ? { kind: 'unknown' } : { kind: 'choice', values: wanted };
   return { kind: 'choice', values: field.kind === 'select' ? picked.slice(0, 1) : picked };
 }

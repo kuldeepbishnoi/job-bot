@@ -19,11 +19,8 @@ export type LoginOutcome =
   | { status: 'pending' }
   | { status: 'error'; note: string };
 
-/** Per-account credentials from profile/accounts.yaml (git-ignored; a temporary shared password). */
-export interface Credentials {
-  readonly password: string;
-  readonly overrides?: Record<string, string>; // email -> password when one account differs
-}
+import type { Credentials } from './credentials';
+export type { Credentials };
 
 export type Msg =
   // background -> form frame

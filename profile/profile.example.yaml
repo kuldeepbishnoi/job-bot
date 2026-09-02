@@ -28,7 +28,7 @@ answers:
   needs_sponsorship: false        # yes/no
   acknowledge_true: true          # yes/no
   privacy_consent: true           # yes/no
-  how_did_you_hear: "LinkedIn"    # single choice / free text
+  how_did_you_hear: "Amazon Career Site"  # single choice / free text (Amazon options: Advertisement | Amazon Career Site | Job Posting | …)
   languages: [English, Hindi]     # multi-select
   # Screening questions (Amazon "job-specific questions" and similar):
   years_of_experience: 6          # number -> the "N to less than M years" bucket containing it · MAX -> always the top bucket
@@ -36,6 +36,14 @@ answers:
   degree_bachelors: true          # "Do you have a Bachelor's degree …?"
   degree_masters: false
   willing_to_relocate: true
+  # First-time profile sections (a fresh account has these empty; answered from here, never typed):
+  education_level: "Bachelor's"
+  school_name: "Your University"      # Amazon's school picker is a live search — typed, first hit chosen
+  area_of_study: "Computer Science"
+  currently_student: false
+  graduation: "More than 3 years ago"
+  relevant_experience: true
+  how_did_you_hear_detail: "Amazon.jobs"
   # Work-eligibility questions (Amazon reuses last time's answers, so these only fill an EMPTY form):
   # previously_applied: true        # "Have you previously applied to Amazon …?"
   # previous_employment: false      # "Have you previously been employed by Amazon …?"
@@ -79,8 +87,8 @@ careers:
 accounts:
   - you.01@gmail.com
   - you.02@gmail.com
-per_account_limit: 10   # Amazon's cap per account/day. At the cap the bot logs out, opens the login page and PAUSES:
-                        # log the next account in, click "Resume as next account" in the popup, and it continues.
+# per_account_limit: 10  # optional safety cap; Amazon's own "application limit reached" page rotates accounts by itself
+# Logins + passwords live in accounts.csv (email,site,password) — see accounts.example.csv.
 
 # Per-site knobs (optional).
 amazon:

@@ -50,6 +50,14 @@ export type Intent =
   | 'answers.degree_bachelors' // "Do you have a Bachelor's degree …?" (yes/no)
   | 'answers.degree_masters' // "Do you have a Master's degree …?" (yes/no)
   | 'answers.willing_to_relocate'
+  // First-time profile sections (Amazon Education / General questions).
+  | 'answers.education_level'
+  | 'answers.school_name'
+  | 'answers.area_of_study'
+  | 'answers.currently_student'
+  | 'answers.graduation'
+  | 'answers.relevant_experience'
+  | 'answers.how_did_you_hear_detail'
   // Work-eligibility / compliance questions.
   | 'answers.previously_applied'
   | 'answers.previous_employment'
