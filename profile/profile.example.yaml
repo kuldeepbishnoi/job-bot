@@ -63,7 +63,7 @@ answers:
 overrides: {}
   # "please select all the languages you speak fluently": [English]
 
-on_unknown: park        # unmatched required question -> park (default) | skip
+on_unknown: park        # unmatched required question -> park (default) | skip | guess (pick decline/No, record "(guessed)", never stuck)
 auto_submit: false      # false = fill + OTP then you approve · true = hands-free (needed for daily runs)
 
 # Per-site knobs (optional).

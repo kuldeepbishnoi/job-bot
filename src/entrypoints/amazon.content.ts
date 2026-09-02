@@ -1,6 +1,6 @@
 import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
-import { resolve } from '@/engine/resolver';
+import { resolve, guessAnswer } from '@/engine/resolver';
 import * as az from '@/ats/amazon';
 import { waitFor, describeAnswer } from '@/ats/dom';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
@@ -86,15 +86,23 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       for (const field of az.extract(form).map(withIntent)) {
         if (az.isAnswered(document, field)) continue; // reused from the last application — leave it
         const options = az.optionsFor(document, field);
-        const answer = resolve(field, msg.profile, msg.job, options);
-        log('field', { id: field.id, label: field.label, kind: field.kind, intent: field.intent, options, answer });
+        let answer = resolve(field, msg.profile, msg.job, options);
+        let guessed = false;
+        if (answer.kind === 'unknown' && field.required && msg.profile.on_unknown === 'guess') {
+          const g = guessAnswer(field, options);
+          if (g) {
+            answer = g;
+            guessed = true;
+          }
+        }
+        log('field', { id: field.id, label: field.label, kind: field.kind, intent: field.intent, options, answer, guessed });
         if (answer.kind === 'unknown') {
-          if (field.required && msg.profile.on_unknown === 'park') return parked(`No answer for required: "${field.label}"`);
+          if (field.required && msg.profile.on_unknown !== 'skip') return parked(`No answer for required: "${field.label}" (options: ${options.join(' | ').slice(0, 200)})`);
           continue;
         }
         try {
           az.fill(document, field, answer);
-          filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) });
+          filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) + (guessed ? ' (guessed)' : '') });
         } catch (e) {
           log('fill FAILED', field.id, (e as Error).message);
           if (field.required) return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);

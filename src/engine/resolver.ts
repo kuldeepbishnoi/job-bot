@@ -103,6 +103,19 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
   return jobOpts.length ? { kind: 'choice', values: jobOpts } : { kind: 'unknown' };
 }
 
+/** The "safe obvious" choice for a required question nobody has an answer for (on_unknown: guess):
+ *  a decline/prefer-not option if the form offers one, else "No"/"None"/"Not applicable" — the
+ *  answer that opens no follow-up questions. Null when nothing safe exists (free text, a country
+ *  picker…), in which case the caller parks. Checkboxes are handled by resolve() (required = check). */
+export function guessAnswer(field: Field, options: readonly string[]): Answer | null {
+  if (field.kind === 'checkbox') return { kind: 'check', value: true };
+  if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
+  const decline = optionForToken('DECLINE', options);
+  if (decline) return { kind: 'choice', values: [decline] };
+  const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
+  return no ? { kind: 'choice', values: [no] } : null;
+}
+
 /** Per wanted value, an exact option wins outright ("India" must not become "British Indian Ocean
  *  Territory"); otherwise fuzzy: the option matches if either contains the other. Option order kept. */
 export function matchOptions(options: readonly string[], wanted: readonly string[]): string[] {

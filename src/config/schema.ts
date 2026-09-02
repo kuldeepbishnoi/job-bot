@@ -44,7 +44,9 @@ export const ProfileSchema = z.object({
   answers: AnswersSchema.default({}),
   // Exact-question-text → answer, for rare one-offs the intent rules don't cover.
   overrides: z.record(AnswerValue).default({}),
-  on_unknown: z.enum(['park', 'skip']).default('park'),
+  // park = stop and ask; skip = leave it (submit may fail); guess = pick the safe obvious option
+  // (decline-to-answer if offered, else "No") and keep going — never stuck, guesses are recorded.
+  on_unknown: z.enum(['park', 'skip', 'guess']).default('park'),
   auto_submit: z.boolean().default(false),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),

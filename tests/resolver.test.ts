@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolve, matchOptions } from '@/engine/resolver';
+import { resolve, matchOptions, guessAnswer } from '@/engine/resolver';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -17,6 +17,21 @@ const job: Job = {
 };
 
 const f = (p: Partial<Field>): Field => ({ id: 'x', label: 'x', kind: 'text', required: true, ...p });
+
+describe('guessAnswer (on_unknown: guess — never stuck)', () => {
+  const sel = f({ kind: 'select', label: 'Are you subject to any post-government employment restrictions?' });
+  it('prefers a decline option, else No, and never a Yes', () => {
+    expect(guessAnswer(sel, ['Yes', 'No', 'I choose not to self-identify'])).toEqual({ kind: 'choice', values: ['I choose not to self-identify'] });
+    expect(guessAnswer(sel, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    expect(guessAnswer(sel, ['No, I was NEVER a government employee.', 'Yes, I am a FORMER government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
+    expect(guessAnswer(sel, ['Yes'])).toBeNull();
+  });
+  it('has no safe guess for a country picker or free text — those still park', () => {
+    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'])).toBeNull(); // "No" ≠ "North"
+    expect(guessAnswer(f({ kind: 'text' }), [])).toBeNull();
+    expect(guessAnswer(f({ kind: 'checkbox' }), [])).toEqual({ kind: 'check', value: true });
+  });
+});
 
 describe('resolver', () => {
   it('maps a numeric years answer onto the range option that contains it', () => {
