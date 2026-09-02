@@ -20,6 +20,13 @@ Snapshot for the next agent/session. Update it as things land.
 - **Config** — `config/schema.ts` (zod) + `profile/profile.example.yaml`. Read live from a picked
   folder via File System Access (`platform/fs-config.ts`).
 
+- **Résumé tailoring** — `src/resume/` (pure: tex parser, keyword vocabulary derived from the user's
+  own skills lines, variant scoring, skills-line rewrite) + `scripts/tailor-resume.ts` CLI
+  (`npm run tailor`, optional pdflatex compile + page count, `--json`). Tested against
+  `fixtures/resume/*.tex` and the real Typesense JD text; verified on the owner's five real variants
+  (correct variant picked, one-page PDFs). Not yet wired into the extension: the Typesense doc already
+  carries `description`, so per-job tailoring inside the apply run is the natural next step.
+
 ## Code-review blockers fixed (PR #1 review round 1)
 - OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
 - Profile now loads in the popup and is passed to the SW (FS-access can't run in a service worker).

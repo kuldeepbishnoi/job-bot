@@ -50,6 +50,21 @@ every `chrome.*` / network effect lives in `platform/`; config is zod-validated 
 `auto_submit: false` (default) fills + enters the code, then parks each job for you to click Submit.
 Set `true` for hands-free.
 
+## Tailor your résumé to a JD (no AI)
+
+Keep your Overleaf sources as variants in `profile/resume/` (`backend.tex`, `platform.tex`, …), then:
+
+```
+npm run tailor -- --jd jd.txt            # or:  pbpaste | node scripts/tailor-resume.ts --jd - --name datadog-sde
+```
+
+It finds which of your listed skills the JD asks for, picks the variant that already speaks that
+language, and rewrites only its Technical Skills lines: matched skills first and bold, missing ones
+imported from your other variants. Writes `profile/resume/out/<name>.pdf` (ready to upload; the page
+count is printed) and the matching `.tex` (for Overleaf). Needs `pdflatex` (macOS:
+`brew install --cask basictex`); `--no-pdf` writes only the `.tex`. From another bot, run
+`node scripts/tailor-resume.ts … --json` and read the paths from stdout (Node ≥ 22.18).
+
 ## Test
 
 ```

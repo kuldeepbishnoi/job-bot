@@ -16,4 +16,6 @@ profile/resume/*
 # On-disk application records (personal: names, answers, screenshots).
 profile/applications/
 !profile/resume/.gitkeep
+# Output of `npm run tailor` when pointed at the fixtures.
+fixtures/resume/out/
 !profile/profile.example.yaml
