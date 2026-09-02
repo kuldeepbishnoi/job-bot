@@ -24,6 +24,8 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     ['Which option best describes your total non-internship professional software development experience?', 'answers.years_of_experience'],
     ['Which option best describes your total full software development life cycle, including coding standards, code reviews, source control management, build processes, testing, and operations experience?', 'answers.years_of_experience'],
     ['Do you have experience programming with at least one software programming language?', 'answers.skills_experience'],
+    ['Do you have 5+ years of full software development life cycle, including coding standards, code reviews, source control management, build processes, testing, and operations experience?', 'answers.years_of_experience'],
+    ['Do you have 3+ years of programming with at least one software programming language?', 'answers.years_of_experience'],
     ['Do you have experience with Machine Learning and Large Language Model fundamentals, including architecture, training/inference lifecycles, and optimization of model execution?', 'answers.skills_experience'],
     ["Do you have a Bachelor's degree in computer science or equivalent?", 'answers.degree_bachelors'],
     ["Do you have a Master's degree in computer science or equivalent?", 'answers.degree_masters'],

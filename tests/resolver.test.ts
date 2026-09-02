@@ -45,7 +45,11 @@ describe('resolver', () => {
     const ladder = ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', '4 years to less than 5 years', 'more than 5 years'];
     expect(resolve(field, p, job, ladder)).toEqual({ kind: 'choice', values: ['more than 5 years'] });
     expect(resolve(f({ kind: 'text', intent: 'answers.years_of_experience' }), p, job)).toEqual({ kind: 'text', value: '6' });
-    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // not a years ladder
+    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // no threshold in the label either
+    const fivePlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 5+ years of full software development life cycle experience?' });
+    expect(resolve(fivePlus, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] }); // 6 >= 5
+    const tenPlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 10+ years of engineering experience?' });
+    expect(resolve(tenPlus, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
 
   it('prefers an exact option over a substring hit (India, not British Indian Ocean Territory)', () => {

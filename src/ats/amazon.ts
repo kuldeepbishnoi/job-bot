@@ -198,7 +198,15 @@ function fillChoices(node: HTMLElement, values: readonly string[]): void {
   for (const v of values) {
     const input = findOption(inputs, (i) => optionLabel(node, i), v);
     if (!input) throw new Error(`no option "${v}" (have: ${inputs.map((i) => optionLabel(node, i)).join(' | ')})`);
-    if (!input.checked) input.click(); // a real click: sets checked + fires React's onChange
+    if (input.checked) continue;
+    input.click(); // a real click: sets checked + fires React's onChange
+    if (input.checked) continue;
+    // Fallbacks: click the label (some layouts intercept the input), then force + notify.
+    (input.id ? node.querySelector<HTMLElement>(`label[for="${input.id}"]`) : null)?.click();
+    if (input.checked) continue;
+    input.checked = true;
+    input.dispatchEvent(new Event('click', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 }
 

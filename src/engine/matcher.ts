@@ -59,7 +59,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country'] },
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Screening questions.
-  { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience'] },
+  { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in'] },
   { intent: 'answers.degree_bachelors', any: ['bachelor'] },
   { intent: 'answers.degree_masters', any: ['master s degree', 'masters degree', 'master degree', 'graduate degree'] },
   { intent: 'answers.skills_experience', any: ['do you have experience', 'have you experience', 'do you have knowledge', 'do you have a working knowledge', 'are you proficient', 'do you have hands on', 'have you worked with', 'do you have exposure'] },

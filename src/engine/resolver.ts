@@ -77,7 +77,13 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
   if (typeof val === 'number') {
     if (field.kind === 'select' || field.kind === 'multiselect') {
       const opt = pickYearsOption(options, val);
-      return opt ? { kind: 'choice', values: [opt] } : { kind: 'unknown' };
+      if (opt) return { kind: 'choice', values: [opt] };
+      // "Do you have 5+ years of …?" with Yes/No: compare against the threshold in the label.
+      const threshold = /(\d+(?:\.\d+)?)\s*\+?\s*(?:or more\s+)?years?/i.exec(field.label)?.[1];
+      const yes = options.find((o) => YES.some((s) => hasWord(o, s)));
+      const no = options.find((o) => NO.some((s) => hasWord(o, s)));
+      if (threshold && yes && no) return { kind: 'choice', values: [val >= Number(threshold) ? yes : no] };
+      return { kind: 'unknown' };
     }
     return { kind: 'text', value: String(val) };
   }

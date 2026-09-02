@@ -115,7 +115,8 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         const options = az.optionsFor(document, field);
         let answer = resolve(field, msg.profile, msg.job, options);
         let guessed = false;
-        if (answer.kind === 'unknown' && field.required && msg.profile.on_unknown === 'guess') {
+        // guess policy = complete EVERYTHING on the page, optional questions included.
+        if (answer.kind === 'unknown' && (field.required || msg.profile.on_unknown === 'guess') && msg.profile.on_unknown === 'guess') {
           const g = guessAnswer(field, options, msg.profile);
           if (g) {
             answer = g;
@@ -136,6 +137,15 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
             await sleep(400);
             az.fill(document, field, answer);
           }
+          // Verify the control actually took the value (React re-render); one more try if not.
+          if (!az.isAnswered(document, field)) {
+            await sleep(300);
+            if (!az.isAnswered(document, field)) {
+              log('fill did not stick, retrying', field.id);
+              az.fill(document, field, answer);
+            }
+          }
+          if (!az.isAnswered(document, field)) throw new Error('value did not stick after fill');
           filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) + (guessed ? ' (guessed)' : '') });
         } catch (e) {
           log('fill FAILED', field.id, (e as Error).message, az.describeQuestions(form));
@@ -145,6 +155,24 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         await sleep(150);
       }
       await settle(form); // dependents revealed by this pass mount before the next scan
+      }
+
+      // Preflight: never press Continue with a required question still empty — Amazon would just
+      // bounce us. Log exactly which ones, then try them once more with the guess policy.
+      const missing = az.extract(form).filter((f) => f.required && !az.isAnswered(document, f));
+      if (missing.length) {
+        log('required still empty before Continue', missing.map((f) => f.id), az.describeQuestions(form));
+        for (const f of missing) {
+          const g = guessAnswer(f, az.optionsFor(document, f), msg.profile);
+          if (g) {
+            try {
+              az.fill(document, f, g);
+              filled.push({ id: f.id, label: f.label, value: describeAnswer(g) + ' (guessed, preflight)' });
+            } catch (e) {
+              log('preflight fill FAILED', f.id, (e as Error).message);
+            }
+          }
+        }
       }
 
       const next = await waitFor(() => az.continueButton(form), 5000).catch(() => null);
@@ -162,7 +190,15 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         return az.formKey(now) !== key ? ('next' as const) : null;
       }, STEP_TIMEOUT_MS).catch(() => 'stuck' as const);
       log('after continue', key, '→', moved, az.describeState(document));
-      if (moved === 'errors') return parked(`Amazon rejected form ${key}: ${az.validationErrors(form).join('; ')}`);
+      if (moved === 'errors') {
+        // Amazon named what it wants: re-scan, fill whatever is empty, and try Continue once more.
+        log('validation errors', az.validationErrors(form), az.describeQuestions(form));
+        if (i < MAX_FORMS - 1) {
+          await sleep(600);
+          continue; // the same form is still active; the next iteration re-fills and re-submits
+        }
+        return parked(`Amazon rejected form ${key}: ${az.validationErrors(form).join('; ')}`);
+      }
       if (moved === 'stuck') return parked(`Form ${key} did not advance after Continue — ${az.describeState(document)}`);
       if (moved === 'review') {
         reachedReview = true;
