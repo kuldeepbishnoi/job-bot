@@ -14,4 +14,6 @@ export const amazon: Site = {
     return discoverAmazonJobs(profile.amazon.search_url);
   },
   submittedUrl: submittedByNavigation,
+  logoutUrl: 'https://account.amazon.jobs/logout',
+  loginUrl: 'https://www.amazon.jobs/applicant/login',
 };

@@ -24,6 +24,8 @@ export type Msg =
   | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[] } // exclude = job ids any account applied to (registry)
   // popup -> background: abandon the current run (queue + alarm + worker tab)
   | { t: 'stop' }
+  // popup -> background: the user logged the next account in — continue the paused run
+  | { t: 'resume' }
   // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window)
   | { t: 'runInstahyre' }
   // background -> instahyre content script: run the in-page apply loop

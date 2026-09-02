@@ -12,4 +12,8 @@ export interface Site {
   /** Some ATSes navigate away the instant a submit succeeds, killing the content script before
    *  it can answer. A site that does so says which landing URLs count as "submitted". */
   submittedUrl?(url: string): boolean;
+  /** Account rotation (one Chrome profile, N logins): where to log the current account out and
+   *  where the user logs the next one in. The bot never types credentials — it pauses. */
+  readonly logoutUrl?: string;
+  readonly loginUrl?: string;
 }

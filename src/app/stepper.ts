@@ -2,9 +2,11 @@ import type { RunPorts } from './runner';
 import { applyOne } from './runner';
 import { siteById } from '../sites';
 import type { Profile } from '../config/schema';
+import type { Site } from '../sites';
+import type { RunState } from '../platform/store';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
-import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress } from '../platform/store';
+import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
 
 // MV3 service workers get killed after ~30s idle (and can't run for hours). So we DON'T loop the
 // whole queue in one await. Instead: persist the queue, process ONE job, then schedule an alarm
@@ -61,6 +63,7 @@ export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void>
     await chrome.alarms.clear(WATCHDOG_ALARM);
     return;
   }
+  if (state.paused) return; // waiting on the user — not a stall
   const p = await getProgress();
   const stalled = !p || p.phase !== 'running' || now - p.at > STALL_MS;
   const armed = (await chrome.alarms.get(STEP_ALARM)) !== undefined;
@@ -80,20 +83,21 @@ export async function step(ports: RunPorts): Promise<void> {
     await chrome.alarms.clear(STEP_ALARM); // whichever driver got here first owns this step
     const state = await getRunState();
     if (!state) return;
+    if (state.paused) return; // waiting for the user to log the next account in (popup → resume)
 
     const site = siteById(state.siteId);
     if (!site || state.cursor >= state.queue.length) return finish(ports);
 
-    // Per-account daily limit: stop here and say so — the next account takes over.
+    // Per-account daily limit (Amazon: 10) → rotate to the next account that still has room.
     const limit = state.profile.per_account_limit;
-    if (limit && (await appliedTodayCount()) >= limit) return finish(ports, `limit ${limit} reached for this account — switch to the next account`);
+    if (limit && (await appliedTodayCount(await getAccount())) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached`);
 
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
     const result = await applyOne(site, job, state.profile, state.resume, ports);
     await ports.record(result);
-    // The ATS's own cap ("application limit reached") — no point continuing on this account.
-    if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return finish(ports, `${result.note} — switch to the next account`);
+    // The ATS's own cap ("application limit reached") — rotate now; retry this job on the next account.
+    if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return rotateAccount(site, state, ports, result.note ?? 'limit reached');
 
     await saveRunState({ ...state, cursor: state.cursor + 1 });
     await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
@@ -101,6 +105,39 @@ export async function step(ports: RunPorts): Promise<void> {
   } finally {
     stepping = false;
   }
+}
+
+/** Next account in profile.accounts with room left today, or null when all are exhausted. */
+async function nextAccountWithRoom(profile: Profile, current: string): Promise<string | null> {
+  const limit = profile.per_account_limit ?? Number.POSITIVE_INFINITY;
+  for (const a of profile.accounts) {
+    if (a === current) continue;
+    if ((await appliedTodayCount(a)) < limit) return a;
+  }
+  return null;
+}
+
+/** Log the current account out in the worker tab, open the login page, and pause the run until
+ *  the user logs the next account in and clicks Resume. Credentials never touch the extension. */
+async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reason: string): Promise<void> {
+  const current = await getAccount();
+  const next = await nextAccountWithRoom(state.profile, current);
+  if (!next) return finish(ports, `${reason} — every account in profile.accounts is at its limit for today`);
+  if (site.logoutUrl) await ports.openJob(site.logoutUrl).catch(() => {});
+  if (site.loginUrl) await ports.openJob(site.loginUrl).catch(() => {});
+  await saveRunState({ ...state, paused: { reason, nextAccount: next } });
+  await chrome.alarms.clear(STEP_ALARM);
+  await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
+}
+
+/** Popup -> background: the user logged the next account in. */
+export async function resumeRun(ports: RunPorts): Promise<void> {
+  const state = await getRunState();
+  if (!state?.paused) return;
+  await setAccount(state.paused.nextAccount);
+  await saveRunState({ ...state, paused: undefined });
+  await saveProgress({ done: state.cursor, total: state.queue.length, current: `resumed as ${state.paused.nextAccount}`, phase: 'running', at: Date.now() });
+  await step(ports);
 }
 
 /** Popup -> background: abandon the run. Whatever job is mid-flight in the worker tab is left as-is

@@ -161,13 +161,13 @@ fixtures/    real captured data for offline tests
   `profile/applications/registry.jsonl` — job id → account → date. Written by the popup
   (`fs-config.flushToDisk`, needs the folder grant) and by `node debug/export.mjs` straight from
   Chrome's storage on disk. `node debug/outcomes.mjs` = today's summary in a few lines.
-- **Multi-account**: one Chrome profile per Gmail login (`profile.accounts`), each with JobBot loaded
-  (`~/.jobbot/extension`), the same `profile/` folder linked, and the account typed into the
-  popup's "Account" field (stored per extension instance, stamped on every record). Every run
-  excludes the registry's job ids (`run` message `exclude`), so N accounts never repeat a job.
-  `per_account_limit` (per day) or the ATS's own limit page ends the run with "switch to the next
-  account". Seeding a fresh registry from an existing account: `node debug/export.mjs --account <email>`.
-  Logging into the accounts is the user's job (credentials never touch the extension).
+- **Multi-account, one Chrome profile**: `profile.accounts` lists every login; the popup's "Account"
+  field says which one is logged in now (stamped on every record). At `per_account_limit` (Amazon:
+  10/day) or the ATS's own limit page, the stepper **rotates**: opens `Site.logoutUrl` then
+  `Site.loginUrl` in the worker tab, saves `run_state.paused = { nextAccount }`, and the popup
+  shows "Resume as next account". The user logs in; Resume sets the account and continues the same
+  queue. Every run also excludes the registry's job ids, so accounts never repeat a job. The bot
+  never types credentials. Seed a registry: `node debug/export.mjs --account <email>`.
 
 ## Commands
 ```

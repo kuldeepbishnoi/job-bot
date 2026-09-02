@@ -176,11 +176,22 @@ async function refreshProgress(): Promise<void> {
   const p = await getProgress();
   if (!p) return;
   const running = p.phase === 'running' && Date.now() - p.at < STALE_RUN_MS;
-  $('stop').hidden = !running;
-  if (running) setStatus(`Applying ${Math.min(p.done + 1, p.total)}/${p.total} · ${p.current}`);
+  $('stop').hidden = !running && p.phase !== 'paused';
+  $('resume').hidden = p.phase !== 'paused';
+  if (p.phase === 'paused') setStatus(`⏸ ${p.current}`);
+  else if (running) setStatus(`Applying ${Math.min(p.done + 1, p.total)}/${p.total} · ${p.current}`);
   else if (p.phase === 'running') setStatus(`Last run stopped unexpectedly at ${p.done}/${p.total} · ${p.current}`);
   else setStatus(`Run finished · ${p.total} processed`);
 }
+
+$('resume').addEventListener('click', async () => {
+  const res = await send<{ ok: boolean; error?: string }>({ t: 'resume' }).catch((e: Error) => ({ ok: false, error: e.message }));
+  if (res.ok) {
+    $('resume').hidden = true;
+    $<HTMLInputElement>('account').value = await getAccount();
+    setStatus('Resumed.');
+  } else warn(res.error ?? 'could not resume');
+});
 
 $('stop').addEventListener('click', async () => {
   const res = await send<{ ok: boolean; error?: string }>({ t: 'stop' }).catch((e: Error) => ({ ok: false, error: e.message }));

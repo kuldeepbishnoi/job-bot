@@ -73,13 +73,14 @@ careers:
   - https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years
   - https://careers.datadoghq.com/
 
-# Multi-account (optional): one Chrome profile per login, each with JobBot loaded and THIS folder
-# linked; type the account into the popup's "Account" field in each. applications/registry.jsonl
-# is shared, so no job is applied to twice. Seed it from an existing account: node debug/export.mjs
+# Multi-account (optional): ONE Chrome profile, N logins. Type the current account into the popup's
+# "Account" field; the bot rotates through this list as each hits per_account_limit (you do the
+# login, it does the rest). applications/registry.jsonl makes sure no job is applied to twice.
 accounts:
   - you.01@gmail.com
   - you.02@gmail.com
-per_account_limit: 40   # applications/day per account; hitting it ends the run with "switch account"
+per_account_limit: 10   # Amazon's cap per account/day. At the cap the bot logs out, opens the login page and PAUSES:
+                        # log the next account in, click "Resume as next account" in the popup, and it continues.
 
 # Per-site knobs (optional).
 amazon:

@@ -15,7 +15,7 @@ export interface RunProgress {
   readonly done: number;
   readonly total: number;
   readonly current: string;
-  readonly phase: 'running' | 'done';
+  readonly phase: 'running' | 'done' | 'paused'; // paused = waiting for the user to log the next account in
   readonly at: number; // epoch ms of last update
 }
 
@@ -35,6 +35,8 @@ export interface RunState {
   readonly resume: SerializedFile;
   readonly queue: readonly Job[];
   readonly cursor: number;
+  /** Set when the run is waiting for the user to log in as `nextAccount` (account rotation). */
+  readonly paused?: { readonly reason: string; readonly nextAccount: string };
 }
 
 export async function saveRunState(s: RunState): Promise<void> {
@@ -75,10 +77,10 @@ export async function record(app: Application): Promise<void> {
   await chrome.storage.local.set({ [KEY]: [...all, stamped] });
 }
 
-/** Applications made today by this instance (per-account daily limits). */
-export async function appliedTodayCount(): Promise<number> {
+/** Applications made today by one account (per-account daily limits, e.g. Amazon's 10). */
+export async function appliedTodayCount(account: string): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
-  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today).length;
+  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
 }
 
 export async function allRecords(): Promise<Application[]> {

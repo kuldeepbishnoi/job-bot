@@ -1,5 +1,5 @@
 import { defineBackground } from 'wxt/sandbox';
-import { startRun, step, stopRun, runInProgress, watchdog, STEP_ALARM, WATCHDOG_ALARM } from '@/app/stepper';
+import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, STEP_ALARM, WATCHDOG_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
@@ -19,6 +19,10 @@ export default defineBackground(() => {
         }
       })();
       return true; // async response
+    }
+    if (msg.t === 'resume') {
+      resumeRun(chromePorts()).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      return true;
     }
     if (msg.t === 'stop') {
       stopRun(chromePorts()).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
