@@ -4,9 +4,10 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "entrypoints", "tests", "*.ts"]
+  "include": ["src", "entrypoints", "tests", "scripts", "*.ts"]
 }

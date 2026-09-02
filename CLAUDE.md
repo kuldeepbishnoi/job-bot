@@ -38,6 +38,7 @@ INNER (pure: no chrome, no DOM, no network — unit-tested)
   src/engine/     types · matcher (question→intent) · answer-tokens · resolver ·
                   select-jobs · stats
   src/config/     schema.ts (zod) — validates profile.yaml at the boundary
+  src/resume/     JD text + résumé .tex variants → tailored .tex (tex parser · keywords · tailor)
 APPLICATION (orchestration; depends on ports, not details)
   src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring)
 ADAPTERS (details, behind interfaces)
@@ -49,12 +50,13 @@ ADAPTERS (details, behind interfaces)
 MAIN (dirtiest; wires everything)
   src/entrypoints/  background.ts (assembles ports → runner) · greenhouse.content.ts ·
                     gmail.content.ts · popup/
-profile/     the USER's data: profile.yaml + resume/ (git-ignored)
+  scripts/          tailor-resume.ts — Node CLI for src/resume (file I/O + pdflatex live here)
+profile/     the USER's data: profile.yaml + resume/ (git-ignored; resume/*.tex = Overleaf variants)
 fixtures/    real captured data for offline tests
 ```
 
 ### Invariants (do not break — these are the Dependency Rule in practice)
-1. `engine/` and `config/` are **pure**: no `chrome.*`, no `fetch`, no DOM, no `Date.now()` leaking
+1. `engine/`, `config/` and `resume/` are **pure**: no `chrome.*`, no `fetch`, no DOM, no `Date.now()` leaking
    into logic. That's why they unit-test without a browser. If you need an effect there, you're in
    the wrong layer.
 2. `app/runner.ts` is a **use case**: it depends only on the `RunPorts` interface + pure engine.
@@ -95,6 +97,31 @@ fixtures/    real captured data for offline tests
   `chrome.storage.local`. Say so in any store listing; add a privacy policy before publishing.
 - When adding a permission or host, justify it in the PR description.
 
+## Résumé tailoring (JD → .tex), no AI
+`npm run tailor -- --jd jd.txt` (or `--jd -` for stdin; `node scripts/tailor-resume.ts … --json` for
+other bots — plain `npm run` puts its banner on stdout). Input: the user's
+Overleaf variants in `profile/resume/*.tex` (one file per focus: backend, platform, …) + a JD.
+Output: `profile/resume/out/<name>.pdf` (compiled with `pdflatex`, two passes, page count printed;
+missing pdflatex is an error unless `--no-pdf`) + the same `<name>.tex` for Overleaf.
+How it works — all derived from the user's own files, nothing typed twice (`src/resume/`):
+- **Vocabulary** = every item on any variant's `\textbf{Category}{: a, b, c} \\` skills line, merged
+  by alias (`Google Cloud Platform (GCP)` ≡ `GCP`; a parenthetical acronym is an alias; a small
+  generic table in `keywords.ts` adds golang/k8s/kafka-style *spellings* — never synonyms). So the
+  only keywords we can match are skills the user actually claims. Matching is word-bounded, `&`
+  also matches "and", single words are never stemmed (`R` ≠ "Rs", `Rails` ≠ "rail"), and
+  2-letter/ALL-CAPS names are case-sensitive (`Go` ≠ "go to market", `REST` ≠ "the rest"). A
+  Skills section whose lines don't parse is an error, never a silent empty vocabulary.
+- **Pick** the variant whose text mentions the most JD keywords (weighted by JD frequency, capped at
+  3 so a company naming its own product 15× doesn't drown the role's real skills; the header block
+  counts double so the variant's declared focus wins). A dead heat is settled by plain word overlap
+  between the JD and each variant's prose, then by name.
+- **Copy edit** only the skills lines of that variant: matched skills move to the front and get
+  `\textbf` (name only — a `(Familiar)` qualifier stays plain); matched skills it lacks are imported
+  from the sibling that lists them, under the same-named category (else an `Other` line). Everything
+  outside those lines is byte-identical to the source — the user keeps editing in Overleaf as before.
+- Deterministic: same variants + same JD ⇒ same bytes. Fixtures: `fixtures/resume/*.tex` (the real
+  template skeleton with placeholder content) + the real Typesense JD text.
+
 ## How to extend
 - **New Greenhouse company**: add `src/sources/<co>.ts` (discovery) + `src/sites/<co>.ts`
   (`{ id, label, ats:'greenhouse', discover }`) + one line in `src/sites/index.ts`. The popup button
@@ -120,6 +147,7 @@ npm run dev          # load unpacked dev extension in Chrome (HMR)
 npm run build        # production build -> .output/chrome-mv3
 npm test             # unit tests against fixtures (must stay green)
 npm run compile      # tsc --noEmit (must stay clean)
+npm run tailor -- --jd jd.txt   # JD → tailored résumé .tex/.pdf from profile/resume/*.tex
 npm run mitm         # start mitmweb + Chrome (scratch profile) — see debug/README.md
 npm run mitm:stop    # kill scratch Chrome + mitmweb
 npm run mitm:reset   # clear debug/captures/

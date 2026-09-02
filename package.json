@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "description": "Generic job auto-apply engine. Datadog is the first site pack; add more by dropping in a site.",
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
+    "tailor": "node scripts/tailor-resume.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "wxt prepare",
