@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { searchApiUrl, jobsFromResult, discoverAmazonJobs, parseLocations } from '@/sources/amazon-jobs';
+import { selectJobs } from '@/engine/select-jobs';
+import { parseProfile } from '@/config/schema';
+import { readFileSync as read } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
 
 const fixture = JSON.parse(readFileSync('fixtures/amazon-search.json', 'utf8'));
 
@@ -36,6 +40,13 @@ describe('amazon.jobs discovery', () => {
     expect(j.locations).toEqual(['Toronto']);
     expect(j.department).toBe('Software Development');
     for (const job of jobs) expect(job.id).toMatch(/^\d+$/);
+  });
+
+  it('the shipped example profile actually selects Amazon jobs from the real page', () => {
+    const example = parseProfile(parseYaml(read('profile/profile.example.yaml', 'utf8')));
+    const picked = selectJobs(jobsFromResult(fixture), example.want);
+    expect(picked.map((j) => j.id)).toContain('10441359'); // "Software Development Engineer, Amazon Customer Service" in Toronto
+    expect(picked.some((j) => /Manager/.test(j.title))).toBe(false);
   });
 
   it('reads every city from the locations list, falling back to city', () => {

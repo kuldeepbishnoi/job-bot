@@ -28,6 +28,20 @@ describe('resolver', () => {
     expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // not a years ladder
   });
 
+  it('prefers an exact option over a substring hit (India, not British Indian Ocean Territory)', () => {
+    const p = parseProfile({ ...base, answers: { citizenship: 'India' } });
+    const field = f({ kind: 'select', intent: 'answers.citizenship' });
+    expect(resolve(field, p, job, ['Bahrain', 'British Indian Ocean Territory', 'India', 'Indonesia'])).toEqual({ kind: 'choice', values: ['India'] });
+    expect(matchOptions(['Paris, France', 'Bangalore, India'], ['Paris'])).toEqual(['Paris, France']); // fuzzy still works
+  });
+
+  it('matches yes/no as whole words, so "No" never means "North Korea" or "I choose not to"', () => {
+    const p = parseProfile({ ...base, answers: { sanctioned_country: false, government_employee: false } });
+    expect(resolve(f({ kind: 'select', intent: 'answers.sanctioned_country' }), p, job, ['Cuba', 'North Korea'])).toEqual({ kind: 'choice', values: ['No'] }); // no real "No" option → literal fallback, never a country
+    expect(resolve(f({ kind: 'select', intent: 'answers.government_employee' }), p, job, ['Yes, I am a FORMER government employee.', 'No, I was NEVER a government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
+    expect(resolve(f({ kind: 'select', intent: 'answers.indigenous' }), parseProfile({ ...base, answers: { indigenous: false } }), job, ['Yes', 'I choose not to self-identify', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+  });
+
   it('maps DECLINE onto Amazon\'s "I choose not to self-identify"', () => {
     const p = parseProfile({ ...base, answers: { indigenous: 'DECLINE' } });
     const field = f({ kind: 'select', intent: 'answers.indigenous' });

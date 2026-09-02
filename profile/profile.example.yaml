@@ -12,11 +12,14 @@ identity:
 resume: resume/kuldeep_bishnoi.pdf
 
 # WHAT you want — picks jobs out of the listing, and answers "which cities" for you.
+# Applies to EVERY site: a job must pass all of these. Amazon titles read "Software Development
+# Engineer" / "Software Dev Engineer" (not "Software Engineer"), and Amazon lists no IC/manager
+# level, so `seniority` filters out every Amazon job unless it's empty.
 want:
-  titles_any: [SDE, Software Engineer, Backend, Full Stack]
+  titles_any: [SDE, Software Engineer, Software Development Engineer, Software Dev Engineer, Backend, Full Stack]
   titles_none: [Manager, Director, Intern]
-  locations: [Bangalore, Remote, India]
-  seniority: [Individual Contributor]
+  locations: [Bangalore, Remote, India, Toronto, Vancouver]
+  seniority: []           # e.g. [Individual Contributor] for Datadog; must be empty for Amazon
 
 # HOW you answer — generic intents, reused across every company + ATS.
 # Types match the question: boolean = yes/no, string = single choice/free text, list = multi-select.
@@ -37,7 +40,7 @@ answers:
   # previously_applied: true        # "Have you previously applied to Amazon …?"
   # previous_employment: false      # "Have you previously been employed by Amazon …?"
   # non_compete: false              # "Are you subject to a non-competition agreement …?"
-  # government_employee: false      # -> "No, I was NEVER a government employee."
+  # government_employee: false      # -> "No, I was NEVER a government employee." (use "former"/"current" for those)
   # lived_abroad: true              # "…lived outside <country> for 12 consecutive months?"
   # sanctioned_country: false
   # citizenship: India              # "In which country/region do you have citizenship?"
@@ -65,7 +68,6 @@ auto_submit: false      # false = fill + OTP then you approve · true = hands-fr
 amazon:
   # Apply your filters on amazon.jobs/en/search and paste the page URL. Discovery turns it into the
   # JSON API query, so the queue = exactly what that page lists (all pages). Required to run Amazon.
-  # NOTE: `want.locations` above still applies — include the cities you search (e.g. Toronto,
-  # Vancouver) or leave it empty, otherwise Canadian jobs get filtered out of an India-only list.
+  # NOTE: `want` above still applies on top (titles, locations, seniority) — see its comment.
   search_url: "https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant"
   ai_consent: false     # Amazon's one-time "may we use AI to recommend jobs / refer you" prompt (false = decline)

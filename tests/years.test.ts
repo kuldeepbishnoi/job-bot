@@ -13,6 +13,9 @@ describe('years ranges', () => {
     expect(yearsRange('3+ years')).toEqual({ min: 3, max: Number.POSITIVE_INFINITY, maxInclusive: true });
     expect(yearsRange('1–2 years')).toEqual({ min: 1, max: 2, maxInclusive: true });
     expect(yearsRange('5 years or more')?.max).toBe(Number.POSITIVE_INFINITY);
+    expect(yearsRange('12 months or less')).toEqual({ min: 0, max: 1, maxInclusive: true });
+    expect(yearsRange('None')).toEqual({ min: 0, max: 0, maxInclusive: true });
+    expect(pickYearsOption(['None', '1-2 years', '3+ years'], 0)).toBe('None');
     expect(yearsRange('Select an option')).toBeNull();
     expect(yearsRange('Yes')).toBeNull();
   });

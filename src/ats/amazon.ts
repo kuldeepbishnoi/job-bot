@@ -51,7 +51,9 @@ export function formKey(form: Element): string {
   return `${idx}:${heading ? labelText(heading).slice(0, 60) : ''}`;
 }
 
-/** Review mode = every form saved; the page now shows the Submit application button. */
+/** Review mode = every form saved. The bundle renders `.submit-application-button` ONLY when
+ *  activeFormIndex === NO_ACTIVE_FORM (never as a disabled placeholder earlier), so its presence
+ *  is as good a signal as the `reviewing` class. */
 export function reviewMode(doc: Document): boolean {
   return !!doc.querySelector('.question-forms.reviewing') || !!doc.querySelector('.submit-application-button');
 }

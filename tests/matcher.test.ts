@@ -34,7 +34,9 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     ['Have you previously been employed by Amazon (including Amazon subsidiaries)?', 'answers.previous_employment'],
     ['Are you subject to a non-competition agreement or other agreement which would preclude or restrict your employment with Amazon?', 'answers.non_compete'],
     ['In the past 7 years, have you lived or were physically located outside of Canada for 12 consecutive months or more?', 'answers.lived_abroad'],
-    ['Are you currently or, in the past three years, have you been a direct employee of any government entity?', 'answers.government_employee'],
+    ['Are you currently or, in the past three years, have you been a direct employee of any government entity?  This includes being a direct employee of any government entity at the federal/national, state/provincial, and local levels, a member of the armed forces, and/or a direct employee of any publicly funded institution.', 'answers.government_employee'],
+    ['Which sanctioned country or region are you located in?', undefined], // the follow-up picker: not a yes/no
+    ['Since obtaining your most recent citizenship, did you afterwards become a permanent resident in any other country/region?', undefined],
     ['Are you living in or are you currently physically located in any of the sanctioned countries or regions?', 'answers.sanctioned_country'],
     ['In which country/region do you have citizenship?', 'answers.citizenship'],
     ['By checking this box, I confirm I acknowledge the above.', 'answers.acknowledge_true'],

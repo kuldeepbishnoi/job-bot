@@ -40,6 +40,8 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.racial_identity', any: ['racial or ethnic', 'race ethnicity', 'ethnicity', 'racial'] },
   { intent: 'answers.reserve_forces', any: ['reserve forces', 'reservist'] },
   { intent: 'answers.military_spouse', any: ['military spouse'] },
+  // Before ex_military: Amazon's government-employee question lists "a member of the armed forces".
+  { intent: 'answers.government_employee', any: ['government employee', 'employee of any government', 'employed by a government'] },
   { intent: 'answers.ex_military', any: ['ex military', 'armed forces', 'military status', 'served in the military'] },
   { intent: 'answers.veteran_status', any: ['veteran', 'protected veteran'] },
   { intent: 'answers.disability', any: ['disability', 'disabled'] },
@@ -47,10 +49,11 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.previously_applied', any: ['previously applied'] },
   { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked'] },
   { intent: 'answers.non_compete', any: ['non competition', 'non compete', 'noncompete'] },
-  { intent: 'answers.government_employee', any: ['government employee', 'employee of any government', 'employed by a government'] },
   { intent: 'answers.lived_abroad', any: ['physically located outside', 'lived outside', 'lived or were physically located'] },
-  { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'] },
-  { intent: 'answers.citizenship', any: ['citizenship', 'citizen of'] },
+  // Only the yes/no "are you located in any sanctioned country" — not its "which one?" follow-up.
+  { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'], not: ['which sanctioned'] },
+  // Only the country picker — not the "since obtaining your citizenship, did you…" yes/no follow-ups.
+  { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country'] },
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Screening questions.
   { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience'] },

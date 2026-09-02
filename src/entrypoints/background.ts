@@ -1,9 +1,8 @@
 import { defineBackground } from 'wxt/sandbox';
-import { startRun, step, STEP_ALARM } from '@/app/stepper';
+import { startRun, step, runInProgress, STEP_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
-import { getRunState } from '@/platform/store';
 import type { Msg } from '@/platform/messaging';
 
 // Main: wires concrete ports to the alarm-driven stepper.
@@ -59,7 +58,7 @@ export default defineBackground(() => {
 async function runScheduled(siteId: string): Promise<void> {
   const sched = await dailySchedule(siteId);
   if (!sched) return; // toggled off; a stray alarm
-  if (await getRunState()) {
+  if (await runInProgress()) {
     console.log('[jobbot] daily run skipped: another run is still in progress');
     return;
   }

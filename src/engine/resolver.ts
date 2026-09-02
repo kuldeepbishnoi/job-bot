@@ -3,9 +3,13 @@ import type { AnswerValue, Profile } from '../config/schema';
 import { isAnswerToken, optionForToken } from './answer-tokens';
 import { pickYearsOption } from './years';
 
-// A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no.
+// A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no —
+// matched as whole words, so "no" never hits "North Korea", "Not applicable" or "I choose not to".
 const YES = ['yes', 'i agree', 'i acknowledge', 'i understand', 'true', 'authorized', 'authorised'];
 const NO = ['no', 'i do not', "i don't", 'false', 'not authorized'];
+// Whole-phrase match on letter boundaries: "no" matches "No, I was NEVER…" but not "North Korea"/"not".
+const hasWord = (text: string, phrase: string): boolean =>
+  (' ' + text.toLowerCase().replace(/[^a-z']+/g, ' ') + ' ').includes(' ' + phrase + ' ');
 
 // Decide what goes in each field. Pure: (field, profile, job, options) -> Answer.
 // options = the actual choices a select offers (needed to pick the right city/label).
@@ -64,7 +68,7 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
     if (field.kind === 'checkbox') return { kind: 'check', value: val };
     if (field.kind === 'text') return { kind: 'text', value: val ? 'Yes' : 'No' };
     const synonyms = val ? YES : NO;
-    const picked = options.filter((o) => synonyms.some((s) => o.toLowerCase().includes(s)));
+    const picked = options.filter((o) => synonyms.some((s) => hasWord(o, s)));
     return picked.length ? { kind: 'choice', values: picked.slice(0, 1) } : { kind: 'choice', values: [val ? 'Yes' : 'No'] };
   }
 
@@ -99,11 +103,14 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
   return jobOpts.length ? { kind: 'choice', values: jobOpts } : { kind: 'unknown' };
 }
 
-/** Fuzzy: an option matches a wanted value if either contains the other (token-wise). */
+/** Per wanted value, an exact option wins outright ("India" must not become "British Indian Ocean
+ *  Territory"); otherwise fuzzy: the option matches if either contains the other. Option order kept. */
 export function matchOptions(options: readonly string[], wanted: readonly string[]): string[] {
-  const w = wanted.map((s) => s.toLowerCase().trim()).filter(Boolean);
-  return options.filter((opt) => {
-    const o = opt.toLowerCase();
-    return w.some((x) => o.includes(x) || x.includes(o));
-  });
+  const hits = new Set<string>();
+  for (const x of wanted.map((s) => s.toLowerCase().trim()).filter(Boolean)) {
+    const exact = options.filter((opt) => opt.toLowerCase().trim() === x);
+    const found = exact.length ? exact : options.filter((opt) => opt.toLowerCase().includes(x) || x.includes(opt.toLowerCase()));
+    for (const f of found) hits.add(f);
+  }
+  return options.filter((opt) => hits.has(opt));
 }

@@ -42,7 +42,6 @@ export interface RawAmazonJob {
   normalized_location?: string;
   locations?: string[]; // JSON-encoded {city, normalizedStateName, normalizedCountryCode}
   job_path?: string;
-  job_schedule_type?: string;
 }
 
 export interface SearchResult {
@@ -74,7 +73,7 @@ export function docToJob(d: RawAmazonJob): Job {
     department: d.job_category ?? '',
     url: APPLY(id), // the apply page IS the form; it redirects to /summary?result=duplicate once applied
     locations: parseLocations(d),
-    seniority: d.job_schedule_type ? [d.job_schedule_type] : [],
+    seniority: [], // Amazon exposes no IC/manager level; want.seniority is a no-op here (see profile.example.yaml)
   };
 }
 

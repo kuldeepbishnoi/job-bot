@@ -15,8 +15,13 @@ const num = (s: string): number => Number.parseFloat(s.replace(',', '.'));
 /** Parse an option label into a numeric range, or null if it doesn't look like one. */
 export function yearsRange(label: string): Range | null {
   const t = label.toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
-  const nums = t.match(/\d+(?:[.,]\d+)?/g)?.map(num) ?? [];
+  if (/^(none|no experience|no prior experience)\b/.test(t)) return { min: 0, max: 0, maxInclusive: true };
+  const inMonths = /\bmonths?\b/.test(t) && !/\byears?\b/.test(t);
+  const nums = (t.match(/\d+(?:[.,]\d+)?/g)?.map(num) ?? []).map((n) => (inMonths ? n / 12 : n));
   if (nums.length === 0) return null;
+
+  // "N or less" / "N or fewer" / "up to N" -> [0, N]
+  if (nums.length === 1 && /(or less|or fewer|^up to|at most)/.test(t)) return { min: 0, max: nums[0]!, maxInclusive: true };
 
   // "less than N" / "under N" / "fewer than N" (single number) -> [0, N)
   if (nums.length === 1 && /^(less|fewer) than|^under|^below/.test(t)) return { min: 0, max: nums[0]!, maxInclusive: false };

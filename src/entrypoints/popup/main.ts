@@ -49,7 +49,7 @@ function dailyToggle(siteId: string, label: string): HTMLElement {
         setStatus(`${label}: daily run off`);
       }
     } catch (e) {
-      box.checked = false;
+      box.checked = !!(await dailySchedule(siteId).catch(() => null)); // show what's actually armed
       setStatus(`⚠ ${(e as Error).message}`);
     }
   };
