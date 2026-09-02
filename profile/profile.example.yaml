@@ -42,6 +42,8 @@ answers:
   # non_compete: false              # "Are you subject to a non-competition agreement …?"
   # government_employee: false      # -> "No, I was NEVER a government employee." (use "former"/"current" for those)
   # lived_abroad: true              # "…lived outside <country> for 12 consecutive months?"
+  # countries_lived: [India]        # its follow-up: which countries (multi-select, exact names)
+  # permanent_resident_elsewhere: false  # "since obtaining citizenship, did you become a permanent resident elsewhere?"
   # sanctioned_country: false
   # citizenship: India              # "In which country/region do you have citizenship?"
   # Canonical tokens (see src/engine/answer-tokens.ts) — map to each company's exact wording.

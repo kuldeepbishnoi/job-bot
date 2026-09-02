@@ -58,6 +58,8 @@ export type Intent =
   | 'answers.lived_abroad'
   | 'answers.sanctioned_country'
   | 'answers.citizenship'
+  | 'answers.countries_lived' // "countries outside X you have lived in for 12+ months" (multi)
+  | 'answers.permanent_resident_elsewhere' // "since obtaining citizenship, did you become a permanent resident elsewhere?"
   // Self-identification questions beyond the US EEO set (Canada's Employment Equity Act wording).
   | 'answers.indigenous'
   | 'answers.visible_minority'

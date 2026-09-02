@@ -49,7 +49,10 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.previously_applied', any: ['previously applied'] },
   { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked'] },
   { intent: 'answers.non_compete', any: ['non competition', 'non compete', 'noncompete'] },
+  // The follow-up list must be matched before the yes/no it depends on.
+  { intent: 'answers.countries_lived', any: ['countries outside', 'which countries have you lived', 'countries you have lived'] },
   { intent: 'answers.lived_abroad', any: ['physically located outside', 'lived outside', 'lived or were physically located'] },
+  { intent: 'answers.permanent_resident_elsewhere', any: ['become a permanent resident', 'permanent resident in any other', 'permanent resident, asylee or refugee'] },
   // Only the yes/no "are you located in any sanctioned country" — not its "which one?" follow-up.
   { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'], not: ['which sanctioned'] },
   // Only the country picker — not the "since obtaining your citizenship, did you…" yes/no follow-ups.

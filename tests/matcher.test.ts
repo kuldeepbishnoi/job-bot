@@ -36,7 +36,8 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     ['In the past 7 years, have you lived or were physically located outside of Canada for 12 consecutive months or more?', 'answers.lived_abroad'],
     ['Are you currently or, in the past three years, have you been a direct employee of any government entity?  This includes being a direct employee of any government entity at the federal/national, state/provincial, and local levels, a member of the armed forces, and/or a direct employee of any publicly funded institution.', 'answers.government_employee'],
     ['Which sanctioned country or region are you located in?', undefined], // the follow-up picker: not a yes/no
-    ['Since obtaining your most recent citizenship, did you afterwards become a permanent resident in any other country/region?', undefined],
+    ['Since obtaining your most recent citizenship, did you afterwards become a permanent resident in any other country/region?', 'answers.permanent_resident_elsewhere'],
+    ['Please provide all the countries outside the Canada you have lived in consecutively for more than 12 months in the past 7 years.', 'answers.countries_lived'],
     ['Are you living in or are you currently physically located in any of the sanctioned countries or regions?', 'answers.sanctioned_country'],
     ['In which country/region do you have citizenship?', 'answers.citizenship'],
     ['By checking this box, I confirm I acknowledge the above.', 'answers.acknowledge_true'],
