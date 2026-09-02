@@ -11,7 +11,9 @@ import { saveRunState, getRunState, clearRunState, getProgress } from '../platfo
 // that re-wakes the worker for the next job. State lives in storage, so a killed SW resumes cleanly.
 export const STEP_ALARM = 'jobbot-step';
 export const WATCHDOG_ALARM = 'jobbot-watchdog';
-const GAP_MINUTES = 0.5; // ~30s between jobs — pacing + politeness (also the alarm minimum)
+const GAP_MINUTES = 0.5; // alarm backup between jobs (30s is the chrome.alarms minimum)
+const PACE_MS = 6_000; // the real gap: a timer drives the next job while the SW is still awake
+let stepping = false; // one step at a time — the timer and the backup alarm can both fire
 // A step that shows no progress for this long is presumed dead (SW killed mid-apply, a tab that
 // never answered…). The apply port caps one job at 4 min, so 6 min means the alarm chain broke.
 const STALL_MS = 6 * 60 * 1000;
@@ -67,20 +69,30 @@ export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void>
   }
 }
 
-/** Process exactly one job, advance the cursor, and schedule the next wake (or finish). */
+/** Process exactly one job, advance the cursor, and schedule the next wake (or finish).
+ *  The next job is driven by a short timer (the SW is awake right after a step); the alarm is
+ *  the backup for when the SW is torn down before the timer fires. */
 export async function step(ports: RunPorts): Promise<void> {
-  const state = await getRunState();
-  if (!state) return;
+  if (stepping) return;
+  stepping = true;
+  try {
+    await chrome.alarms.clear(STEP_ALARM); // whichever driver got here first owns this step
+    const state = await getRunState();
+    if (!state) return;
 
-  const site = siteById(state.siteId);
-  if (!site || state.cursor >= state.queue.length) return finish(ports);
+    const site = siteById(state.siteId);
+    if (!site || state.cursor >= state.queue.length) return finish(ports);
 
-  const job = state.queue[state.cursor]!;
-  ports.progress(state.cursor, state.queue.length, job.title);
-  await ports.record(await applyOne(site, job, state.profile, state.resume, ports));
+    const job = state.queue[state.cursor]!;
+    ports.progress(state.cursor, state.queue.length, job.title);
+    await ports.record(await applyOne(site, job, state.profile, state.resume, ports));
 
-  await saveRunState({ ...state, cursor: state.cursor + 1 });
-  chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
+    await saveRunState({ ...state, cursor: state.cursor + 1 });
+    await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
+    setTimeout(() => void step(ports), PACE_MS);
+  } finally {
+    stepping = false;
+  }
 }
 
 /** Popup -> background: abandon the run. Whatever job is mid-flight in the worker tab is left as-is
