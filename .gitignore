@@ -1,0 +1,19 @@
+node_modules
+.wxt
+.output
+*.zip
+.DS_Store
+# Local build secrets: Gmail OAuth client id + extension key.
+.env
+*.pem
+debug/captures/
+debug/logs/
+# Screenshots captured during debugging contain filled-in PII.
+debug/e2e/
+# Never commit personal data or the actual resume.
+profile/profile.yaml
+profile/resume/*
+# On-disk application records (personal: names, answers, screenshots).
+profile/applications/
+!profile/resume/.gitkeep
+!profile/profile.example.yaml

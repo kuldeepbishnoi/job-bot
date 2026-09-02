@@ -1,0 +1,41 @@
+# profile.example.yaml — copy to profile.yaml and edit. Works for every company.
+identity:
+  first_name: Kuldeep
+  last_name: Bishnoi
+  preferred_name: Kuldeep
+  email: kuldeepbishnoi.2001@gmail.com
+  phone: "+91 9416375330"
+  country: India
+  linkedin: https://www.linkedin.com/in/bishnoikuldeep/
+  website: ""
+
+resume: resume/kuldeep_bishnoi.pdf
+
+# WHAT you want — picks jobs out of the listing, and answers "which cities" for you.
+want:
+  titles_any: [SDE, Software Engineer, Backend, Full Stack]
+  titles_none: [Manager, Director, Intern]
+  locations: [Bangalore, Remote, India]
+  seniority: [Individual Contributor]
+
+# HOW you answer — generic intents, reused across every company + ATS.
+# Types match the question: boolean = yes/no, string = single choice/free text, list = multi-select.
+answers:
+  work_authorization: true        # yes/no  -> picks the "Yes" option
+  needs_sponsorship: false        # yes/no
+  acknowledge_true: true          # yes/no
+  privacy_consent: true           # yes/no
+  how_did_you_hear: "LinkedIn"    # single choice / free text
+  languages: [English, Hindi]     # multi-select
+  # Canonical tokens (see src/engine/answer-tokens.ts) — map to each company's exact wording.
+  gender: DECLINE
+  hispanic_latino: DECLINE
+  veteran_status: NOT_A_VETERAN
+  disability: NO_DISABILITY
+
+# Exact-question-text -> answer, for rare one-offs the intent rules don't cover (optional).
+overrides: {}
+  # "please select all the languages you speak fluently": [English]
+
+on_unknown: park        # unmatched required question -> park (default) | skip
+auto_submit: false      # false = fill + OTP then you approve · true = hands-free

@@ -1,0 +1,49 @@
+:root {
+  --bg: #0f1020;
+  --card: #1a1b2e;
+  --fg: #eceffd;
+  --muted: #8b8fa8;
+  --accent: #7b6bff;
+  --accent-2: #5a4bd6;
+}
+* { box-sizing: border-box; margin: 0; }
+body { width: 300px; font: 14px/1.4 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+.app { padding: 16px; }
+.head { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.head h1 { font-size: 16px; font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+.sites { display: flex; flex-direction: column; gap: 8px; }
+.apply {
+  width: 100%; padding: 12px; border: 0; border-radius: 10px; cursor: pointer;
+  font-size: 14px; font-weight: 600; color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  transition: transform .06s ease, opacity .2s;
+}
+.apply:hover { transform: translateY(-1px); }
+.apply:disabled { opacity: .5; cursor: default; transform: none; }
+
+.stats { display: flex; gap: 8px; margin: 16px 0 8px; }
+.stat { flex: 1; background: var(--card); border-radius: 10px; padding: 12px 8px; text-align: center; }
+.stat .n { display: block; font-size: 22px; font-weight: 700; }
+.stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+.insights {
+  margin: 0 0 8px; padding: 8px 10px; border-radius: 10px;
+  background: var(--card); color: var(--muted); font-size: 12px; text-align: center;
+}
+.review {
+  width: 100%; padding: 10px; border: 1px solid #4a3a1a; border-radius: 10px; cursor: pointer;
+  background: #241d0e; color: #f0c674; font-size: 13px; margin-bottom: 8px;
+}
+.review-list {
+  list-style: none; margin: -4px 0 8px; padding: 8px; max-height: 180px; overflow-y: auto;
+  background: var(--card); border-radius: 10px; font-size: 12px;
+}
+.review-list li { padding: 4px 0; border-bottom: 1px solid #262844; color: var(--muted); }
+.review-list li:last-child { border-bottom: 0; }
+.status { min-height: 18px; font-size: 12px; color: var(--muted); }
+
+.foot { margin-top: 12px; border-top: 1px solid #262844; padding-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.link { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; }
+.link:hover { text-decoration: underline; }
