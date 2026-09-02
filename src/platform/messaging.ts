@@ -22,6 +22,14 @@ export type Msg =
   | { t: 'getCode' }
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
   | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile }
+  // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window)
+  | { t: 'runInstahyre' }
+  // background -> instahyre content script: run the in-page apply loop
+  | { t: 'instahyre-apply' }
+  // instahyre content script -> background: one opportunity applied (records + wakes the SW)
+  | { t: 'instahyre-applied'; job: { id: string; title: string; company: string } }
+  // instahyre content script -> background: loop finished
+  | { t: 'instahyre-done'; applied: number; skipped: number }
   // background -> popup (broadcast)
   | { t: 'progress'; done: number; total: number; current: string }
   | { t: 'runDone' };

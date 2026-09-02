@@ -16,6 +16,26 @@ function renderSites(): void {
     btn.onclick = () => startRun(site.id, btn);
     host.appendChild(btn);
   }
+  // Instahyre isn't a worker-window Site: it applies in-page in the user's logged-in tab, so it
+  // gets its own button + start path rather than going through the Greenhouse discover/OTP pipeline.
+  const ih = document.createElement('button');
+  ih.className = 'apply';
+  ih.textContent = 'Apply for Instahyre';
+  ih.onclick = () => startInstahyre(ih);
+  host.appendChild(ih);
+}
+
+async function startInstahyre(btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    setStatus('Starting Instahyre…');
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre' });
+    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+  } catch (e) {
+    setStatus(`⚠ ${(e as Error).message}`);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
