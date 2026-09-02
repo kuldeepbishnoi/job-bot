@@ -155,6 +155,7 @@ fixtures/    real captured data for offline tests
 npm install          # once
 npm run dev          # load unpacked dev extension in Chrome (HMR)
 npm run build        # production build -> .output/chrome-mv3
+npm run install:chrome  # build + sync to ~/.jobbot/extension — load THAT folder in chrome://extensions
 npm test             # unit tests against fixtures (must stay green)
 npm run compile      # tsc --noEmit (must stay clean)
 npm run mitm         # start mitmweb + Chrome (scratch profile) — see debug/README.md
@@ -183,6 +184,11 @@ user connects their account (see `docs/gmail-oauth.md`), falling back to the ope
 selectors on the first real apply), Playwright e2e.
 
 ## Gotchas
+- **Load the extension from `~/.jobbot/extension` (`npm run install:chrome`), never from `.output/`.**
+  `wxt build`/`wxt dev` delete and recreate `.output/chrome-mv3`; if Chrome starts or you hit Reload
+  while it's gone, Chrome drops the unpacked extension. Also build with `.env` present: the manifest
+  `key` fixes the extension id — without it the id is path-derived, and an id flip on Reload makes
+  Chrome replace the card (and forget the profile-folder link + Gmail token, stored per id).
 - React inputs ignore `el.value = x`; use `setReactValue` (native setter + input/change events).
 - Amazon's Contact-information / Resume / SMS steps are profile-level (different components, not
   `.question-form`). The adapter assumes they're already complete; if one is active the apply
