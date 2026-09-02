@@ -1,0 +1,137 @@
+import { defineContentScript } from 'wxt/sandbox';
+import { withIntent } from '@/engine/matcher';
+import { resolve } from '@/engine/resolver';
+import * as az from '@/ats/amazon';
+import { waitFor } from '@/ats/dom';
+import type { ApplyOutcome, Msg } from '@/platform/messaging';
+import type { AppliedField, Answer, Field } from '@/engine/types';
+
+// Runs in the user's logged-in amazon.jobs tab on /applicant/jobs/<id>/apply (and the /summary
+// page it redirects to). Same message contract as the Greenhouse script (ping / apply), driven by
+// the background stepper — Amazon is a normal Site pack, just with its own ATS.
+//
+// Flow (see ats/amazon.ts for the DOM facts):
+//   duplicate screen? → done ("already applied")
+//   loop over active forms: fill every EMPTY question we can answer → Continue → wait for the next
+//   form (or review mode) → … → review mode: Submit application (auto_submit) or park for the user.
+//   Submit success navigates away; the background reads that as success (ports.ts).
+
+const MAX_FORMS = 15; // Amazon shows ~9; a runaway loop must never spin forever
+const STEP_TIMEOUT_MS = 15_000; // save round-trip + re-render after Continue
+const SUBMIT_TIMEOUT_MS = 25_000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const log = (...a: unknown[]) => console.log('[jobbot:amazon]', ...a);
+
+export default defineContentScript({
+  matches: ['https://www.amazon.jobs/applicant/jobs/*', 'https://www.amazon.jobs/*/applicant/jobs/*'],
+  main() {
+    chrome.runtime.onMessage.addListener((msg: Msg, _s, respond) => {
+      if (msg.t === 'ping') {
+        respond({ pong: true });
+        return true;
+      }
+      if (msg.t === 'apply') {
+        applyForm(msg).then(respond);
+        return true;
+      }
+      return false;
+    });
+  },
+});
+
+function answerValue(answer: Answer): string {
+  switch (answer.kind) {
+    case 'text': return answer.value;
+    case 'choice': return answer.values.join(', ');
+    case 'check': return answer.value ? 'checked' : 'unchecked';
+    default: return '';
+  }
+}
+
+async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcome> {
+  const filled: AppliedField[] = [];
+  const parked = (note: string): ApplyOutcome => ({ status: 'parked', note, filled });
+  try {
+    log('apply start', { url: location.href, job: msg.job.title });
+    if (az.isDuplicate(document) || /result=duplicate/.test(location.href)) {
+      return { status: 'submitted', note: 'already applied (Amazon showed the duplicate-application screen)', filled };
+    }
+    if (/result=application_limit_reach/.test(location.href)) return { status: 'error', note: 'Amazon application limit reached' };
+
+    await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 20_000);
+
+    for (let i = 0; i < MAX_FORMS; i++) {
+      if (az.reviewMode(document) && !az.activeForm(document)) break;
+      const form = az.activeForm(document);
+      if (!form) {
+        await sleep(500);
+        continue;
+      }
+      const key = az.formKey(form);
+      log('form', key, az.progress(document));
+
+      for (const field of az.extract(form).map(withIntent)) {
+        if (az.isAnswered(document, field)) continue; // reused from the last application — leave it
+        const options = az.optionsFor(document, field);
+        const answer = resolve(field, msg.profile, msg.job, options);
+        log('field', { id: field.id, label: field.label, kind: field.kind, intent: field.intent, options, answer });
+        if (answer.kind === 'unknown') {
+          if (field.required && msg.profile.on_unknown === 'park') return parked(`No answer for required: "${field.label}"`);
+          continue;
+        }
+        try {
+          az.fill(document, field, answer);
+          filled.push({ id: field.id, label: field.label, value: answerValue(answer) });
+        } catch (e) {
+          log('fill FAILED', field.id, (e as Error).message);
+          if (field.required) return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);
+        }
+        await sleep(150);
+      }
+
+      const next = az.continueButton(form);
+      if (!next) return parked(`No Continue button on form ${key}`);
+      next.click();
+
+      const moved = await waitFor(() => {
+        if (az.validationErrors(form).length) return 'errors' as const;
+        const now = az.activeForm(document);
+        if (!now) return az.reviewMode(document) ? ('review' as const) : null;
+        return az.formKey(now) !== key ? ('next' as const) : null;
+      }, STEP_TIMEOUT_MS).catch(() => 'stuck' as const);
+      if (moved === 'errors') return parked(`Amazon rejected form ${key}: ${az.validationErrors(form).join('; ')}`);
+      if (moved === 'stuck') return parked(`Form ${key} did not advance after Continue`);
+      if (moved === 'review') break;
+      await sleep(600);
+    }
+
+    if (msg.dryRun) return parked('dry run: filled through Review & submit, not submitted');
+    if (!msg.autoSubmit) return parked('Filled through Review & submit; awaiting your click on Submit application');
+
+    const submit = await waitFor(() => az.submitButton(document), 10_000).catch(() => null);
+    if (!submit) return { status: 'error', note: 'Submit application button never became enabled', filled };
+    log('clicking Submit application');
+    submit.click();
+
+    // Success = the app navigates to its success page, which kills this script mid-await; the
+    // background then confirms via the tab URL. So the only outcomes we can *report* from here are
+    // the AI-consent modal (answer it and keep waiting) and an error that keeps us on the page.
+    const handled = new Set<az.AiConsentStep>();
+    const outcome = await waitFor((): ApplyOutcome | null => {
+      const step = az.aiConsentStep(document);
+      if (step && !handled.has(step)) {
+        handled.add(step);
+        log('answering AI-preference modal', step, { consent: msg.profile.amazon.ai_consent });
+        az.answerAiConsent(document, msg.profile.amazon.ai_consent);
+        return null;
+      }
+      const errs = az.validationErrors(document);
+      return errs.length ? { status: 'error', note: `submit failed: ${errs.join('; ')}`, filled } : null;
+    }, SUBMIT_TIMEOUT_MS).catch(() => null);
+    return outcome ?? { status: 'error', note: 'no confirmation after submit (still on the apply page)', filled };
+  } catch (e) {
+    console.error('[jobbot:amazon] apply error', e);
+    return { status: 'error', note: String((e as Error).message), filled };
+  }
+}

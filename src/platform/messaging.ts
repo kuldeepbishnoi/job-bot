@@ -6,7 +6,7 @@ import type { SerializedFile } from './serialized-file';
 
 // `filled` carries what we actually put in the form back to the orchestrator, for the on-disk record.
 export type ApplyOutcome =
-  | { status: 'submitted'; filled?: AppliedField[] }
+  | { status: 'submitted'; filled?: AppliedField[]; note?: string } // note: e.g. "already applied"
   | { status: 'needs_otp'; filled?: AppliedField[] }
   | { status: 'parked'; note: string; filled?: AppliedField[] }
   | { status: 'error'; note: string; filled?: AppliedField[] };

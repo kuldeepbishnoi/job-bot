@@ -4,11 +4,13 @@ import { getOtp, seenOtps } from '../platform/gmail-otp';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
+import { submittedByNavigation } from '../ats/amazon';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Poll the tab until the Greenhouse form content script answers — it injects after the
- *  parent page's 'complete' (the form is a late async iframe), so 'apply' can't be sent blind. */
+/** Poll the tab until the form content script answers — Greenhouse injects after the parent
+ *  page's 'complete' (the form is a late async iframe) and Amazon's apply app renders after its
+ *  own XHRs, so 'apply' can't be sent blind. */
 async function waitForFrame(tabId: number, tries = 30): Promise<void> {
   for (let i = 0; i < tries; i++) {
     const ready = await sendToTab<{ pong?: boolean }>(tabId, { t: 'ping' })
@@ -20,16 +22,31 @@ async function waitForFrame(tabId: number, tries = 30): Promise<void> {
   throw new Error('form frame never became ready');
 }
 
+/** Amazon's apply app *navigates away* the instant a submit succeeds (to the summary page), which
+ *  tears down the content script before it can answer — the message port closes. That closed
+ *  port is the normal success signal there: confirm by looking at where the tab went. */
+async function outcomeAfterPortClosed(tabId: number, err: unknown): Promise<ApplyOutcome> {
+  await sleep(2000); // let the redirect commit
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const url = tab?.pendingUrl ?? tab?.url ?? '';
+  if (submittedByNavigation(url)) return { status: 'submitted', note: `submitted — page moved on to ${url}` };
+  throw err;
+}
+
 // Concrete ports, assembled from platform adapters. This is the "Main" seam (Ch26):
 // the dirty wiring that hands effects to the pure runner. Nothing else builds these.
 export function chromePorts(): RunPorts {
   return {
-    discover: (site) => site.discover(),
+    discover: (site, profile) => site.discover(profile),
     appliedIds,
     openJob,
     apply: async (tabId, profile, job, resume) => {
       await waitForFrame(tabId);
-      return sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
+      try {
+        return await sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit });
+      } catch (e) {
+        return outcomeAfterPortClosed(tabId, e);
+      }
     },
     seenOtps,
     getOtp,
