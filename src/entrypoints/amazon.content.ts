@@ -50,12 +50,24 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     }
     if (/result=application_limit_reach/.test(location.href)) return { status: 'error', note: 'Amazon application limit reached' };
 
-    await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 20_000);
+    await waitFor(() => az.activeForm(document) ?? (az.reviewMode(document) ? true : null), 20_000).catch(() => {
+      throw new Error(`no active form or review mode after 20s — ${az.describeState(document)}`);
+    });
+    // Snapshot the rendered app for offline debugging (read it back from the SW console with
+    //   chrome.storage.local.get('lastAmazonHtml').then((r) => copy(r.lastAmazonHtml))
+    // or straight from the extension's LevelDB on disk).
+    const app = document.querySelector('.application-questions') ?? document.body;
+    void chrome.storage.local.set({ lastAmazonHtml: app.outerHTML.slice(0, 400_000), lastAmazonUrl: location.href, lastAmazonState: az.describeState(document) }).catch(() => {});
+    log('state', az.describeState(document));
 
     const consent = msg.profile.amazon?.ai_consent ?? false;
+    let reachedReview = false;
     for (let i = 0; i < MAX_FORMS; i++) {
       // (a not-yet-rendered form burns one iteration — MAX_FORMS has slack for that)
-      if (az.reviewMode(document) && !az.activeForm(document)) break;
+      if (az.reviewMode(document) && !az.activeForm(document)) {
+        reachedReview = true;
+        break;
+      }
       const form = az.activeForm(document);
       if (!form) {
         await sleep(500);
@@ -95,9 +107,13 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       }, STEP_TIMEOUT_MS).catch(() => 'stuck' as const);
       if (moved === 'errors') return parked(`Amazon rejected form ${key}: ${az.validationErrors(form).join('; ')}`);
       if (moved === 'stuck') return parked(`Form ${key} did not advance after Continue`);
-      if (moved === 'review') break;
+      if (moved === 'review') {
+        reachedReview = true;
+        break;
+      }
       await sleep(600);
     }
+    if (!reachedReview) return parked(`Never reached Review & submit (filled ${filled.length}) — ${az.describeState(document)}`);
 
     if (msg.dryRun) return parked('dry run: filled through Review & submit, not submitted');
     if (!msg.autoSubmit) return parked('Filled through Review & submit; awaiting your click on Submit application');

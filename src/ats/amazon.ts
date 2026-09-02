@@ -38,9 +38,17 @@ export function shown(el: Element | null): el is HTMLElement {
   return h.offsetParent !== null || h.getClientRects().length > 0;
 }
 
-/** The one form currently open for editing. */
+/** The one form currently open for editing. Primary signal is the `active` class the bundle adds;
+ *  fallback is "the visible form card that still has editable controls" (read-only cards render
+ *  `.input-display-mode` spans, never inputs). */
 export function activeForm(doc: Document): HTMLElement | null {
-  return [...doc.querySelectorAll<HTMLElement>('.question-form.active')].find(shown) ?? null;
+  const flagged = [...doc.querySelectorAll<HTMLElement>('.question-form.active')].find(shown);
+  if (flagged) return flagged;
+  return (
+    [...doc.querySelectorAll<HTMLElement>('.question-form')].find(
+      (f) => shown(f) && !!f.querySelector('select, textarea, input[type="radio"], input[type="checkbox"], input[type="text"]'),
+    ) ?? null
+  );
 }
 
 /** Stable identity for a form card (its `formN` index class + heading), to notice when Continue
@@ -51,11 +59,18 @@ export function formKey(form: Element): string {
   return `${idx}:${heading ? labelText(heading).slice(0, 60) : ''}`;
 }
 
-/** Review mode = every form saved. The bundle renders `.submit-application-button` ONLY when
- *  activeFormIndex === NO_ACTIVE_FORM (never as a disabled placeholder earlier), so its presence
- *  is as good a signal as the `reviewing` class. */
+/** Review mode = every form saved: the bundle flags the forms container `reviewing` and renders
+ *  the Submit application button. Require the flag — a first live run showed the loop ending
+ *  before filling anything, and a lone button/container match is the likeliest false positive. */
 export function reviewMode(doc: Document): boolean {
-  return !!doc.querySelector('.question-forms.reviewing') || !!doc.querySelector('.submit-application-button');
+  return !!doc.querySelector('.question-forms.reviewing');
+}
+
+/** One-line description of the page state, for park/error notes — so a failed run explains
+ *  itself without DevTools. */
+export function describeState(doc: Document): string {
+  const n = (sel: string) => doc.querySelectorAll(sel).length;
+  return `forms=${n('.question-form')} active=${n('.question-form.active')} reviewing=${n('.question-forms.reviewing')} submit=${n('.submit-application-button')} questions=${n('[data-questionid]')} selects=${n('select')} nav=${n('li.form-list-item')}`;
 }
 
 export function questionNodes(root: ParentNode): HTMLElement[] {
