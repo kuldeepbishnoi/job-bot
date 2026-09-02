@@ -128,6 +128,9 @@ fixtures/    real captured data for offline tests
 - When adding a permission or host, justify it in the PR description.
 
 ## How to extend
+- **Adding any new site: run the `site-pack` skill first** (`.claude/skills/site-pack/SKILL.md`). It is the
+  recon → snapshot → observability → adapter → dry-run order that the Amazon pack learned the hard way.
+  `debug/snapshot.js` (paste in DevTools) captures the real DOM of any apply step as JSON.
 - **New Greenhouse company**: add `src/sources/<co>.ts` (discovery) + `src/sites/<co>.ts`
   (`{ id, label, ats:'greenhouse', discover }`) + one line in `src/sites/index.ts`. The popup button
   and pipeline light up automatically.
