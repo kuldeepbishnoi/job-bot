@@ -4,6 +4,7 @@ import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/
 import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
 import { enableDaily, disableDaily, dailySchedule } from '@/platform/schedule';
+import { dlog } from '@/platform/debug-log';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -98,7 +99,7 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
 // A warning must survive the 2s progress poll below, or the user never sees why nothing happened.
 let warnUntil = 0;
 function warn(text: string): void {
-  console.error('[jobbot popup]', text);
+  dlog('popup', text); // lands in the Logs page, not Chrome's scary "Errors" badge
   warnUntil = Date.now() + 60_000;
   setStatus(`⚠ ${text}`);
 }
@@ -186,6 +187,8 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
     refreshStats();
   }
 });
+
+$('logs').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('/logs.html') }));
 
 const pick = $('pick');
 pick.addEventListener('click', async () => {

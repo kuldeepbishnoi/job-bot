@@ -48,12 +48,23 @@ export async function loadProfileAndResume(): Promise<{ profile: Profile; resume
     if ((await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Read permission denied.');
   }
 
-  const yamlText = await (await (await dir.getFileHandle('profile.yaml')).getFile()).text();
+  // Name the missing file: the raw DOMException ("A requested file or directory could not be
+  // found…") says nothing about WHICH one, and the usual cause is picking the wrong folder.
+  const folder = (dir as unknown as { name?: string }).name ?? 'the chosen folder';
+  const yamlText = await (await (await dir.getFileHandle('profile.yaml').catch(() => {
+    throw new Error(`profile.yaml not found in "${folder}" — choose the profile/ folder (the one containing profile.yaml)`);
+  })).getFile()).text();
   const profile = parseProfile(parse(yamlText));
 
   const [sub, file] = profile.resume.split('/');
-  const resumeDir = file ? await dir.getDirectoryHandle(sub!) : dir;
-  const resumeFile = await (await resumeDir.getFileHandle(file ?? sub!)).getFile();
+  const resumeDir = file
+    ? await dir.getDirectoryHandle(sub!).catch(() => {
+        throw new Error(`résumé folder "${sub}" not found in "${folder}" (profile.yaml says resume: ${profile.resume})`);
+      })
+    : dir;
+  const resumeFile = await (await resumeDir.getFileHandle(file ?? sub!).catch(() => {
+    throw new Error(`résumé "${profile.resume}" not found in "${folder}"`);
+  })).getFile();
 
   return { profile, resume: await serializeFile(resumeFile) };
 }
