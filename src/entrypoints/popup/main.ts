@@ -61,12 +61,20 @@ async function startInstahyre(btn: HTMLButtonElement): Promise<void> {
   try {
     setStatus('Starting Instahyre…');
     const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre' });
-    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
-    setStatus(`⚠ ${(e as Error).message}`);
+    warn((e as Error).message);
   } finally {
     btn.disabled = false;
   }
+}
+
+/** Chrome can leave a declared host ungranted (e.g. after a reload that added one). Discovery then
+ *  fails with an opaque fetch error, so ask here — this click is the user gesture that allows it. */
+async function ensureHosts(): Promise<void> {
+  const origins = chrome.runtime.getManifest().host_permissions ?? [];
+  if (await chrome.permissions.contains({ origins })) return;
+  if (!(await chrome.permissions.request({ origins }))) throw new Error('site access not granted (chrome://extensions → JobBot → Site access)');
 }
 
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
@@ -76,14 +84,23 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
     // the background service worker cannot request that permission.
     setStatus('Reading profile…');
     const { profile, resume } = await loadProfileAndResume();
+    await ensureHosts();
     setStatus('Starting…');
     const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume });
-    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
-    setStatus(`⚠ ${(e as Error).message}`);
+    warn((e as Error).message);
   } finally {
     btn.disabled = false;
   }
+}
+
+// A warning must survive the 2s progress poll below, or the user never sees why nothing happened.
+let warnUntil = 0;
+function warn(text: string): void {
+  console.error('[jobbot popup]', text);
+  warnUntil = Date.now() + 60_000;
+  setStatus(`⚠ ${text}`);
 }
 
 async function refreshStats(): Promise<void> {
@@ -138,11 +155,16 @@ $('review').addEventListener('click', async () => {
 
 // The worker tab activating closes this popup, so live 'progress' messages are usually missed.
 // Read the persisted run status on open (and while open) so there's always visibility.
+const STALE_RUN_MS = 2 * 60 * 60 * 1000; // a "running" record older than this is a run that died
+
 async function refreshProgress(): Promise<void> {
+  if (Date.now() < warnUntil) return; // keep the warning readable
   const p = await getProgress();
   if (!p) return;
-  $('stop').hidden = p.phase !== 'running';
-  if (p.phase === 'running') setStatus(`Applying ${p.done + 1}/${p.total} · ${p.current}`);
+  const running = p.phase === 'running' && Date.now() - p.at < STALE_RUN_MS;
+  $('stop').hidden = !running;
+  if (running) setStatus(`Applying ${Math.min(p.done + 1, p.total)}/${p.total} · ${p.current}`);
+  else if (p.phase === 'running') setStatus(`Last run stopped unexpectedly at ${p.done}/${p.total} · ${p.current}`);
   else setStatus(`Run finished · ${p.total} processed`);
 }
 
