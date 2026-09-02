@@ -15,7 +15,7 @@ export interface RunProgress {
   readonly done: number;
   readonly total: number;
   readonly current: string;
-  readonly phase: 'running' | 'done';
+  readonly phase: 'running' | 'done' | 'paused'; // paused = waiting for the user to log the next account in
   readonly at: number; // epoch ms of last update
 }
 
@@ -35,6 +35,10 @@ export interface RunState {
   readonly resume: SerializedFile;
   readonly queue: readonly Job[];
   readonly cursor: number;
+  /** Set when the run is waiting for the user to log in as `nextAccount` (account rotation). */
+  readonly paused?: { readonly reason: string; readonly nextAccount: string };
+  /** From profile/accounts.yaml when present — lets rotation log the next account in itself. */
+  readonly credentials?: { readonly password: string; readonly overrides?: Record<string, string> };
 }
 
 export async function saveRunState(s: RunState): Promise<void> {
@@ -55,12 +59,34 @@ async function readAll(): Promise<Application[]> {
   return (got[KEY] as Application[] | undefined) ?? [];
 }
 
+const ACCOUNT_KEY = 'account';
+
+/** Which login this extension instance applies from (one Chrome profile per account). */
+export async function getAccount(): Promise<string> {
+  const got = await chrome.storage.local.get(ACCOUNT_KEY);
+  return (got[ACCOUNT_KEY] as string | undefined) ?? '';
+}
+export async function setAccount(email: string): Promise<void> {
+  await chrome.storage.local.set({ [ACCOUNT_KEY]: email.trim() });
+}
+
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
   // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
   // chrome.storage quota over a run. It's written to disk (fs-config.writeRecord) instead.
   const { screenshot: _omit, ...lean } = app;
-  await chrome.storage.local.set({ [KEY]: [...all, lean] });
+  const stamped: Application = { ...lean, at: new Date().toISOString(), account: await getAccount() };
+  await chrome.storage.local.set({ [KEY]: [...all, stamped] });
+}
+
+/** Applications made today by one account (per-account daily limits, e.g. Amazon's 10). */
+export async function appliedTodayCount(account: string): Promise<number> {
+  const today = new Date().toISOString().slice(0, 10);
+  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
+}
+
+export async function allRecords(): Promise<Application[]> {
+  return readAll();
 }
 
 export async function appliedIds(): Promise<Set<string>> {

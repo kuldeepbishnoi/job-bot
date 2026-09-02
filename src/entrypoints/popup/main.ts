@@ -1,8 +1,10 @@
 import { SITES } from '@/sites';
-import { stats, getProgress, needsAttention } from '@/platform/store';
-import { pickProfileDir, loadProfileAndResume, hasProfileDir } from '@/platform/fs-config';
+import { stats, getProgress, needsAttention, getAccount, setAccount, allRecords } from '@/platform/store';
+import { pickProfileDir, loadProfileAndResume, hasProfileDir, flushToDisk, readRegistry, loadCredentials } from '@/platform/fs-config';
 import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
+import { enableDaily, disableDaily, dailySchedule } from '@/platform/schedule';
+import { dlog } from '@/platform/debug-log';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -15,6 +17,7 @@ function renderSites(): void {
     btn.textContent = `Apply for ${site.label}`;
     btn.onclick = () => startRun(site.id, btn);
     host.appendChild(btn);
+    host.appendChild(dailyToggle(site.id, site.label));
   }
   // Instahyre isn't a worker-window Site: it applies in-page in the user's logged-in tab, so it
   // gets its own button + start path rather than going through the Greenhouse discover/OTP pipeline.
@@ -25,17 +28,54 @@ function renderSites(): void {
   host.appendChild(ih);
 }
 
+// "Run daily" — caches the profile + résumé (loaded here, where the FS-access gesture lives) and
+// arms a 24h alarm the background acts on. Unchecking clears both. The cached snapshot is what
+// runs: after editing profile.yaml, untick + retick to pick the change up.
+function dailyToggle(siteId: string, label: string): HTMLElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'daily';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  wrap.append(box, document.createTextNode(` Run ${label} daily at 9:00 (re-tick after editing profile.yaml)`));
+  void dailySchedule(siteId).then((s) => (box.checked = !!s));
+  box.onchange = async () => {
+    try {
+      if (box.checked) {
+        setStatus('Reading profile…');
+        const { profile, resume } = await loadProfileAndResume();
+        await enableDaily(siteId, profile, resume);
+        setStatus(`${label}: daily run armed ✓`);
+      } else {
+        await disableDaily(siteId);
+        setStatus(`${label}: daily run off`);
+      }
+    } catch (e) {
+      box.checked = !!(await dailySchedule(siteId).catch(() => null)); // show what's actually armed
+      setStatus(`⚠ ${(e as Error).message}`);
+    }
+  };
+  return wrap;
+}
+
 async function startInstahyre(btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   try {
     setStatus('Starting Instahyre…');
     const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre' });
-    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
-    setStatus(`⚠ ${(e as Error).message}`);
+    warn((e as Error).message);
   } finally {
     btn.disabled = false;
   }
+}
+
+/** Chrome can leave a declared host ungranted (e.g. after a reload that added one). Discovery then
+ *  fails with an opaque fetch error, so ask here — this click is the user gesture that allows it. */
+async function ensureHosts(): Promise<void> {
+  const origins = chrome.runtime.getManifest().host_permissions ?? [];
+  if (await chrome.permissions.contains({ origins })) return;
+  if (!(await chrome.permissions.request({ origins }))) throw new Error('site access not granted (chrome://extensions → JobBot → Site access)');
 }
 
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
@@ -45,17 +85,59 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
     // the background service worker cannot request that permission.
     setStatus('Reading profile…');
     const { profile, resume } = await loadProfileAndResume();
-    setStatus('Starting…');
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume });
-    if (!res?.ok) setStatus(`⚠ ${res?.error ?? 'failed to start'}`);
+    await ensureHosts();
+    // Every account's applications live in the shared registry — never repeat one.
+    const exclude = [...(await readRegistry())];
+    const credentials = await loadCredentials(); // enables hands-free account rotation
+    setStatus(`Starting… (${exclude.length} jobs already applied across accounts${credentials ? ', auto-login on' : ''})`);
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume, exclude, credentials });
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
-    setStatus(`⚠ ${(e as Error).message}`);
+    warn((e as Error).message);
   } finally {
     btn.disabled = false;
   }
 }
 
+// Append-only local files: flush whatever the background recorded since the last flush.
+async function flush(): Promise<void> {
+  try {
+    const got = await chrome.storage.local.get('debug_log');
+    const n = await flushToDisk(await allRecords(), (got['debug_log'] as string[] | undefined) ?? []);
+    if (n) console.log('[jobbot popup] flushed', n, 'records to applications.jsonl');
+  } catch (e) {
+    dlog('popup', 'flush to disk failed', (e as Error).message);
+  }
+}
+
+// A warning must survive the 2s progress poll below, or the user never sees why nothing happened.
+let warnUntil = 0;
+function warn(text: string): void {
+  dlog('popup', text); // lands in the Logs page, not Chrome's scary "Errors" badge
+  warnUntil = Date.now() + 60_000;
+  setStatus(`⚠ ${text}`);
+}
+
+// Per-account picture: applied today per account, current one marked.
+async function refreshAccounts(): Promise<void> {
+  const host = $('accounts');
+  const today = new Date().toISOString().slice(0, 10);
+  const current = await getAccount();
+  const counts = new Map<string, number>();
+  for (const r of await allRecords()) if (r.status === 'applied' && r.date === today) counts.set(r.account ?? '', (counts.get(r.account ?? '') ?? 0) + 1);
+  const names = [...new Set([current, ...counts.keys()])].filter(Boolean);
+  host.innerHTML = '';
+  for (const a of names) {
+    const li = document.createElement('li');
+    li.textContent = `${a === current ? '▶ ' : ''}${a} · ${counts.get(a) ?? 0} today`;
+    if (a === current) li.style.color = 'var(--fg)';
+    host.appendChild(li);
+  }
+  host.hidden = names.length === 0;
+}
+
 async function refreshStats(): Promise<void> {
+  await refreshAccounts();
   const s = await stats();
   $('today').textContent = String(s.today);
   $('yesterday').textContent = String(s.yesterday);
@@ -107,12 +189,35 @@ $('review').addEventListener('click', async () => {
 
 // The worker tab activating closes this popup, so live 'progress' messages are usually missed.
 // Read the persisted run status on open (and while open) so there's always visibility.
+const STALE_RUN_MS = 2 * 60 * 60 * 1000; // a "running" record older than this is a run that died
+
 async function refreshProgress(): Promise<void> {
+  if (Date.now() < warnUntil) return; // keep the warning readable
   const p = await getProgress();
   if (!p) return;
-  if (p.phase === 'running') setStatus(`Applying ${p.done + 1}/${p.total} · ${p.current}`);
+  const running = p.phase === 'running' && Date.now() - p.at < STALE_RUN_MS;
+  $('stop').hidden = !running && p.phase !== 'paused';
+  $('resume').hidden = p.phase !== 'paused';
+  if (p.phase === 'paused') setStatus(`⏸ ${p.current}`);
+  else if (running) setStatus(`Applying ${Math.min(p.done + 1, p.total)}/${p.total} · ${p.current}`);
+  else if (p.phase === 'running') setStatus(`Last run stopped unexpectedly at ${p.done}/${p.total} · ${p.current}`);
   else setStatus(`Run finished · ${p.total} processed`);
 }
+
+$('resume').addEventListener('click', async () => {
+  const res = await send<{ ok: boolean; error?: string }>({ t: 'resume' }).catch((e: Error) => ({ ok: false, error: e.message }));
+  if (res.ok) {
+    $('resume').hidden = true;
+    $<HTMLInputElement>('account').value = await getAccount();
+    setStatus('Resumed.');
+  } else warn(res.error ?? 'could not resume');
+});
+
+$('stop').addEventListener('click', async () => {
+  const res = await send<{ ok: boolean; error?: string }>({ t: 'stop' }).catch((e: Error) => ({ ok: false, error: e.message }));
+  setStatus(res.ok ? 'Run stopped.' : `⚠ ${res.error}`);
+  $('stop').hidden = true;
+});
 
 function setStatus(text: string): void {
   $('status').textContent = text;
@@ -126,6 +231,9 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
     refreshStats();
   }
 });
+
+$('logs').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('/logs.html') }));
+$('apps').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('/logs.html#apps') }));
 
 const pick = $('pick');
 pick.addEventListener('click', async () => {
@@ -163,6 +271,14 @@ function reflectGmail(connected: boolean): void {
 
 async function init(): Promise<void> {
   renderSites();
+  const acct = $<HTMLInputElement>('account');
+  acct.value = await getAccount();
+  acct.addEventListener('change', async () => {
+    await setAccount(acct.value);
+    setStatus(acct.value ? `Account: ${acct.value}` : 'Account cleared');
+  });
+  void flush();
+  setInterval(() => void flush(), 30_000);
   await refreshStats();
   reflectLinked(await hasProfileDir());
   reflectGmail(!!(await getToken(false))); // silent check: already connected?

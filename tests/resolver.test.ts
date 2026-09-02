@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolve, matchOptions } from '@/engine/resolver';
+import { resolve, matchOptions, guessAnswer } from '@/engine/resolver';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -18,7 +18,69 @@ const job: Job = {
 
 const f = (p: Partial<Field>): Field => ({ id: 'x', label: 'x', kind: 'text', required: true, ...p });
 
+describe('guessAnswer (on_unknown: guess — never stuck)', () => {
+  const sel = f({ kind: 'select', label: 'Are you subject to any post-government employment restrictions?' });
+  it('prefers a decline option, else No, and never a Yes', () => {
+    expect(guessAnswer(sel, ['Yes', 'No', 'I choose not to self-identify'])).toEqual({ kind: 'choice', values: ['I choose not to self-identify'] });
+    expect(guessAnswer(sel, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    expect(guessAnswer(sel, ['No, I was NEVER a government employee.', 'Yes, I am a FORMER government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
+    expect(guessAnswer(sel, ['Yes'])).toEqual({ kind: 'choice', values: ['Yes'] }); // the only option there is
+  });
+  it('picks the applicant\'s own country from a country list, and never "North Korea" for "No"', () => {
+    const p = parseProfile(base); // identity.country: India
+    expect(guessAnswer(sel, ['Afghanistan', 'British Indian Ocean Territory', 'India', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['India'] });
+    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['Afghanistan'] }); // last resort: first option
+  });
+  it('never stops: free text gets N/A, a checkbox gets checked, an empty select parks', () => {
+    expect(guessAnswer(f({ kind: 'text' }), [])).toEqual({ kind: 'text', value: 'N/A' });
+    expect(guessAnswer(f({ kind: 'checkbox' }), [])).toEqual({ kind: 'check', value: true });
+    expect(guessAnswer(sel, ['', 'Select an option'])).toBeNull();
+  });
+});
+
 describe('resolver', () => {
+  it('maps a numeric years answer onto the range option that contains it', () => {
+    const p = parseProfile({ ...base, answers: { years_of_experience: 6 } });
+    const field = f({ kind: 'select', intent: 'answers.years_of_experience' });
+    const ladder = ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', '4 years to less than 5 years', 'more than 5 years'];
+    expect(resolve(field, p, job, ladder)).toEqual({ kind: 'choice', values: ['more than 5 years'] });
+    expect(resolve(f({ kind: 'text', intent: 'answers.years_of_experience' }), p, job)).toEqual({ kind: 'text', value: '6' });
+    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // no threshold in the label either
+    const fivePlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 5+ years of full software development life cycle experience?' });
+    expect(resolve(fivePlus, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] }); // 6 >= 5
+    const tenPlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 10+ years of engineering experience?' });
+    expect(resolve(tenPlus, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+  });
+
+  it('prefers an exact option over a substring hit (India, not British Indian Ocean Territory)', () => {
+    const p = parseProfile({ ...base, answers: { citizenship: 'India' } });
+    const field = f({ kind: 'select', intent: 'answers.citizenship' });
+    expect(resolve(field, p, job, ['Bahrain', 'British Indian Ocean Territory', 'India', 'Indonesia'])).toEqual({ kind: 'choice', values: ['India'] });
+    expect(matchOptions(['Paris, France', 'Bangalore, India'], ['Paris'])).toEqual(['Paris, France']); // fuzzy still works
+  });
+
+  it('matches yes/no as whole words, so "No" never means "North Korea" or "I choose not to"', () => {
+    const p = parseProfile({ ...base, answers: { sanctioned_country: false, government_employee: false } });
+    expect(resolve(f({ kind: 'select', intent: 'answers.sanctioned_country' }), p, job, ['Cuba', 'North Korea'])).toEqual({ kind: 'choice', values: ['No'] }); // no real "No" option → literal fallback, never a country
+    expect(resolve(f({ kind: 'select', intent: 'answers.government_employee' }), p, job, ['Yes, I am a FORMER government employee.', 'No, I was NEVER a government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
+    expect(resolve(f({ kind: 'select', intent: 'answers.indigenous' }), parseProfile({ ...base, answers: { indigenous: false } }), job, ['Yes', 'I choose not to self-identify', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+  });
+
+  it('years_of_experience: MAX always takes the top bucket and says Yes to any N+ years', () => {
+    const p = parseProfile({ ...base, answers: { years_of_experience: 'MAX' } });
+    const field = f({ kind: 'select', intent: 'answers.years_of_experience' });
+    expect(resolve(field, p, job, ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', 'more than 4 years'])).toEqual({ kind: 'choice', values: ['more than 4 years'] });
+    expect(resolve(field, p, job, ['0-1 years', '1-3 years', '3-5 years', '5-8 years', '8+ years'])).toEqual({ kind: 'choice', values: ['8+ years'] });
+    expect(resolve(field, p, job, ['1-2 years', '2-5 years', '5-10 years'])).toEqual({ kind: 'choice', values: ['5-10 years'] }); // no open-ended top: still the highest
+    expect(resolve(f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 10+ years of experience?' }), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
+  it('maps DECLINE onto Amazon\'s "I choose not to self-identify"', () => {
+    const p = parseProfile({ ...base, answers: { indigenous: 'DECLINE' } });
+    const field = f({ kind: 'select', intent: 'answers.indigenous' });
+    expect(resolve(field, p, job, ['Yes', 'No', 'I choose not to self-identify'])).toEqual({ kind: 'choice', values: ['I choose not to self-identify'] });
+  });
+
   it('fills identity text', () => {
     expect(resolve(f({ intent: 'identity.first_name' }), profile, job)).toEqual({ kind: 'text', value: 'Kuldeep' });
   });

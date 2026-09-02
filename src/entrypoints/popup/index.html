@@ -22,14 +22,20 @@
       </section>
 
       <p id="insights" class="insights" hidden></p>
+      <ul id="accounts" class="review-list" hidden></ul>
 
       <button id="review" class="review" hidden></button>
       <ul id="review-list" class="review-list" hidden></ul>
       <p id="status" class="status"></p>
+      <button id="resume" class="apply" hidden>Resume as next account</button>
+      <button id="stop" class="link" hidden>Stop run</button>
 
+      <label class="daily" title="Which login this Chrome profile applies from (one Chrome profile per account; all share the profile folder)">Account <input id="account" type="email" placeholder="you+01@gmail.com" style="flex:1;background:var(--card);color:var(--fg);border:1px solid #262844;border-radius:6px;padding:3px 6px;font-size:12px" /></label>
       <footer class="foot">
         <button id="pick" class="link">Choose profile folder…</button>
         <button id="gmail" class="link">Connect Gmail…</button>
+        <button id="logs" class="link">View logs</button>
+        <button id="apps" class="link">Review applications</button>
       </footer>
     </main>
     <script type="module" src="./main.ts"></script>

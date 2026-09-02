@@ -1,10 +1,15 @@
 import type { Answer, Field, Intent, Job } from './types';
 import type { AnswerValue, Profile } from '../config/schema';
 import { isAnswerToken, optionForToken } from './answer-tokens';
+import { pickYearsOption } from './years';
 
-// A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no.
+// A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no —
+// matched as whole words, so "no" never hits "North Korea", "Not applicable" or "I choose not to".
 const YES = ['yes', 'i agree', 'i acknowledge', 'i understand', 'true', 'authorized', 'authorised'];
 const NO = ['no', 'i do not', "i don't", 'false', 'not authorized'];
+// Whole-phrase match on letter boundaries: "no" matches "No, I was NEVER…" but not "North Korea"/"not".
+const hasWord = (text: string, phrase: string): boolean =>
+  (' ' + text.toLowerCase().replace(/[^a-z']+/g, ' ') + ' ').includes(' ' + phrase + ' ');
 
 // Decide what goes in each field. Pure: (field, profile, job, options) -> Answer.
 // options = the actual choices a select offers (needed to pick the right city/label).
@@ -52,6 +57,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
 }
 
 function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): Answer {
+  // years_of_experience: MAX — always the top bucket / always "Yes" to "N+ years" (owner's rule).
+  if (val === 'MAX' && field.intent === 'answers.years_of_experience') val = Number.POSITIVE_INFINITY;
+
   // Canonical token (DECLINE, NOT_A_VETERAN…) -> the option that matches this form's wording.
   if (isAnswerToken(val)) {
     const opt = optionForToken(val, options);
@@ -63,8 +71,24 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
     if (field.kind === 'checkbox') return { kind: 'check', value: val };
     if (field.kind === 'text') return { kind: 'text', value: val ? 'Yes' : 'No' };
     const synonyms = val ? YES : NO;
-    const picked = options.filter((o) => synonyms.some((s) => o.toLowerCase().includes(s)));
+    const picked = options.filter((o) => synonyms.some((s) => hasWord(o, s)));
     return picked.length ? { kind: 'choice', values: picked.slice(0, 1) } : { kind: 'choice', values: [val ? 'Yes' : 'No'] };
+  }
+
+  // Numeric answer (years_of_experience: 6) -> the range option that contains it, or the number
+  // itself for a free-text field.
+  if (typeof val === 'number') {
+    if (field.kind === 'select' || field.kind === 'multiselect') {
+      const opt = pickYearsOption(options, val);
+      if (opt) return { kind: 'choice', values: [opt] };
+      // "Do you have 5+ years of …?" with Yes/No: compare against the threshold in the label.
+      const threshold = /(\d+(?:\.\d+)?)\s*\+?\s*(?:or more\s+)?years?/i.exec(field.label)?.[1];
+      const yes = options.find((o) => YES.some((s) => hasWord(o, s)));
+      const no = options.find((o) => NO.some((s) => hasWord(o, s)));
+      if (threshold && yes && no) return { kind: 'choice', values: [val >= Number(threshold) ? yes : no] };
+      return { kind: 'unknown' };
+    }
+    return { kind: 'text', value: String(val) };
   }
 
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {
@@ -88,11 +112,36 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
   return jobOpts.length ? { kind: 'choice', values: jobOpts } : { kind: 'unknown' };
 }
 
-/** Fuzzy: an option matches a wanted value if either contains the other (token-wise). */
+/** The "obvious" choice for a required question nobody has an answer for (on_unknown: guess) —
+ *  the owner's rule is "never stuck", so this always returns something for a select/text:
+ *    1. a decline / prefer-not option, if offered;
+ *    2. the applicant's own country (identity.country) when the options are a country list;
+ *    3. "No" / "None" / "Not applicable" — the answer that opens no follow-up questions;
+ *    4. last resort: the first real option (select) or "N/A" (free text).
+ *  Callers mark the record "(guessed)" so a bad guess is visible after the fact. */
+export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
+  if (field.kind === 'checkbox') return { kind: 'check', value: true };
+  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
+  if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
+  const decline = optionForToken('DECLINE', options);
+  if (decline) return { kind: 'choice', values: [decline] };
+  const country = profile?.identity.country?.trim().toLowerCase();
+  const own = country ? options.find((o) => o.trim().toLowerCase() === country) : undefined;
+  if (own) return { kind: 'choice', values: [own] };
+  const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
+  if (no) return { kind: 'choice', values: [no] };
+  const first = options.find((o) => o.trim() !== '' && !/^select/i.test(o.trim()));
+  return first ? { kind: 'choice', values: [first] } : null;
+}
+
+/** Per wanted value, an exact option wins outright ("India" must not become "British Indian Ocean
+ *  Territory"); otherwise fuzzy: the option matches if either contains the other. Option order kept. */
 export function matchOptions(options: readonly string[], wanted: readonly string[]): string[] {
-  const w = wanted.map((s) => s.toLowerCase().trim()).filter(Boolean);
-  return options.filter((opt) => {
-    const o = opt.toLowerCase();
-    return w.some((x) => o.includes(x) || x.includes(o));
-  });
+  const hits = new Set<string>();
+  for (const x of wanted.map((s) => s.toLowerCase().trim()).filter(Boolean)) {
+    const exact = options.filter((opt) => opt.toLowerCase().trim() === x);
+    const found = exact.length ? exact : options.filter((opt) => opt.toLowerCase().includes(x) || x.includes(opt.toLowerCase()));
+    for (const f of found) hits.add(f);
+  }
+  return options.filter((opt) => hits.has(opt));
 }

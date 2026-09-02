@@ -97,6 +97,18 @@ async function api<T>(url: string, token: string): Promise<T> {
  * Return the Greenhouse security codes currently in the mailbox, NEWEST FIRST.
  * Throws on token/network failure so the caller can fall back to the tab scrape.
  */
+/** Generic: codes from messages matching a Gmail search, NEWEST FIRST, via an extractor. */
+export async function apiCodes(token: string, query: string, extract: (text: string) => string | null, max = 5): Promise<string[]> {
+  const list = await api<{ messages?: { id: string }[] }>(`${API}?maxResults=${max}&q=${encodeURIComponent(query)}`, token);
+  const codes: string[] = [];
+  for (const { id } of list.messages ?? []) {
+    const msg = await api<GmailMessage>(`${API}/${id}?format=full`, token);
+    const code = extract(plainText(msg.payload)) ?? extract(msg.snippet ?? '');
+    if (code && !codes.includes(code)) codes.push(code);
+  }
+  return codes;
+}
+
 export async function apiGreenhouseCodes(token: string): Promise<string[]> {
   const list = await api<{ messages?: { id: string }[] }>(
     `${API}?maxResults=5&q=${encodeURIComponent(QUERY)}`,

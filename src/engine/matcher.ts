@@ -1,7 +1,7 @@
 import type { Field, Intent } from './types';
 
 // Map a raw question label -> canonical intent, by keyword rules.
-// Intent-based (not exact-text) so the same rules answer Datadog, Netflix, Alibaba…
+// Intent-based (not exact-text) so the same rules answer Datadog, Netflix, Amazon…
 // Order matters: first rule whose keywords all appear wins.
 
 export function normalize(label: string): string {
@@ -21,6 +21,7 @@ interface Rule {
 }
 
 // Identity fields are matched by DOM id in the adapter; these rules cover custom questions.
+// Specific phrasings come first; the generic "do you have experience …" catch-all is last.
 const RULES: readonly Rule[] = [
   { intent: 'identity.linkedin', all: ['linkedin'] },
   { intent: 'identity.website', any: ['website', 'portfolio', 'personal site'] },
@@ -29,12 +30,39 @@ const RULES: readonly Rule[] = [
   { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'preferred location', 'work location', 'available to work'], not: ['authorised', 'authorized'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
   { intent: 'answers.how_did_you_hear', all: ['how did you hear'] },
-  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct'] },
+  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above'] },
   { intent: 'answers.privacy_consent', any: ['candidate privacy', 'privacy policy', 'privacy notice', 'processed in accordance'] },
   { intent: 'answers.gender', all: ['gender'] },
   { intent: 'answers.hispanic_latino', any: ['hispanic', 'latino'] },
+  // Canada Employment Equity Act self-ID (Amazon) — before the US veteran/disability rules.
+  { intent: 'answers.indigenous', any: ['indigenous', 'aboriginal'] },
+  { intent: 'answers.visible_minority', any: ['visible minority', 'person of colour', 'person of color'] },
+  { intent: 'answers.racial_identity', any: ['racial or ethnic', 'race ethnicity', 'ethnicity', 'racial'] },
+  { intent: 'answers.reserve_forces', any: ['reserve forces', 'reservist'] },
+  { intent: 'answers.military_spouse', any: ['military spouse'] },
+  // Before ex_military: Amazon's government-employee question lists "a member of the armed forces".
+  { intent: 'answers.government_employee', any: ['government employee', 'employee of any government', 'employed by a government'] },
+  { intent: 'answers.ex_military', any: ['ex military', 'armed forces', 'military status', 'served in the military'] },
   { intent: 'answers.veteran_status', any: ['veteran', 'protected veteran'] },
   { intent: 'answers.disability', any: ['disability', 'disabled'] },
+  // Work eligibility / compliance.
+  { intent: 'answers.previously_applied', any: ['previously applied'] },
+  { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked'] },
+  { intent: 'answers.non_compete', any: ['non competition', 'non compete', 'noncompete'] },
+  // The follow-up list must be matched before the yes/no it depends on.
+  { intent: 'answers.countries_lived', any: ['countries outside', 'which countries have you lived', 'countries you have lived'] },
+  { intent: 'answers.lived_abroad', any: ['physically located outside', 'lived outside', 'lived or were physically located'] },
+  { intent: 'answers.permanent_resident_elsewhere', any: ['become a permanent resident', 'permanent resident in any other', 'permanent resident, asylee or refugee'] },
+  // Only the yes/no "are you located in any sanctioned country" — not its "which one?" follow-up.
+  { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'], not: ['which sanctioned'] },
+  // Only the country picker — not the "since obtaining your citizenship, did you…" yes/no follow-ups.
+  { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country'] },
+  { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
+  // Screening questions.
+  { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in'] },
+  { intent: 'answers.degree_bachelors', any: ['bachelor'] },
+  { intent: 'answers.degree_masters', any: ['master s degree', 'masters degree', 'master degree', 'graduate degree'] },
+  { intent: 'answers.skills_experience', any: ['do you have experience', 'have you experience', 'do you have knowledge', 'do you have a working knowledge', 'are you proficient', 'do you have hands on', 'have you worked with', 'do you have exposure'] },
 ];
 
 function has(text: string, phrase: string): boolean {

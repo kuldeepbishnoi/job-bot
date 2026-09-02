@@ -2,7 +2,7 @@
 
 /** A job discovered from a site's listing. */
 export interface Job {
-  readonly id: string; // stable ATS id (Greenhouse gh_jid)
+  readonly id: string; // stable ATS id (Greenhouse gh_jid, Amazon id_icims)
   readonly title: string;
   readonly team: string;
   readonly department: string;
@@ -44,6 +44,29 @@ export type Intent =
   | 'answers.hispanic_latino'
   | 'answers.veteran_status'
   | 'answers.disability'
+  // Screening questions (Amazon "job-specific questions" and the like).
+  | 'answers.years_of_experience' // "Which option best describes your total … experience?" (number)
+  | 'answers.skills_experience' // "Do you have experience with/in …?" (yes/no)
+  | 'answers.degree_bachelors' // "Do you have a Bachelor's degree …?" (yes/no)
+  | 'answers.degree_masters' // "Do you have a Master's degree …?" (yes/no)
+  | 'answers.willing_to_relocate'
+  // Work-eligibility / compliance questions.
+  | 'answers.previously_applied'
+  | 'answers.previous_employment'
+  | 'answers.non_compete'
+  | 'answers.government_employee'
+  | 'answers.lived_abroad'
+  | 'answers.sanctioned_country'
+  | 'answers.citizenship'
+  | 'answers.countries_lived' // "countries outside X you have lived in for 12+ months" (multi)
+  | 'answers.permanent_resident_elsewhere' // "since obtaining citizenship, did you become a permanent resident elsewhere?"
+  // Self-identification questions beyond the US EEO set (Canada's Employment Equity Act wording).
+  | 'answers.indigenous'
+  | 'answers.visible_minority'
+  | 'answers.racial_identity'
+  | 'answers.ex_military'
+  | 'answers.reserve_forces'
+  | 'answers.military_spouse'
   | 'locations'; // "which cities/locations" — resolved from job + want.locations
 
 /** What we decided to put in a field. */
@@ -73,4 +96,6 @@ export interface Application {
   readonly note?: string; // parked/failed reason
   readonly fields?: readonly AppliedField[]; // exactly what we filled
   readonly screenshot?: string; // transient PNG dataURL — written to disk, NOT kept in storage
+  readonly at?: string; // ISO timestamp, stamped by the repository when persisted
+  readonly account?: string; // which login made it (multi-account setups) — stamped by the repository
 }

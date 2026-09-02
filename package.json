@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
+    "install:chrome": "wxt build && mkdir -p ~/.jobbot/extension && rsync -a --delete .output/chrome-mv3/ ~/.jobbot/extension/",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
     "test": "vitest run",
@@ -14,7 +15,8 @@
     "postinstall": "wxt prepare",
     "mitm": "debug/launch.sh",
     "mitm:stop": "debug/stop.sh",
-    "mitm:reset": "debug/reset.sh"
+    "mitm:reset": "debug/reset.sh",
+    "fixture:amazon": "node debug/amazon-fixture.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

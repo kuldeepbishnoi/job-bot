@@ -9,14 +9,16 @@ import { selectJobs } from '../engine/select-jobs';
 // no chrome, no DOM, no network here, so it's unit-testable with fakes. Main (background)
 // supplies the concrete ports. This is the Dependency Rule: details plug into policy.
 export interface RunPorts {
-  discover(site: Site): Promise<Job[]>;
+  discover(site: Site, profile: Profile): Promise<Job[]>;
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId
-  apply(tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
+  apply(site: Site, tabId: number, profile: Profile, job: Job, resume: SerializedFile): Promise<ApplyOutcome>;
   seenOtps(): Promise<string[]>; // codes already in Gmail (stale) — snapshot before submitting
   getOtp(exclude: readonly string[]): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
   capture(tabId: number): Promise<string | null>; // PNG dataURL of the worker tab, best-effort
+  /** Account rotation: drive the login page for `email`; resolves once the tab left the login site. */
+  login(tabId: number, email: string, password: string): Promise<{ ok: boolean; note?: string }>;
   record(app: Application): Promise<void>;
   progress(done: number, total: number, current: string): void;
   cleanup(): Promise<void>;
@@ -33,7 +35,8 @@ export async function run(
   ports: RunPorts,
 ): Promise<void> {
   const already = await ports.appliedIds();
-  const queue = selectJobs(await ports.discover(site), profile.want).filter((j) => !already.has(j.id));
+  const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
 
   try {
     for (let done = 0; done < queue.length; done++) {
@@ -59,7 +62,7 @@ export async function applyOne(
     // Snapshot the codes already in Gmail BEFORE we submit — the fresh code this apply triggers
     // isn't there yet, so anything we see now is a stale leftover to exclude when polling.
     const staleCodes = await ports.seenOtps().catch(() => [] as string[]);
-    const res = await ports.apply(tabId, profile, job, resume);
+    const res = await ports.apply(site, tabId, profile, job, resume);
     // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
     // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
     const shot = await ports.capture(tabId).catch(() => null);
@@ -68,7 +71,7 @@ export async function applyOne(
 
     if (res.status === 'parked') return rec('parked', res.note);
     if (res.status === 'error') return mk(site, job, ports.today(), 'failed', res.note);
-    if (res.status === 'submitted') return rec('applied');
+    if (res.status === 'submitted') return rec('applied', res.note);
 
     // needs_otp: at-least-once + idempotency (Ch10: you cannot have exactly-once delivery).
     const code = await ports.getOtp(staleCodes);

@@ -34,6 +34,7 @@ function fakePorts(
     getOtp: async () => '12345678',
     sendOtp: async (): Promise<OtpOutcome> => ({ status: 'submitted' }),
     capture: async () => null,
+    login: async () => ({ ok: true }),
     record: async (a) => void recorded.push(a),
     progress: () => {},
     cleanup: async () => {},

@@ -23,9 +23,19 @@ export const WantSchema = z.object({
 //   boolean  -> yes/no questions (work_authorization, needs_sponsorship, consents)
 //   string   -> single choice or free text (how_did_you_hear)
 //   string[] -> multi-select (languages, locations)
-export const AnswerValue = z.union([z.string(), z.boolean(), z.array(z.string())]);
+//   number   -> "how many years …" range dropdowns (years_of_experience)
+export const AnswerValue = z.union([z.string(), z.boolean(), z.number(), z.array(z.string())]);
 export type AnswerValue = z.infer<typeof AnswerValue>;
 export const AnswersSchema = z.record(AnswerValue);
+
+// Per-site knobs. Only what a site genuinely needs from the user; everything else is derived.
+export const AmazonSchema = z.object({
+  // Paste the amazon.jobs search page URL with your filters applied (category, country,
+  // experience…). Discovery turns it into the JSON API query. Yours, not ours — no default.
+  search_url: z.string().url(),
+  // Amazon asks once whether it may use AI to recommend jobs / refer you to recruiters.
+  ai_consent: z.boolean().default(false),
+});
 
 export const ProfileSchema = z.object({
   identity: IdentitySchema,
@@ -34,12 +44,28 @@ export const ProfileSchema = z.object({
   answers: AnswersSchema.default({}),
   // Exact-question-text → answer, for rare one-offs the intent rules don't cover.
   overrides: z.record(AnswerValue).default({}),
-  on_unknown: z.enum(['park', 'skip']).default('park'),
+  // park = stop and ask; skip = leave it (submit may fail); guess = pick the safe obvious option
+  // (decline-to-answer if offered, else "No") and keep going — never stuck, guesses are recorded.
+  on_unknown: z.enum(['park', 'skip', 'guess']).default('park'),
   auto_submit: z.boolean().default(false),
+  // Cap the queue per run (e.g. 15 to test hands-free submission on a small batch). Omit = all.
+  max_per_run: z.number().int().positive().optional(),
+  // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
+  careers: z.array(z.string().url()).default([]),
+  // Multi-account: every login you apply from (one Chrome profile each, all sharing this folder).
+  // The popup's "Account" field says which one THIS extension instance is; the shared
+  // applications/registry.jsonl makes every instance skip jobs any account already applied to.
+  accounts: z.array(z.string().email()).default([]),
+  // Applications per account per day; hitting it (or the ATS's own limit page) ends the run with
+  // a "switch account" note.
+  per_account_limit: z.number().int().positive().optional(),
+  // Present only when the user runs that site (validated then; absent = the site is off-limits).
+  amazon: AmazonSchema.optional(),
 });
 
 export type Identity = z.infer<typeof IdentitySchema>;
 export type Want = z.infer<typeof WantSchema>;
+export type AmazonConfig = z.infer<typeof AmazonSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export function parseProfile(raw: unknown): Profile {

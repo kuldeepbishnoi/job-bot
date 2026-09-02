@@ -1,4 +1,5 @@
 // Tiny DOM helpers shared by ATS adapters. Kept separate so they're easy to test.
+import type { Answer } from '../engine/types';
 
 /** Set a React-controlled input's value so React actually registers it.
  *  Some Greenhouse forms only clear their "is required" error on blur — so we simulate a full
@@ -36,6 +37,17 @@ export async function waitFor<T>(fn: () => T | null | undefined, ms = 4000, step
     if (v) return v;
     if (Date.now() > end) throw new Error('waitFor: timeout');
     await new Promise((r) => setTimeout(r, step));
+  }
+}
+
+/** Human-readable value we put in a field, for the on-disk record. */
+export function describeAnswer(answer: Answer, resumeName = ''): string {
+  switch (answer.kind) {
+    case 'text': return answer.value;
+    case 'choice': return answer.values.join(', ');
+    case 'check': return answer.value ? 'checked' : 'unchecked';
+    case 'file': return resumeName;
+    default: return '';
   }
 }
 

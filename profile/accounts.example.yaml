@@ -1,0 +1,9 @@
+# Copy to accounts.yaml (git-ignored). A TEMPORARY password shared by every login in
+# profile.yaml's accounts list — set it on each account for the job hunt, change it after.
+# With this file present, hitting per_account_limit logs the next account in automatically:
+# email → password → the emailed verification code (read from the connected Gmail — forward each
+# account's mail there once: Gmail › Settings › Forwarding). Without it, the popup asks you to
+# log in and click Resume.
+password: "change-me"
+# overrides:
+#   you.03@gmail.com: "a-different-password"

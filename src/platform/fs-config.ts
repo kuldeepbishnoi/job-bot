@@ -48,12 +48,23 @@ export async function loadProfileAndResume(): Promise<{ profile: Profile; resume
     if ((await dir.requestPermission({ mode: 'readwrite' })) !== 'granted') throw new Error('Read permission denied.');
   }
 
-  const yamlText = await (await (await dir.getFileHandle('profile.yaml')).getFile()).text();
+  // Name the missing file: the raw DOMException ("A requested file or directory could not be
+  // found…") says nothing about WHICH one, and the usual cause is picking the wrong folder.
+  const folder = (dir as unknown as { name?: string }).name ?? 'the chosen folder';
+  const yamlText = await (await (await dir.getFileHandle('profile.yaml').catch(() => {
+    throw new Error(`profile.yaml not found in "${folder}" — choose the profile/ folder (the one containing profile.yaml)`);
+  })).getFile()).text();
   const profile = parseProfile(parse(yamlText));
 
   const [sub, file] = profile.resume.split('/');
-  const resumeDir = file ? await dir.getDirectoryHandle(sub!) : dir;
-  const resumeFile = await (await resumeDir.getFileHandle(file ?? sub!)).getFile();
+  const resumeDir = file
+    ? await dir.getDirectoryHandle(sub!).catch(() => {
+        throw new Error(`résumé folder "${sub}" not found in "${folder}" (profile.yaml says resume: ${profile.resume})`);
+      })
+    : dir;
+  const resumeFile = await (await resumeDir.getFileHandle(file ?? sub!).catch(() => {
+    throw new Error(`résumé "${profile.resume}" not found in "${folder}"`);
+  })).getFile();
 
   return { profile, resume: await serializeFile(resumeFile) };
 }
@@ -168,4 +179,99 @@ function idb(): Promise<IDBDatabase> {
     req.onsuccess = () => res(req.result);
     req.onerror = () => rej(req.error);
   });
+}
+
+/** profile/accounts.yaml (git-ignored): `password: <temporary shared password>` plus optional
+ *  `overrides: { email: password }`. Absent = rotation pauses for a manual login instead. */
+export async function loadCredentials(): Promise<{ password: string; overrides?: Record<string, string> } | undefined> {
+  const dir = await getHandle();
+  if (!dir) return undefined;
+  try {
+    const text = await (await (await dir.getFileHandle('accounts.yaml')).getFile()).text();
+    const raw = parse(text) as { password?: string; overrides?: Record<string, string> } | null;
+    if (!raw?.password) return undefined;
+    return { password: String(raw.password), overrides: raw.overrides };
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Append-only local data (owner's rule: complete, persistent, on disk, never only in
+// chrome.storage). Written from EXTENSION PAGES (popup / logs page), which hold the folder grant:
+//   <profile>/applications/applications.jsonl — one line per application: the full record
+//     (every field: set / guessed / pre-filled), outcome, URL, timestamps, account, and that
+//     job's log lines.
+//   <profile>/applications/registry.jsonl — one line per job id any account applied to; every
+//     run excludes these, so N accounts never repeat a job.
+// `node debug/export.mjs` produces the same files straight from the extension's storage on disk.
+const APPLICATIONS_JSONL = 'applications.jsonl';
+const REGISTRY_JSONL = 'registry.jsonl';
+const FLUSHED_KEY = 'flushed_records';
+
+interface RegistryLine {
+  jobId: string;
+  company: string;
+  account: string;
+  date: string;
+  status: string;
+}
+
+async function recordsDir(): Promise<DirHandle | null> {
+  const dir = await getHandle();
+  if (!dir) return null;
+  if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') return null;
+  return dir.getDirectoryHandle(RECORDS_DIR, { create: true });
+}
+
+async function readText(dir: DirHandle, name: string): Promise<string> {
+  try {
+    return await (await (await dir.getFileHandle(name)).getFile()).text();
+  } catch {
+    return '';
+  }
+}
+
+/** Job ids applied to by ANY account (from the shared registry). Empty set when no folder. */
+export async function readRegistry(): Promise<Set<string>> {
+  const dir = await recordsDir();
+  if (!dir) return new Set();
+  const ids = new Set<string>();
+  for (const line of (await readText(dir, REGISTRY_JSONL)).split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as RegistryLine;
+      if (r.status === 'applied') ids.add(r.jobId);
+    } catch {
+      /* skip a bad line */
+    }
+  }
+  return ids;
+}
+
+/** Flush every not-yet-written record (with its log lines) to the append-only files.
+ *  Idempotent: flushed keys are remembered in chrome.storage. Returns how many were written. */
+export async function flushToDisk(records: readonly Application[], log: readonly string[]): Promise<number> {
+  const dir = await recordsDir();
+  if (!dir) return 0;
+  const got = await chrome.storage.local.get(FLUSHED_KEY);
+  const flushed = new Set((got[FLUSHED_KEY] as string[] | undefined) ?? []);
+  const key = (a: Application) => `${a.jobId}@${a.at ?? a.date}`;
+  const pending = records.filter((a) => a.at && !flushed.has(key(a)));
+  if (pending.length === 0) return 0;
+
+  let apps = await readText(dir, APPLICATIONS_JSONL);
+  let reg = await readText(dir, REGISTRY_JSONL);
+  for (const a of pending) {
+    const { screenshot: _omit, ...rec } = a;
+    const lines = log.filter((l) => l.includes(`[${a.jobId}]`) || l.includes(` ${a.jobId} `));
+    apps += JSON.stringify({ ...rec, log: lines }) + '\n';
+    const r: RegistryLine = { jobId: a.jobId, company: a.company, account: a.account ?? '', date: a.date, status: a.status };
+    reg += JSON.stringify(r) + '\n';
+    flushed.add(key(a));
+  }
+  await writeFile(dir, APPLICATIONS_JSONL, apps);
+  await writeFile(dir, REGISTRY_JSONL, reg);
+  await chrome.storage.local.set({ [FLUSHED_KEY]: [...flushed].slice(-5000) });
+  return pending.length;
 }

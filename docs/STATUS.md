@@ -20,6 +20,29 @@ Snapshot for the next agent/session. Update it as things land.
 - **Config** — `config/schema.ts` (zod) + `profile/profile.example.yaml`. Read live from a picked
   folder via File System Access (`platform/fs-config.ts`).
 
+## Amazon site pack (branch feat/amazon-site-pack, 2026-09-02)
+- **Discovery** — `sources/amazon-jobs.ts`: the search-page URL from `profile.amazon.search_url`
+  → `/en/search.json` pages (`country[]` → `normalized_country_code[]`, the param the API honours).
+  Tested against `fixtures/amazon-search.json` (real page, 175 hits for the owner's filter).
+- **Apply** — `ats/amazon.ts` + `entrypoints/amazon.content.ts`: form-by-form loop over Amazon's own
+  React apply app (active form → fill empty questions → Continue → … → review → Submit). Question
+  types, ids and markup were derived from `/api/apply/forms` + the app bundle (see CLAUDE.md
+  "Amazon ground truth"); `fixtures/amazon-forms.json` is the real schema, `fixtures/amazon-apply.html`
+  is generated from it. Duplicate screen → recorded as applied with a note; submit success is the
+  page navigating away (`app/ports.ts#outcomeAfterPortClosed`).
+- **Answers** — new intents: `years_of_experience` (number → `engine/years.ts` bucket picker),
+  `skills_experience`, `degree_bachelors/masters`, Canada self-ID (`indigenous`, `visible_minority`,
+  `racial_identity`, `ex_military`, `reserve_forces`, `military_spouse` → `DECLINE` = "I choose not
+  to self-identify"), work-eligibility intents (commented in the example: Amazon pre-fills them).
+  All in `profile.example.yaml`.
+- **Daily runs** — `platform/schedule.ts` + popup "Run <site> daily at 9:00" toggle: caches
+  profile + résumé (a snapshot — re-tick after editing profile.yaml), 24h alarm, background starts
+  the stepper (skips if a run is active).
+- **Unverified live**: the adapter has not yet driven a real apply (browser automation was
+  unavailable during development). First run: watch the console (`[jobbot:amazon]`) for the form
+  keys / field logs; the likeliest breakage is a selector (Continue button text, select2 change
+  wiring, the modal). Everything else (API shape, ids, option keys) is from real captures.
+
 ## Code-review blockers fixed (PR #1 review round 1)
 - OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
 - Profile now loads in the popup and is passed to the SW (FS-access can't run in a service worker).
@@ -38,9 +61,9 @@ Snapshot for the next agent/session. Update it as things land.
 2. **Gmail API (read-only)** to replace tab-scrape — swap only `platform/gmail-otp.ts#getOtp`.
 3. **Playwright e2e**: load the built extension, open `fixtures/greenhouse-form.html`, assert fill,
    stop before submit.
-4. **Second site pack** (e.g. a Greenhouse-native company) to prove the abstraction; then a second
-   ATS (Lever).
-5. **Scheduling** (`chrome.alarms`) for hands-off runs — add the permission back when implemented.
+4. ~~Second site pack~~ — Amazon (own ATS) + Instahyre (in-page) landed; next a Greenhouse-native
+   company to prove the Greenhouse abstraction, then Lever.
+5. ~~Scheduling~~ — daily alarm landed (`platform/schedule.ts`); per-site hour is still fixed at 9:00.
 6. **Popup "needs review" panel**: list parked jobs with links (data already in `platform/store`).
 
 ## Known risks / watch-list
