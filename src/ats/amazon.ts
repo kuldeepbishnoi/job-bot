@@ -83,8 +83,20 @@ export function questionNodes(root: ParentNode): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>('[data-questionid]')].filter(shown);
 }
 
+/** The live wrapper for a question id. Verified live: the page can hold MORE THAN ONE element with
+ *  the same data-questionId (a hidden/read-only copy with no inputs comes first in document
+ *  order), so prefer the visible one inside the active form that actually has a control. */
 function questionNode(doc: Document, id: string): HTMLElement | null {
-  return doc.querySelector<HTMLElement>(`[data-questionid="${id}"]`);
+  const all = [...doc.querySelectorAll<HTMLElement>(`[data-questionid="${id}"]`)];
+  const hasControl = (n: Element) => !!n.querySelector('select, input, textarea');
+  const form = activeForm(doc);
+  return (
+    all.find((n) => !!form && form.contains(n) && shown(n) && hasControl(n)) ??
+    all.find((n) => shown(n) && hasControl(n)) ??
+    all.find((n) => hasControl(n)) ??
+    all[0] ??
+    null
+  );
 }
 
 function kindOf(node: HTMLElement): FieldKind | null {
@@ -139,7 +151,8 @@ export function optionsFor(doc: Document, field: Field): string[] {
   const node = questionNode(doc, field.id);
   if (!node) return [];
   const select = node.querySelector<HTMLSelectElement>('select');
-  if (select) return [...select.options].map((o) => o.text.trim()).filter(Boolean);
+  const fromSelect = select ? [...select.options].map((o) => o.text.trim()).filter(Boolean) : [];
+  if (fromSelect.length) return fromSelect;
   return choiceInputs(node).map((i) => optionLabel(node, i)).filter(Boolean);
 }
 
@@ -197,7 +210,7 @@ export function fill(doc: Document, field: Field, answer: Answer): void {
   switch (answer.kind) {
     case 'choice': {
       const select = node.querySelector<HTMLSelectElement>('select');
-      if (select) fillSelect(select, answer.values);
+      if (select && select.options.length > 1) fillSelect(select, answer.values);
       else fillChoices(node, answer.values);
       return;
     }

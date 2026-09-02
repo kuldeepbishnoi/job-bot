@@ -101,11 +101,19 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
           continue;
         }
         try {
-          az.fill(document, field, answer);
+          try {
+            az.fill(document, field, answer);
+          } catch (first) {
+            // React may still be mounting the control — one retry after a beat.
+            log('fill retry', field.id, (first as Error).message);
+            await sleep(400);
+            az.fill(document, field, answer);
+          }
           filled.push({ id: field.id, label: field.label, value: describeAnswer(answer) + (guessed ? ' (guessed)' : '') });
         } catch (e) {
-          log('fill FAILED', field.id, (e as Error).message);
-          if (field.required) return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);
+          log('fill FAILED', field.id, (e as Error).message, az.describeState(document));
+          if (field.required && msg.profile.on_unknown !== 'guess') return parked(`Could not fill required "${field.label}": ${(e as Error).message}`);
+          // guess policy = never stop here: press on; Amazon's own validation will say what's missing.
         }
         await sleep(150);
       }

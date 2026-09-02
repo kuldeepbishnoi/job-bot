@@ -153,6 +153,30 @@ describe('amazon adapter — self-identification radios (Canada wording)', () =>
   });
 });
 
+describe('amazon adapter — duplicate question wrappers (seen live)', () => {
+  it('reads and fills the visible wrapper inside the active form, not a hidden empty copy that comes first', () => {
+    const doc = parse(`
+      <div class="question" data-questionId="DEEMED_EXPORT_DO_YOU_CURRENTLY_RESIDE_IN" hidden><div class="question-label required"><label>Sanctioned?</label></div></div>
+      <div class="card question-form form5 active"><div class="card-body">
+        <div class="form-group"><div class="question" data-questionId="DEEMED_EXPORT_DO_YOU_CURRENTLY_RESIDE_IN">
+          <div class="question question-text"><div class="question-label required"><label>Are you living in any of the sanctioned countries?</label></div></div>
+          <div class="custom-controls-stacked">
+            <div class="custom-control custom-radio"><input name="DEEMED_EXPORT_DO_YOU_CURRENTLY_RESIDE_IN" type="radio" value="NO" id="r-no" class="custom-control-input"><label for="r-no" class="custom-control-label">No</label></div>
+            <div class="custom-control custom-radio"><input name="DEEMED_EXPORT_DO_YOU_CURRENTLY_RESIDE_IN" type="radio" value="YES" id="r-yes" class="custom-control-input"><label for="r-yes" class="custom-control-label">Yes</label></div>
+          </div>
+        </div></div>
+      </div></div>`);
+    visible(doc);
+    const [f] = extract(activeForm(doc)!);
+    expect(f!.kind).toBe('select');
+    expect(optionsFor(doc, f!)).toEqual(['No', 'Yes']);
+    expect(isAnswered(doc, f!)).toBe(false);
+    fill(doc, f!, { kind: 'choice', values: ['No'] });
+    expect(doc.querySelector<HTMLInputElement>('#r-no')!.checked).toBe(true);
+    expect(isAnswered(doc, f!)).toBe(true);
+  });
+});
+
 describe('amazon adapter — page states', () => {
   it('a not-yet-loaded shell (reviewing flag, no rail, no questions) is NOT review mode', () => {
     // Exactly what the first live run saw: forms=1 active=0 reviewing=1 submit=0 questions=0 nav=0
