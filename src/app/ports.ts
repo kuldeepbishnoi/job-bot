@@ -1,6 +1,8 @@
 import type { RunPorts } from './runner';
 import { openJob, closeWorker } from '../platform/worker-window';
-import { getOtp, seenOtps } from '../platform/gmail-otp';
+import { getOtp, seenOtps, getLoginCode, seenLoginCodes } from '../platform/gmail-otp';
+import { isPassportUrl } from '../ats/passport';
+import type { LoginOutcome } from '../platform/messaging';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
@@ -76,6 +78,33 @@ export function chromePorts(): RunPorts {
     },
     seenOtps,
     getOtp,
+    login: async (tabId, email, password) => {
+      await waitForFrame(tabId);
+      const stale = await seenLoginCodes(email).catch(() => [] as string[]);
+      const tabUrl = async () => (await chrome.tabs.get(tabId).catch(() => null))?.url ?? '';
+      const left = async () => !isPassportUrl(await tabUrl());
+      const settle = async (ms: number) => { const end = Date.now() + ms; while (Date.now() < end) { if (await left()) return true; await sleep(1000); } return false; };
+      let out: LoginOutcome;
+      try {
+        out = await withTimeout(sendToTab<LoginOutcome>(tabId, { t: 'login', email, password }), 60_000, 'login');
+      } catch {
+        return (await settle(5000)) ? { ok: true } : { ok: false, note: 'login page did not answer' };
+      }
+      dlog('login', email, out.status, 'note' in out ? out.note : '');
+      if (out.status === 'needs_code') {
+        const code = await getLoginCode(email, stale);
+        if (!code) return { ok: false, note: `no verification code arrived for ${email} (is that mailbox forwarded to the connected Gmail?)` };
+        try {
+          out = await withTimeout(sendToTab<LoginOutcome>(tabId, { t: 'otp', code, autoSubmit: true }), 30_000, 'otp');
+        } catch {
+          return (await settle(5000)) ? { ok: true } : { ok: false, note: 'code page did not answer' };
+        }
+        dlog('login code', email, out.status, 'note' in out ? out.note : '');
+      }
+      if (out.status === 'captcha') return { ok: false, note: 'captcha shown — log in by hand' };
+      if (out.status === 'error') return { ok: false, note: out.note };
+      return (await settle(20_000)) ? { ok: true } : { ok: false, note: 'still on the login page' };
+    },
     sendOtp: (tabId, code, autoSubmit) => sendToTab<OtpOutcome>(tabId, { t: 'otp', code, autoSubmit }),
     capture: async (tabId) => {
       try {

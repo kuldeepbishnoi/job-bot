@@ -166,8 +166,15 @@ fixtures/    real captured data for offline tests
   10/day) or the ATS's own limit page, the stepper **rotates**: opens `Site.logoutUrl` then
   `Site.loginUrl` in the worker tab, saves `run_state.paused = { nextAccount }`, and the popup
   shows "Resume as next account". The user logs in; Resume sets the account and continues the same
-  queue. Every run also excludes the registry's job ids, so accounts never repeat a job. The bot
-  never types credentials. Seed a registry: `node debug/export.mjs --account <email>`.
+  queue. Every run also excludes the registry's job ids, so accounts never repeat a job.
+  **Auto-login** (opt-in): with `profile/accounts.yaml` (git-ignored; a temporary password shared by
+  every login) the rotation logs the next account in itself — `ats/passport.ts` +
+  `entrypoints/passport.content.ts` drive passport.amazon.jobs (ids from its bundle:
+  `#preLoginEmailField` → `#loginFormPasswordInputField` → `#verificationFormCodeInputField`), the
+  emailed 6-digit code is read from the connected Gmail via `gmail-otp.getLoginCode(account)`
+  (`to:<account>` — forward each account's mail to the connected Gmail once), and an AWS WAF
+  captcha (`#captcha-widget`) or any error falls back to the pause + Resume flow. Credentials live in
+  `run_state` (chrome.storage.local) only for the run. Seed a registry: `node debug/export.mjs --account <email>`.
 
 ## Commands
 ```

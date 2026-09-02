@@ -1,6 +1,6 @@
 import { SITES } from '@/sites';
 import { stats, getProgress, needsAttention, getAccount, setAccount, allRecords } from '@/platform/store';
-import { pickProfileDir, loadProfileAndResume, hasProfileDir, flushToDisk, readRegistry } from '@/platform/fs-config';
+import { pickProfileDir, loadProfileAndResume, hasProfileDir, flushToDisk, readRegistry, loadCredentials } from '@/platform/fs-config';
 import { getToken, gmailApiAvailable } from '@/platform/gmail-api';
 import { send, type Msg } from '@/platform/messaging';
 import { enableDaily, disableDaily, dailySchedule } from '@/platform/schedule';
@@ -88,8 +88,9 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
     await ensureHosts();
     // Every account's applications live in the shared registry — never repeat one.
     const exclude = [...(await readRegistry())];
-    setStatus(`Starting… (${exclude.length} jobs already applied across accounts)`);
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume, exclude });
+    const credentials = await loadCredentials(); // enables hands-free account rotation
+    setStatus(`Starting… (${exclude.length} jobs already applied across accounts${credentials ? ', auto-login on' : ''})`);
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId, profile, resume, exclude, credentials });
     if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
     warn((e as Error).message);
@@ -117,7 +118,26 @@ function warn(text: string): void {
   setStatus(`⚠ ${text}`);
 }
 
+// Per-account picture: applied today per account, current one marked.
+async function refreshAccounts(): Promise<void> {
+  const host = $('accounts');
+  const today = new Date().toISOString().slice(0, 10);
+  const current = await getAccount();
+  const counts = new Map<string, number>();
+  for (const r of await allRecords()) if (r.status === 'applied' && r.date === today) counts.set(r.account ?? '', (counts.get(r.account ?? '') ?? 0) + 1);
+  const names = [...new Set([current, ...counts.keys()])].filter(Boolean);
+  host.innerHTML = '';
+  for (const a of names) {
+    const li = document.createElement('li');
+    li.textContent = `${a === current ? '▶ ' : ''}${a} · ${counts.get(a) ?? 0} today`;
+    if (a === current) li.style.color = 'var(--fg)';
+    host.appendChild(li);
+  }
+  host.hidden = names.length === 0;
+}
+
 async function refreshStats(): Promise<void> {
+  await refreshAccounts();
   const s = await stats();
   $('today').textContent = String(s.today);
   $('yesterday').textContent = String(s.yesterday);

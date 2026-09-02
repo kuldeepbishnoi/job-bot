@@ -1,6 +1,27 @@
 // The 8-char Greenhouse OTP source. Primary path is the Gmail API (gmail-api.ts); the DOM scrape
 // below is the zero-setup fallback used until the user connects their Gmail account.
-import { apiGreenhouseCodes, getToken } from './gmail-api';
+import { apiGreenhouseCodes, apiCodes, getToken } from './gmail-api';
+import { findLoginCode } from '../ats/passport';
+
+/** Amazon passport login codes for ONE account (its mail is forwarded to the connected Gmail —
+ *  `to:<account>` picks the right one). Newest first; excludes codes seen before the login. */
+export async function getLoginCode(account: string, exclude: readonly string[], tries = 18): Promise<string | null> {
+  const token = await getToken(false);
+  if (!token) return null;
+  const q = `to:${account} newer_than:1d (amazon OR passport)`;
+  for (let i = 0; i < tries; i++) {
+    const codes = await apiCodes(token, q, findLoginCode).catch(() => [] as string[]);
+    const fresh = codes.find((c) => !exclude.includes(c));
+    if (fresh) return fresh;
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  return null;
+}
+export async function seenLoginCodes(account: string): Promise<string[]> {
+  const token = await getToken(false);
+  if (!token) return [];
+  return apiCodes(token, `to:${account} newer_than:1d (amazon OR passport)`, findLoginCode).catch(() => []);
+}
 
 const EXACT_8 = /^[A-Za-z0-9]{8}$/;
 const SENDER = 'no-reply@us.greenhouse-mail.io';

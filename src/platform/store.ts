@@ -37,6 +37,8 @@ export interface RunState {
   readonly cursor: number;
   /** Set when the run is waiting for the user to log in as `nextAccount` (account rotation). */
   readonly paused?: { readonly reason: string; readonly nextAccount: string };
+  /** From profile/accounts.yaml when present — lets rotation log the next account in itself. */
+  readonly credentials?: { readonly password: string; readonly overrides?: Record<string, string> };
 }
 
 export async function saveRunState(s: RunState): Promise<void> {

@@ -41,6 +41,7 @@ export async function startRun(
   resume: SerializedFile,
   ports: RunPorts,
   exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
+  credentials?: RunState['credentials'],
 ): Promise<void> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
@@ -48,7 +49,7 @@ export async function startRun(
   const already = new Set([...(await ports.appliedIds()), ...exclude]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
-  await saveRunState({ siteId, profile, resume, queue, cursor: 0 });
+  await saveRunState({ siteId, profile, resume, queue, cursor: 0, credentials });
 
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only
   // AFTER a step completes, so a step that dies leaves no alarm — the watchdog re-drives it.
@@ -124,7 +125,21 @@ async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reaso
   const next = await nextAccountWithRoom(state.profile, current);
   if (!next) return finish(ports, `${reason} — every account in profile.accounts is at its limit for today`);
   if (site.logoutUrl) await ports.openJob(site.logoutUrl).catch(() => {});
-  if (site.loginUrl) await ports.openJob(site.loginUrl).catch(() => {});
+  const tabId = site.loginUrl ? await ports.openJob(site.loginUrl).catch(() => -1) : -1;
+  // With credentials on file, log the next account in ourselves (email → password → emailed code).
+  const password = state.credentials?.overrides?.[next] ?? state.credentials?.password;
+  if (tabId >= 0 && password) {
+    await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} — logging in as ${next}…`, phase: 'running', at: Date.now() });
+    const res = await ports.login(tabId, next, password);
+    if (res.ok) {
+      await setAccount(next);
+      await saveProgress({ done: state.cursor, total: state.queue.length, current: `switched to ${next}`, phase: 'running', at: Date.now() });
+      await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
+      setTimeout(() => void step(ports), PACE_MS);
+      return;
+    }
+    reason = `${reason}; auto-login as ${next} failed: ${res.note ?? 'unknown'}`;
+  }
   await saveRunState({ ...state, paused: { reason, nextAccount: next } });
   await chrome.alarms.clear(STEP_ALARM);
   await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });

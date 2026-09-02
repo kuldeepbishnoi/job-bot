@@ -181,6 +181,21 @@ function idb(): Promise<IDBDatabase> {
   });
 }
 
+/** profile/accounts.yaml (git-ignored): `password: <temporary shared password>` plus optional
+ *  `overrides: { email: password }`. Absent = rotation pauses for a manual login instead. */
+export async function loadCredentials(): Promise<{ password: string; overrides?: Record<string, string> } | undefined> {
+  const dir = await getHandle();
+  if (!dir) return undefined;
+  try {
+    const text = await (await (await dir.getFileHandle('accounts.yaml')).getFile()).text();
+    const raw = parse(text) as { password?: string; overrides?: Record<string, string> } | null;
+    if (!raw?.password) return undefined;
+    return { password: String(raw.password), overrides: raw.overrides };
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Append-only local data (owner's rule: complete, persistent, on disk, never only in
 // chrome.storage). Written from EXTENSION PAGES (popup / logs page), which hold the folder grant:

@@ -17,6 +17,8 @@ export interface RunPorts {
   getOtp(exclude: readonly string[]): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
   capture(tabId: number): Promise<string | null>; // PNG dataURL of the worker tab, best-effort
+  /** Account rotation: drive the login page for `email`; resolves once the tab left the login site. */
+  login(tabId: number, email: string, password: string): Promise<{ ok: boolean; note?: string }>;
   record(app: Application): Promise<void>;
   progress(done: number, total: number, current: string): void;
   cleanup(): Promise<void>;

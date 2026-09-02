@@ -12,16 +12,30 @@ export type ApplyOutcome =
   | { status: 'error'; note: string; filled?: AppliedField[] };
 
 export type OtpOutcome = { status: 'submitted' } | { status: 'ready' } | { status: 'error'; note: string };
+/** passport.amazon.jobs login steps (account rotation). 'pending' = navigation in flight, check the tab URL. */
+export type LoginOutcome =
+  | { status: 'needs_code' }
+  | { status: 'captcha' }
+  | { status: 'pending' }
+  | { status: 'error'; note: string };
+
+/** Per-account credentials from profile/accounts.yaml (git-ignored; a temporary shared password). */
+export interface Credentials {
+  readonly password: string;
+  readonly overrides?: Record<string, string>; // email -> password when one account differs
+}
 
 export type Msg =
   // background -> form frame
   | { t: 'ping' } // readiness handshake: is the form content script injected?
   | { t: 'apply'; profile: Profile; job: Job; resume: SerializedFile; autoSubmit: boolean; dryRun?: boolean }
   | { t: 'otp'; code: string; autoSubmit: boolean }
+  // background -> passport frame: log this account in (rotation)
+  | { t: 'login'; email: string; password: string }
   // background -> gmail frame
   | { t: 'getCode' }
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
-  | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[] } // exclude = job ids any account applied to (registry)
+  | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[]; credentials?: Credentials } // exclude = job ids any account applied to (registry)
   // popup -> background: abandon the current run (queue + alarm + worker tab)
   | { t: 'stop' }
   // popup -> background: the user logged the next account in — continue the paused run
