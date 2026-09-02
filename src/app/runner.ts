@@ -33,7 +33,8 @@ export async function run(
   ports: RunPorts,
 ): Promise<void> {
   const already = await ports.appliedIds();
-  const queue = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
 
   try {
     for (let done = 0; done < queue.length; done++) {

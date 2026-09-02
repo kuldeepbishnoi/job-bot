@@ -41,7 +41,8 @@ export async function startRun(
   if (!site) throw new Error(`unknown site ${siteId}`);
 
   const already = await ports.appliedIds();
-  const queue = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
   await saveRunState({ siteId, profile, resume, queue, cursor: 0 });
 
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only

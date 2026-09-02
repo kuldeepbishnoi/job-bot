@@ -48,6 +48,8 @@ export const ProfileSchema = z.object({
   // (decline-to-answer if offered, else "No") and keep going — never stuck, guesses are recorded.
   on_unknown: z.enum(['park', 'skip', 'guess']).default('park'),
   auto_submit: z.boolean().default(false),
+  // Cap the queue per run (e.g. 15 to test hands-free submission on a small batch). Omit = all.
+  max_per_run: z.number().int().positive().optional(),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),
 });

@@ -65,6 +65,7 @@ overrides: {}
 
 on_unknown: park        # unmatched required question -> park (default) | skip | guess (pick decline/No, record "(guessed)", never stuck)
 auto_submit: false      # false = fill + OTP then you approve · true = hands-free (needed for daily runs)
+# max_per_run: 15       # cap the queue per run — handy to test hands-free submission on a small batch
 
 # Per-site knobs (optional).
 amazon:
