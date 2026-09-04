@@ -85,6 +85,12 @@ page capture — the first real run reads the Logs page and fixes selectors from
   Closing an unfinished modal pops Discard (`discard_application_confirm_btn`).
 - **Limits**: "You've reached today's Easy Apply limit" dialog ends the run; "applying at a fast
   pace … briefly paused" = back off. Unfocused tabs get throttled — the run tab is opened active.
+- **Live-learned (2026-09-04)**: the legacy card link is a real `<a href="/jobs/view/<id>/">`. The
+  shared `dom.ts#click` dispatches a NON-cancelable event, so no preventDefault (LinkedIn's or ours)
+  can stop the anchor → full navigation to the job page → content script dead. `ats/linkedin.ts#openCard`
+  dispatches a cancelable click with a one-shot capture `preventDefault` on the link; the first card
+  (`currentJobId` already in the URL) is never clicked; a tab found on `/jobs/view/…` is steered back
+  to the persisted search page (`reason: 'lost'`, bounded by `MAX_RECOVERIES`).
 - Pipeline: `app/linkedin-run.ts` (background) persists the run (`linkedin_run`), pages
   `start=0,25,…` of each `profile.linkedin.search_urls` entry with `f_AL=true` forced, re-kicks the
   content script after any reload (`tabs.onUpdated`), watchdog alarm reloads a silent page;

@@ -30,8 +30,9 @@ export interface LinkedinJob {
 }
 /** Why a results page stopped: exhausted = every card handled (page on); budget = run cap hit;
  *  limit = LinkedIn's daily Easy Apply cap; halt = auto_submit off, modal left for the user;
- *  stopped = user pressed Stop; error = the loop threw. */
-export type LinkedinPageEnd = 'exhausted' | 'budget' | 'limit' | 'halt' | 'stopped' | 'error';
+ *  stopped = user pressed Stop; lost = the tab is not on a results page (navigate back, retry);
+ *  error = the loop threw. */
+export type LinkedinPageEnd = 'exhausted' | 'budget' | 'limit' | 'halt' | 'stopped' | 'lost' | 'error';
 
 export type Msg =
   // background -> form frame

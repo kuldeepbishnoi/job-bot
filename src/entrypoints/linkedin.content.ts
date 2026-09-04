@@ -84,6 +84,11 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
   let note: string | undefined;
   try {
     log('page start', li.describeState(document));
+    if (!li.isResultsPage(location.href)) {
+      reason = 'lost';
+      note = `not a results page: ${location.href.slice(0, 120)}`;
+      return;
+    }
     await waitFor(() => (li.jobCards(document).length ? true : null), 20_000).catch(() => {});
     await pause(1500);
     for (;;) {
@@ -197,14 +202,17 @@ async function applyToCard(card: HTMLElement, profile: Profile, resume: Extract<
     const title = li.paneJob(document).title;
     return info.title && title === info.title && title !== before.title ? true : null;
   };
-  li.click(li.cardLink(card));
-  const opened = await waitFor(isOpen, 8000).catch(() => false);
-  if (!opened) {
-    // Retry with a real element click (the synthetic one can miss the card's link handler).
-    li.cardLink(card).click();
-    const again = await waitFor(isOpen, 5000).catch(() => false);
-    if (!again) return { kind: 'skip', note: `card did not open (url ${li.currentJobIdFromUrl(location.href) || 'no currentJobId'})` };
+  // LinkedIn pre-selects the first card (currentJobId already in the URL): don't click it again.
+  if (li.currentJobIdFromUrl(location.href) !== info.id) {
+    li.openCard(card);
+    const opened = await waitFor(isOpen, 8000).catch(() => false);
+    if (!opened) {
+      li.openCard(card); // one retry — the list may have re-rendered under us
+      const again = await waitFor(isOpen, 5000).catch(() => false);
+      if (!again) return { kind: 'skip', note: `card did not open (url ${li.currentJobIdFromUrl(location.href) || 'no currentJobId'})` };
+    }
   }
+  if (!li.isResultsPage(location.href)) throw new Error(`navigated away while opening the card: ${location.href.slice(0, 120)}`);
   await pause(1500);
   if (!info.title && li.paneJob(document).title && (profile.linkedin?.filter_titles ?? true) && !titleWanted(li.paneJob(document).title, profile.want)) {
     return { kind: 'skip', note: `title filtered: "${li.paneJob(document).title}"` };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  jobCards, cardJobId, cardInfo, cardLink, currentJobIdFromUrl, nextPageButton,
+  jobCards, cardJobId, cardInfo, cardLink, openCard, isResultsPage, currentJobIdFromUrl, nextPageButton,
   easyApplyButton, externalApplyOnly, jobClosedMessage, alreadyAppliedPane, paneJob,
   modal, safetyContinueButton, progress, actionButton, followCompanyCheckbox, uncheckFollowCompany, validationErrors,
   extract, optionsFor, isNumeric, currentAnswer, isAnswered, fill, isTypeaheadField, resumeSelected, attachResume,
@@ -217,6 +217,34 @@ describe('linkedin adapter — job list', () => {
     expect(nextPageButton(doc)!.getAttribute('aria-label')).toBe('View next page');
     expect(currentJobIdFromUrl('https://www.linkedin.com/jobs/search/?currentJobId=4038498138&f_AL=true')).toBe('4038498138');
     expect(currentJobIdFromUrl('https://www.linkedin.com/jobs/view/4038498140/')).toBe('4038498140');
+  });
+
+  it('opens a card without following its link (a real navigation would kill the script)', () => {
+    const doc = load(LIST);
+    const card = jobCards(doc)[0]!;
+    const link = card.querySelector('a')!;
+    let defaultPrevented: boolean | null = null;
+    let handlerRan = false;
+    doc.addEventListener('click', (e) => {
+      handlerRan = true; // LinkedIn's delegated handler still sees the click…
+      defaultPrevented = e.defaultPrevented; // …but the anchor's navigation is off
+    });
+    openCard(card);
+    expect(handlerRan).toBe(true);
+    expect(defaultPrevented).toBe(true);
+    // The one-shot block is gone: a later (user) click on the link is normal again.
+    let later: boolean | null = null;
+    doc.addEventListener('click', (e) => (later = e.defaultPrevented));
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(later).toBe(false);
+  });
+
+  it('knows which pages list cards', () => {
+    expect(isResultsPage('https://www.linkedin.com/jobs/search/?keywords=sde&f_AL=true')).toBe(true);
+    expect(isResultsPage('https://www.linkedin.com/jobs/search-results/?keywords=sde')).toBe(true);
+    expect(isResultsPage('https://www.linkedin.com/jobs/collections/easy-apply/')).toBe(true);
+    expect(isResultsPage('https://www.linkedin.com/jobs/view/4460487322/?eBP=x')).toBe(false);
+    expect(isResultsPage('https://www.linkedin.com/jobs/')).toBe(false);
   });
 
   it('title filter honours want.titles_any / titles_none', () => {

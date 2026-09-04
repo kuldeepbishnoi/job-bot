@@ -28,6 +28,7 @@ const EMPTY_PAGES_BEFORE_NEXT_URL = 3; // pages with cards but nothing unseen (s
 const STALL_MS = 5 * 60_000; // no result/page-done for this long → reload the tab and re-kick
 const DEAD_MS = 40 * 60_000; // no progress at all for this long → give up
 const KICK_DEBOUNCE_MS = 8_000;
+const MAX_RECOVERIES = 6; // times the tab may wander off the results page before the run gives up
 const JOB_URL = (id: string) => `https://www.linkedin.com/jobs/view/${id}/`;
 
 export interface LinkedinRun {
@@ -38,6 +39,7 @@ export interface LinkedinRun {
   readonly urlIdx: number;
   readonly start: number; // pagination offset within urls[urlIdx]
   readonly emptyPages: number; // consecutive pages of this URL with cards but nothing unseen
+  readonly recoveries: number; // times the tab left the results page and was brought back
   readonly applied: number;
   readonly skipped: number;
   readonly handled: readonly string[]; // job ids attempted or skipped this run — never reopened
@@ -99,6 +101,7 @@ export async function startLinkedin(profile: Profile, resume: SerializedFile): P
     urlIdx: 0,
     start: 0,
     emptyPages: 0,
+    recoveries: 0,
     applied: 0,
     skipped: 0,
     handled: [],
@@ -214,6 +217,7 @@ async function pageDone(msg: Extract<Msg, { t: 'linkedin-page-done' }>): Promise
   if (!run || run.runId !== msg.runId) return null;
   log('page done', { reason: msg.reason, applied: msg.applied, skipped: msg.skipped, cards: msg.cards, newCards: msg.newCards, pages: msg.pages, note: msg.note, url: run.urls[run.urlIdx], start: run.start });
   const touched: LinkedinRun = { ...run, lastActivityAt: Date.now() };
+  if (msg.reason === 'lost') return recoverPlan(touched, msg.note ?? 'lost');
   if (msg.reason !== 'exhausted') {
     await finish(touched, endNote(msg));
     return null;
@@ -235,6 +239,19 @@ async function pageDone(msg: Extract<Msg, { t: 'linkedin-page-done' }>): Promise
     next = { ...touched, start: nextStart, emptyPages };
   }
   await save(next);
+  return { runId: next.runId, tabId: next.tabId, url: searchUrl(next.urls[next.urlIdx]!, next.start) };
+}
+
+/** The tab is off the results page (a card link navigated to /jobs/view/…): go back to the
+ *  persisted search page and resume. Bounded, so a page that keeps throwing us off ends the run. */
+async function recoverPlan(run: LinkedinRun, why: string): Promise<{ runId: string; tabId: number; url: string } | null> {
+  if (run.recoveries >= MAX_RECOVERIES) {
+    await finish(run, `left the results page ${run.recoveries} times (${why}) — gave up`);
+    return null;
+  }
+  const next = { ...run, recoveries: run.recoveries + 1 };
+  await save(next);
+  log('recovering to the results page', { why, recoveries: next.recoveries });
   return { runId: next.runId, tabId: next.tabId, url: searchUrl(next.urls[next.urlIdx]!, next.start) };
 }
 
@@ -290,6 +307,15 @@ export async function onLinkedinTabUpdated(tabId: number, info: chrome.tabs.TabC
     return;
   }
   if (Date.now() - run.lastKickAt < KICK_DEBOUNCE_MS) return;
+  if (!/\/jobs\/(search|search-results|collections)(\/|\?|$)/.test(tab.url ?? '')) {
+    // A card link took the tab to /jobs/view/<id>/ — there is nothing to loop over there.
+    const plan = await serialized(async () => {
+      const r = await getLinkedinRun();
+      return r && r.runId === run.runId ? recoverPlan({ ...r, lastActivityAt: Date.now(), lastKickAt: Date.now() }, `tab on ${tab.url?.slice(0, 80)}`) : null;
+    });
+    if (plan) await chrome.tabs.update(plan.tabId, { url: plan.url }).catch(() => {});
+    return; // the navigation's own `complete` event re-kicks
+  }
   await sleep(2000);
   await kick(run.runId).catch((e: Error) => log('re-kick failed', e.message));
 }

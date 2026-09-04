@@ -146,6 +146,38 @@ export function cardLink(card: Element): HTMLElement {
   return (card.querySelector<HTMLElement>('a.job-card-container__link, a.job-card-list__title--link, a[href*="/jobs/view/"], a') as HTMLElement | null) ?? (card as HTMLElement);
 }
 
+/** Open a card in the details pane WITHOUT following its link. Seen live (2026-09-04): a synthetic
+ *  click on the card's `<a href="/jobs/view/…">` is a full navigation to the job page, which kills
+ *  the content script. LinkedIn's own handler selects the job in-pane on the click event; only the
+ *  anchor's default action must not fire — so block it for this one click, then click the link
+ *  (its handler runs on the way up), falling back to the card container when there is no link. */
+export function openCard(card: HTMLElement): void {
+  const link = card.querySelector<HTMLAnchorElement>('a[href]');
+  const block = (e: Event): void => e.preventDefault();
+  if (link) {
+    link.addEventListener('click', block, { capture: true, once: true });
+    try {
+      cancelableClick(link);
+    } finally {
+      link.removeEventListener('click', block, { capture: true });
+    }
+    return;
+  }
+  cancelableClick(card.querySelector<HTMLElement>('.job-card-container, [data-job-id], [role="button"]') ?? card);
+}
+
+/** Like dom.ts#click but cancelable, as a real click is: the shared helper's non-cancelable event
+ *  makes every preventDefault a no-op, so a click on an anchor always navigated. */
+function cancelableClick(el: Element): void {
+  for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true }));
+}
+
+/** A jobs page that lists cards (search / collections / new search-results) — the only pages the
+ *  loop can run on. `/jobs/view/<id>/` is a single job page: the run got lost there. */
+export function isResultsPage(url: string): boolean {
+  return /^https:\/\/www\.linkedin\.com\/jobs\/(search|search-results|collections)(\/|\?|$)/.test(url);
+}
+
 export function currentJobIdFromUrl(url: string): string {
   return /[?&]currentJobId=(\d{6,})/.exec(url)?.[1] ?? /\/jobs\/view\/(\d{6,})/.exec(url)?.[1] ?? '';
 }
