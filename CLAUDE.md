@@ -4,7 +4,8 @@ Read this first. It's the contract for working in this repo. Keep it accurate wh
 
 ## What this is
 A Chrome MV3 extension (WXT + TypeScript) that auto-applies to jobs from the user's **real
-browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs) and **Instahyre** followed. The extension approach is deliberate: the real
+browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs), **Instahyre** and **LinkedIn**
+(Easy Apply) followed. The extension approach is deliberate: the real
 browser mints the reCAPTCHA token, carries the session/fingerprint, and uploads the resume
 natively — so we never fight the anti-bot stack. **Do not** rewrite this as a raw-HTTP API bot.
 
@@ -57,6 +58,40 @@ run against them. They're the offline oracle — don't hand-edit; refresh from a
 - Submit-by-navigation is declared per site (`Site.submittedUrl`, `src/sites/site.ts`) so the
   apply port stays site-agnostic.
 
+### LinkedIn Easy Apply ground truth (from two shipping auto-apply extensions' adapters, 2026-09-04)
+Built by reading the unpacked source of "LinkedIn AutoApplier" and "AutoApplyMax" (their selectors
+are what drives the live DOM); `tests/linkedin.test.ts` transcribes that markup. Not yet a live
+page capture — the first real run reads the Logs page and fixes selectors from `describeState`.
+- **Two layouts.** Legacy `/jobs/search/` (+ `/jobs/collections/*`): cards `li[data-occludable-job-id]`
+  (virtualized: below-the-fold cards hold `<!---->` until scrolled), details pane
+  `.jobs-search__job-details` with `button.jobs-apply-button` ("Easy Apply"; an external job says
+  plain "Apply"), modal `.jobs-easy-apply-modal` in the light DOM. New `/jobs/search-results/`:
+  cards `div[componentkey="job-card-component-ref-<id>"][role=button]` with positional `<p>`s
+  (title, company, location, …, "Easy Apply"), the control is `<a aria-label="Easy Apply to this job">`
+  and the modal lives in an OPEN shadow root at `#interop-outlet` — `ats/linkedin.ts#roots()` searches
+  both. Opening a card = the URL's `currentJobId` changes. Use `/jobs/search/` URLs (legacy) when possible.
+- **Modal**: one `[data-test-form-element]` block per question. Text/number
+  (`.artdeco-text-input--input`, numeric ids end `-numeric`, errors "Enter a whole number between 0
+  and 99"), native `<select>` (`[data-test-text-entity-list-form-select]`, first option "Select an
+  option"), radio fieldset (`[data-test-form-builder-radio-button-form-component]`, option text in
+  `data-test-text-selectable-option__input`), checkbox fieldset, city typeahead (`input[role=combobox]`
+  → `[role=listbox] [role=option]`), résumé (`.jobs-document-upload-redesign-card__container--selected`
+  or `input[type=file]` — never re-upload when a card is selected). LinkedIn **pre-fills** from the
+  last application; only empty questions are answered. Footer: `aria-label` "Continue to next step" /
+  "Review your application" / "Submit application" (+ `data-live-test-easy-apply-*-button`);
+  `#follow-company-checkbox` is pre-checked (we uncheck it). Errors:
+  `.artdeco-inline-feedback--error .artdeco-inline-feedback__message`.
+- **After Submit**: "Your application was sent to <co>" dialog (`button[aria-label=Dismiss]`).
+  Closing an unfinished modal pops Discard (`discard_application_confirm_btn`).
+- **Limits**: "You've reached today's Easy Apply limit" dialog ends the run; "applying at a fast
+  pace … briefly paused" = back off. Unfocused tabs get throttled — the run tab is opened active.
+- Pipeline: `app/linkedin-run.ts` (background) persists the run (`linkedin_run`), pages
+  `start=0,25,…` of each `profile.linkedin.search_urls` entry with `f_AL=true` forced, re-kicks the
+  content script after any reload (`tabs.onUpdated`), watchdog alarm reloads a silent page;
+  `entrypoints/linkedin.content.ts` works one page: card → pane → Easy Apply → steps → Submit.
+  Every attempt (applied / parked / failed) is recorded with the typed values; `auto_submit:false`
+  fills through Review, parks, and halts the run with the modal open (one-job dry run).
+
 ## Architecture — Clean Architecture, applied
 Dependency direction points **inward**: outer layers depend on inner, never the reverse
 (the Dependency Rule, Clean Architecture ch. 22). Inner = pure policy; outer = details.
@@ -67,16 +102,17 @@ INNER (pure: no chrome, no DOM, no network — unit-tested)
                   select-jobs · stats
   src/config/     schema.ts (zod) — validates profile.yaml at the boundary
 APPLICATION (orchestration; depends on ports, not details)
-  src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring)
+  src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring) ·
+                  instahyre-run.ts · linkedin-run.ts (in-page packs: tab, paging, recovery, records)
 ADAPTERS (details, behind interfaces)
   src/sources/    where jobs come from — typesense.ts · amazon-jobs.ts
-  src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts (+ dom.ts)
+  src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts · linkedin.ts (+ dom.ts)
   src/sites/      a company = source + ATS — site.ts (interface), datadog.ts, amazon.ts, index.ts
   src/platform/   side effects, isolated — worker-window · gmail-otp · fs-config ·
                   messaging · serialized-file · store (chrome.storage repo) · schedule (daily alarm)
 MAIN (dirtiest; wires everything)
   src/entrypoints/  background.ts (assembles ports → runner; daily alarm) · greenhouse.content.ts ·
-                    amazon.content.ts · instahyre.content.ts · gmail.content.ts · popup/
+                    amazon.content.ts · instahyre.content.ts · linkedin.content.ts · gmail.content.ts · popup/
 profile/     the USER's data: profile.yaml + resume/ (git-ignored)
 fixtures/    real captured data for offline tests
 ```
@@ -151,6 +187,12 @@ fixtures/    real captured data for offline tests
   that runs the click loop in-page + `src/app/<co>-run.ts` (find/focus the logged-in tab, ping-ready,
   kick off, record each apply into the shared store) wired from `background.ts` + its own popup button.
   Do NOT register it in `src/sites/` — that path assumes a worker window + Greenhouse form.
+- **In-page ATS with a form (LinkedIn Easy Apply)**: same in-page pattern, but the popup loads the
+  profile + résumé (FS gesture) and sends them in `runLinkedin`; the content script answers the modal
+  through the shared engine (`withIntent` → `resolve` → `guessAnswer`) and reports every attempt;
+  `app/linkedin-run.ts` owns paging + recovery. Profile: `linkedin.search_urls` (+ `identity.city`,
+  the `answers.*` LinkedIn screening keys in `profile.example.yaml`). Daily runs work via the same
+  `platform/schedule.ts` toggle (`siteId: 'linkedin'`).
 - **New question type**: add a rule in `engine/matcher.ts` + a default in `profile.example.yaml` + a
   case in `tests/matcher.test.ts`. New standard decline-style answer → add a token in
   `engine/answer-tokens.ts`.

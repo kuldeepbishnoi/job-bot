@@ -25,6 +25,6 @@ console.log(`JobBot ${today}: ${list.length} jobs — ${Object.entries(counts).m
 for (const r of list) console.log(` ${r.status === 'applied' ? '✓' : r.status === 'parked' ? '⚠' : '✗'} ${r.jobId} ${r.title.slice(0, 48).padEnd(48)} ${r.note.replace(/submitted — page moved on to .*summary\?result=/, 'result=').slice(0, 90)}`);
 
 const n = Number(opt('--log', 5));
-const lines = [...new Set([...s.matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z (amazon|apply|outcome|port closed|popup|watchdog) .{0,260}?(?=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d|\x00{2}|$)/gs)].map((m) => m[0].replace(/\s+/g, ' ').replace(/"\],?.*$/, '').replace(/","$/, '')))].sort();
+const lines = [...new Set([...s.matchAll(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z (amazon|linkedin|apply|outcome|port closed|popup|watchdog) .{0,260}?(?=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d|\x00{2}|$)/gs)].map((m) => m[0].replace(/\s+/g, ' ').replace(/"\],?.*$/, '').replace(/","$/, '')))].sort();
 console.log(`\nlast ${n} log lines:`);
 for (const l of lines.filter((l) => !job || l.includes(job)).slice(-n)) console.log(' ' + l.slice(0, 220));

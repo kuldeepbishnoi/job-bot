@@ -26,6 +26,31 @@ function renderSites(): void {
   ih.textContent = 'Apply for Instahyre';
   ih.onclick = () => startInstahyre(ih);
   host.appendChild(ih);
+  // LinkedIn Easy Apply: in-page too, but the modal asks questions — so the profile is loaded here
+  // (FS-access gesture) and sent along, exactly like a worker-window run.
+  const lk = document.createElement('button');
+  lk.className = 'apply';
+  lk.textContent = 'Apply on LinkedIn';
+  lk.onclick = () => startLinkedin(lk);
+  host.appendChild(lk);
+  host.appendChild(dailyToggle('linkedin', 'LinkedIn'));
+}
+
+async function startLinkedin(btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    setStatus('Reading profile…');
+    const { profile, resume } = await loadProfileAndResume();
+    if (!profile.linkedin) throw new Error('profile.yaml needs a `linkedin:` block with search_urls (see profile.example.yaml)');
+    await ensureHosts();
+    setStatus(`Starting LinkedIn… (${profile.linkedin.search_urls.length} search URL${profile.linkedin.search_urls.length === 1 ? '' : 's'}, auto_submit ${profile.auto_submit ? 'on' : 'OFF — one job, then halts'})`);
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'runLinkedin', profile, resume });
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
+  } catch (e) {
+    warn((e as Error).message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // "Run daily" — caches the profile + résumé (loaded here, where the FS-access gesture lives) and
@@ -43,6 +68,7 @@ function dailyToggle(siteId: string, label: string): HTMLElement {
       if (box.checked) {
         setStatus('Reading profile…');
         const { profile, resume } = await loadProfileAndResume();
+        if (siteId === 'linkedin' && !profile.linkedin) throw new Error('profile.yaml needs a `linkedin:` block with search_urls first');
         await enableDaily(siteId, profile, resume);
         setStatus(`${label}: daily run armed ✓`);
       } else {
