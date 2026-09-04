@@ -33,6 +33,8 @@ export type Intent =
   | 'identity.country'
   | 'identity.linkedin'
   | 'identity.website'
+  | 'identity.city'
+  | 'identity.phone_country' // "Phone country code" select → the applicant's country / dial code
   | 'resume'
   | 'answers.work_authorization'
   | 'answers.needs_sponsorship'
@@ -75,6 +77,19 @@ export type Intent =
   | 'answers.ex_military'
   | 'answers.reserve_forces'
   | 'answers.military_spouse'
+  // LinkedIn Easy Apply screening questions.
+  | 'answers.commute_ok' // "Are you comfortable commuting to this job's location?"
+  | 'answers.remote_ok' // "Are you comfortable working in a remote/hybrid setting?"
+  | 'answers.expected_salary' // "What is your expected CTC / salary?" (text or number)
+  | 'answers.current_salary'
+  | 'answers.notice_period' // "What is your notice period (in days)?"
+  | 'answers.start_date' // "When can you start?" / "earliest start date"
+  | 'answers.background_check' // "Are you willing to undergo a background check?"
+  | 'answers.over_18' // "Are you 18 years or older?"
+  | 'answers.language_proficiency' // "What is your level of proficiency in English?"
+  | 'answers.drivers_license'
+  | 'answers.security_clearance'
+  | 'answers.cover_letter' // free-text "why do you want to work here" style prompts
   | 'locations'; // "which cities/locations" — resolved from job + want.locations
 
 /** What we decided to put in a field. */

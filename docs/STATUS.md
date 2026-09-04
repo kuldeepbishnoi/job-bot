@@ -61,7 +61,9 @@ Snapshot for the next agent/session. Update it as things land.
 2. **Gmail API (read-only)** to replace tab-scrape — swap only `platform/gmail-otp.ts#getOtp`.
 3. **Playwright e2e**: load the built extension, open `fixtures/greenhouse-form.html`, assert fill,
    stop before submit.
-4. ~~Second site pack~~ — Amazon (own ATS) + Instahyre (in-page) landed; next a Greenhouse-native
+4. ~~Second site pack~~ — Amazon (own ATS) + Instahyre (in-page) + LinkedIn Easy Apply (in-page,
+   2026-09-04: adapter from two shipping extensions' selectors, tests on transcribed markup; needs
+   its first live one-job dry run) landed; next a Greenhouse-native
    company to prove the Greenhouse abstraction, then Lever.
 5. ~~Scheduling~~ — daily alarm landed (`platform/schedule.ts`); per-site hour is still fixed at 9:00.
 6. **Popup "needs review" panel**: list parked jobs with links (data already in `platform/store`).

@@ -12,7 +12,42 @@ describe('matchIntent (real Datadog labels)', () => {
     ['Voluntary Self-Identification of Gender', 'answers.gender'],
     ['LinkedIn Profile', 'identity.linkedin'],
     ['Website', 'identity.website'],
-    ['What is your expected salary?', undefined], // unknown -> park
+    ['What is your expected salary?', 'answers.expected_salary'], // answered only if profile sets it, else park
+  ];
+  it.each(cases)('%s', (label, intent) => {
+    expect(matchIntent(label)).toBe(intent);
+  });
+});
+
+describe('matchIntent (LinkedIn Easy Apply labels)', () => {
+  const cases: [string, string | undefined][] = [
+    ['Phone country code', 'identity.phone_country'],
+    ['Mobile phone number', 'identity.phone'],
+    ['Email address', 'identity.email'],
+    ['First name', 'identity.first_name'],
+    ['Last name', 'identity.last_name'],
+    ['City', 'identity.city'],
+    ['What is your current location?', 'identity.city'],
+    ['Are you comfortable commuting to this job\'s location?', 'answers.commute_ok'],
+    ['Are you comfortable working in a hybrid setting?', 'answers.remote_ok'],
+    ['How many years of work experience do you have with Java?', 'answers.years_of_experience'],
+    ['Have you completed the following level of education: Bachelor\'s Degree?', 'answers.degree_bachelors'],
+    ['What is your expected CTC (in LPA)?', 'answers.expected_salary'],
+    ['What is your current CTC?', 'answers.current_salary'],
+    ['What is your notice period (in days)?', 'answers.notice_period'],
+    ['When can you start?', 'answers.start_date'],
+    ['Are you willing to undergo a background check, in accordance with local law/regulations?', 'answers.background_check'],
+    ['Are you 18 years or older?', 'answers.over_18'],
+    ['What is your level of proficiency in English?', 'answers.language_proficiency'],
+    ['Do you have a valid driver\'s license?', 'answers.drivers_license'],
+    ['Will you now or in the future require sponsorship for employment visa status?', 'answers.needs_sponsorship'],
+    ['Are you legally authorized to work in India?', 'answers.work_authorization'],
+    ['Why do you want to work at Acme?', 'answers.cover_letter'],
+    ['Do you have experience with Kubernetes?', 'answers.skills_experience'],
+    ['In what cities are you available to work?', 'locations'],
+    // Whole-word "city": Amazon's "…participate in any capacity…" and "ethnicity" are not cities.
+    ['Did you participate in any capacity in those decisions?', undefined],
+    ['Please provide additional information.', undefined], // Amazon compliance follow-up — not a cover letter
   ];
   it.each(cases)('%s', (label, intent) => {
     expect(matchIntent(label)).toBe(intent);
@@ -51,7 +86,7 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     ['Are you ex-military (transitioning or former member of your country’s Armed Forces)?', 'answers.ex_military'],
     ['Are you a member of the Reserve Forces of your country?', 'answers.reserve_forces'],
     ['Are you a military spouse?', 'answers.military_spouse'],
-    ['Preferred start date', undefined],
+    ['Preferred start date', 'answers.start_date'], // answered only if profile sets it, else park
     ['Education level', 'answers.education_level'],
     ['School name', 'answers.school_name'],
     ['Area(s) of study', 'answers.area_of_study'],

@@ -39,6 +39,7 @@ export default defineConfig({
       'https://job-boards.greenhouse.io/*',
       'https://gk6e3zbyuntvc5dap.a1.typesense.net/*',
       'https://www.instahyre.com/*',
+      'https://www.linkedin.com/*',
       'https://www.amazon.jobs/*',
       'https://passport.amazon.jobs/*',
       'https://account.amazon.jobs/*',

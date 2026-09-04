@@ -10,6 +10,8 @@ export const IdentitySchema = z.object({
   country: z.string().min(1),
   linkedin: z.string().default(''),
   website: z.string().default(''),
+  // Current city, for the "City" typeahead / "current location" questions (LinkedIn Easy Apply).
+  city: z.string().default(''),
 });
 
 export const WantSchema = z.object({
@@ -37,6 +39,18 @@ export const AmazonSchema = z.object({
   ai_consent: z.boolean().default(false),
 });
 
+// LinkedIn Easy Apply runs in-page in the user's logged-in tab (no worker window, no OTP).
+export const LinkedinSchema = z.object({
+  // Search pages WITH your filters applied (keywords, location, date posted…). The bot forces the
+  // Easy Apply filter (f_AL=true) and walks every page of each URL in order. Yours — no default.
+  search_urls: z.array(z.string().url()).min(1),
+  // Only open cards whose title passes want.titles_any / titles_none (default). false = every
+  // Easy Apply card the search returns.
+  filter_titles: z.boolean().default(true),
+  // Safety cap per run on top of profile.max_per_run. LinkedIn's own daily limit ends a run earlier.
+  max_per_run: z.number().int().positive().default(100),
+});
+
 export const ProfileSchema = z.object({
   identity: IdentitySchema,
   resume: z.string().min(1),
@@ -61,11 +75,13 @@ export const ProfileSchema = z.object({
   per_account_limit: z.number().int().positive().optional(),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),
+  linkedin: LinkedinSchema.optional(),
 });
 
 export type Identity = z.infer<typeof IdentitySchema>;
 export type Want = z.infer<typeof WantSchema>;
 export type AmazonConfig = z.infer<typeof AmazonSchema>;
+export type LinkedinConfig = z.infer<typeof LinkedinSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export function parseProfile(raw: unknown): Profile {

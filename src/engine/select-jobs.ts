@@ -16,3 +16,11 @@ export function selectJobs(jobs: readonly Job[], want: Want): Job[] {
     return true;
   });
 }
+
+/** Title-only slice of the same filter, for sites where the search URL already fixes location
+ *  (LinkedIn): the card must contain one of titles_any (if set) and none of titles_none. */
+export function titleWanted(title: string, want: Want): boolean {
+  const t = title.toLowerCase();
+  if (want.titles_any.length && !want.titles_any.some((x) => t.includes(x.toLowerCase()))) return false;
+  return !want.titles_none.some((x) => t.includes(x.toLowerCase()));
+}

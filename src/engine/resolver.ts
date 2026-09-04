@@ -23,7 +23,12 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
   'identity.country': (p) => p.identity.country,
   'identity.linkedin': (p) => p.identity.linkedin,
   'identity.website': (p) => p.identity.website,
+  'identity.city': (p) => p.identity.city,
 };
+
+// `years_of_experience: MAX` on a free-text "how many years…" box (LinkedIn) — there is no top
+// bucket to pick, so type the threshold the question names ("5+ years" → 5) or this many.
+const MAX_YEARS_TEXT = 10;
 
 export function resolve(field: Field, profile: Profile, job: Job, options: readonly string[] = []): Answer {
   // Only fill file inputs when we know they want the resume — otherwise (cover letter,
@@ -42,12 +47,24 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   const intent = field.intent;
   if (!intent) return { kind: 'unknown' };
 
-  // 2. identity text fields.
+  // 2. identity fields — typed, or picked when the form offers them as a list (LinkedIn's email
+  // dropdown); a typeahead (no options yet) gets the text to type.
   const id = IDENTITY[intent];
-  if (id) return { kind: 'text', value: id(profile) };
+  if (id) {
+    const v = id(profile);
+    if (field.kind !== 'select' && field.kind !== 'multiselect') return { kind: 'text', value: v };
+    if (!v) return { kind: 'unknown' };
+    const picked = matchOptions(options, [v]);
+    if (picked.length) return { kind: 'choice', values: picked.slice(0, 1) };
+    return options.length ? { kind: 'unknown' } : { kind: 'choice', values: [v] };
+  }
 
   // 3. locations are DERIVED, never typed: options ∩ (job locations ∪ want.locations).
   if (intent === 'locations') return resolveLocations(options, profile, job);
+  if (intent === 'identity.phone_country') {
+    const opt = pickPhoneCountry(options, profile.identity.country, profile.identity.phone);
+    return opt ? { kind: 'choice', values: [opt] } : { kind: 'unknown' };
+  }
 
   // 4. intent answer from profile.answers (e.g. answers.work_authorization).
   const key = intent.replace(/^answers\./, '');
@@ -58,7 +75,10 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
 
 function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): Answer {
   // years_of_experience: MAX — always the top bucket / always "Yes" to "N+ years" (owner's rule).
-  if (val === 'MAX' && field.intent === 'answers.years_of_experience') val = Number.POSITIVE_INFINITY;
+  if (val === 'MAX' && field.intent === 'answers.years_of_experience') {
+    if (field.kind === 'select' || field.kind === 'multiselect') val = Number.POSITIVE_INFINITY;
+    else val = Number(/(\d+(?:\.\d+)?)\s*\+?\s*(?:or more\s+)?years?/i.exec(field.label)?.[1] ?? MAX_YEARS_TEXT);
+  }
 
   // Canonical token (DECLINE, NOT_A_VETERAN…) -> the option that matches this form's wording.
   if (isAnswerToken(val)) {
@@ -101,6 +121,22 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
   // No options yet (a live-search picker) → pass the text through; the adapter types it.
   if (picked.length === 0) return options.length ? { kind: 'unknown' } : { kind: 'choice', values: wanted };
   return { kind: 'choice', values: field.kind === 'select' ? picked.slice(0, 1) : picked };
+}
+
+/** "Phone country code" select: the option that names the applicant's country ("India (+91)"),
+ *  never a fuzzy superstring ("British Indian Ocean Territory"); else the phone's own dial code. */
+export function pickPhoneCountry(options: readonly string[], country: string, phone: string): string | null {
+  const c = country.trim().toLowerCase();
+  if (c) {
+    const starts = options.find((o) => o.trim().toLowerCase().startsWith(c) && !/^[a-z]/.test(o.trim().toLowerCase().slice(c.length)));
+    if (starts) return starts;
+  }
+  const code = /^\+(\d{1,3})\b/.exec(phone.trim())?.[1];
+  if (code) {
+    const byCode = options.find((o) => new RegExp(`\\+${code}(?!\\d)`).test(o));
+    if (byCode) return byCode;
+  }
+  return null;
 }
 
 /** cities question: pick every offered option the applicant would accept. */
