@@ -75,8 +75,10 @@ export async function record(app: Application): Promise<void> {
   const all = await readAll();
   // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
   // chrome.storage quota over a run. It's written to disk (fs-config.writeRecord) instead.
-  const { screenshot: _omit, ...lean } = app;
-  const stamped: Application = { ...lean, at: new Date().toISOString(), account: await getAccount() };
+  // Same for the HTML/screenshot capture and the job description: the on-disk record keeps them
+  // (fs-config.persistApplication); storage keeps the fields, note and a capped log.
+  const { screenshot: _omit, capture: _omit2, description: _omit3, ...lean } = app;
+  const stamped: Application = { ...lean, ...(app.log ? { log: app.log.slice(-80) } : {}), at: new Date().toISOString(), account: await getAccount() };
   await chrome.storage.local.set({ [KEY]: [...all, stamped] });
 }
 

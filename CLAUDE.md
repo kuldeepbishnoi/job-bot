@@ -91,6 +91,35 @@ page capture — the first real run reads the Logs page and fixes selectors from
   dispatches a cancelable click with a one-shot capture `preventDefault` on the link; the first card
   (`currentJobId` already in the URL) is never clicked; a tab found on `/jobs/view/…` is steered back
   to the persisted search page (`reason: 'lost'`, bounded by `MAX_RECOVERIES`).
+- **Live-learned (2026-09-14, from the on-disk log + the user's screenshots + AutoApplyMax's
+  `clickJobCard`)**: (a) opening a legacy card = a NATIVE `link.click()` (cancelable, so LinkedIn's
+  own handler cancels the navigation and switches the pane); our capture-phase preventDefault had
+  blocked their handler too → 33/33 "card did not open". `openCard(card, attempt)` escalates:
+  native click → pointer sequence on the wrapper → inner `<p>` → focus+Enter (their strategies for
+  the new layout). (b) A closed/unfinished modal pops **"Save this application?" (Discard / Save)**;
+  a spinner-only modal is not `modal()` → the old `discard()` skipped it and the run sat on that
+  dialog for hours. `strayDialog()` + `clearStrayDialogs()` run before every card and after every
+  failure. (c) **"Mark job as a top choice"** is an opt-in checkbox (3/month) that adds a REQUIRED
+  20+-char message box; `answers.top_choice` defaults to unchecked; `answers.cover_letter` answers
+  "Include a message…" and any "Minimum N characters" hint pads from it. (d) Indian screening
+  questions: fixed/variable/total CTC (annual INR in the profile, converted to the label's unit —
+  LPA / per month), notice ladders ("15 days", "1 month" → days), "located in <city>", immediate
+  joiner, shifts, current company/title, GitHub, reason for change (all `answers.*`, see
+  `profile.example.yaml`).
+- **Records are complete and on disk immediately** (`platform/fs-config.ts#persistApplication`,
+  called from `app/linkedin-run.ts#onLinkedinResult` — the background holds the folder grant):
+  `applications/applications.jsonl` (every field with `source` profile|override|guessed|coerced|
+  prefilled|unanswered, its intent, the options offered, any validation error; the job's own log
+  lines; résumé used; location; description), `registry.jsonl`, `review.jsonl` (one line per
+  guessed/unanswered/coerced/no-intent question), `captures/<date>_<jobId>_<status>.html` (the
+  modal + dialogs as HTML — a real fixture) and `.jpg` (screenshot, needs the optional `<all_urls>`
+  grant the popup asks for), `log-<date>.txt` (the complete debug log; chrome.storage keeps 4000
+  lines). Read them with `node debug/outcomes.mjs` (`--review` = the questions that need a profile
+  answer, `--job <id>` = one record with its log, `--fields`). The LevelDB reader is a lossy fallback.
+- Popup "Stop run" shows whenever `linkedin_run` exists (the same check "press Stop first" uses);
+  the watchdog's dead-run clock (`lastProgressAt`) is no longer reset by its own reloads.
+- **Other LinkedIn bots must be OFF**: AutoApplyMax (`*.linkedin.com/jobs/*`) and LinkedIn
+  AutoApplier (`www.linkedin.com/*`) inject into the same pages and click the same controls.
 - Pipeline: `app/linkedin-run.ts` (background) persists the run (`linkedin_run`), pages
   `start=0,25,…` of each `profile.linkedin.search_urls` entry with `f_AL=true` forced, re-kicks the
   content script after any reload (`tabs.onUpdated`), watchdog alarm reloads a silent page;
@@ -152,7 +181,10 @@ fixtures/    real captured data for offline tests
 - **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity` — each used (alarms
   steps the queue across SW restarts; identity fetches the read-only Gmail token for the OTP). No
   `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
-  OTP read), not `*://*`.
+  OTP read), not `*://*`. The one exception is **optional**: `optional_host_permissions: ['<all_urls>']`,
+  requested by the popup when a LinkedIn run starts, because `chrome.tabs.captureVisibleTab` refuses
+  plain host permissions (0 of 312 records ever got a screenshot before). Declining only loses the
+  screenshots; the HTML capture, fields and log are written regardless.
 - **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
   alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage. Daily
   hands-off runs are a second alarm (`platform/schedule.ts`): the popup caches the profile + résumé

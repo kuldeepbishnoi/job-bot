@@ -40,12 +40,26 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   const override = profile.overrides[field.label.trim()];
   if (override !== undefined) return toAnswer(override, field, options);
 
-  // 2. checkboxes: an explicit boolean override aside, a REQUIRED checkbox is a submit gate
-  // (consent/acknowledgement) — checking it is the only way to proceed. Optional ones we skip.
-  if (field.kind === 'checkbox') return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
-
   const intent = field.intent;
+
+  // 2. checkboxes: an intent with a boolean answer decides (LinkedIn's "Mark job as a top choice"
+  // is an opt-in extra — off unless the profile says otherwise); else a REQUIRED checkbox is a
+  // submit gate (consent/acknowledgement) — checking it is the only way to proceed. Optional
+  // ones we leave alone.
+  if (field.kind === 'checkbox') {
+    const key = intent?.replace(/^answers\./, '');
+    const v = key ? profile.answers[key] : undefined;
+    if (typeof v === 'boolean') return { kind: 'check', value: v };
+    if (intent === 'answers.top_choice') return { kind: 'check', value: false };
+    return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
+  }
+
   if (!intent) return { kind: 'unknown' };
+
+  // 3. derived answers: salary components in the unit the label names, notice period as days,
+  // "are you located in <city>" from identity.city.
+  const derived = resolveDerived(intent, field, profile, options);
+  if (derived) return derived;
 
   // 2. identity fields — typed, or picked when the form offers them as a list (LinkedIn's email
   // dropdown); a typeahead (no options yet) gets the text to type.
@@ -71,6 +85,129 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   const val = profile.answers[key];
   if (val === undefined) return { kind: 'unknown' };
   return toAnswer(val, field, options);
+}
+
+const num = (v: AnswerValue | undefined): number | undefined => (typeof v === 'number' ? v : typeof v === 'string' && /^\s*[\d,.]+\s*$/.test(v) ? Number(v.replace(/,/g, '')) : undefined);
+
+/** Salary answers: profile numbers are ANNUAL in the applicant's currency (INR for the Indian
+ *  market); each component derives from the others when unset, so one `current_salary` answers
+ *  fixed / variable / total. `undefined` = the profile has no salary at all (→ unknown → review). */
+export function salaryFor(intent: Intent, answers: Readonly<Record<string, AnswerValue>>): number | undefined {
+  const fixed = num(answers['current_fixed_salary']);
+  const variable = num(answers['current_variable_salary']);
+  const current = num(answers['current_salary']);
+  const total = num(answers['total_ctc']);
+  switch (intent) {
+    case 'answers.expected_salary':
+      return num(answers['expected_salary']);
+    case 'answers.current_fixed_salary':
+      return fixed ?? current ?? (total !== undefined ? total - (variable ?? 0) : undefined);
+    case 'answers.current_variable_salary':
+      return variable ?? (fixed !== undefined || current !== undefined || total !== undefined ? 0 : undefined);
+    case 'answers.total_ctc':
+      return total ?? (fixed !== undefined ? fixed + (variable ?? 0) : current !== undefined ? current + (variable ?? 0) : undefined);
+    case 'answers.current_salary':
+      return current ?? total ?? (fixed !== undefined ? fixed + (variable ?? 0) : undefined);
+    default:
+      return undefined;
+  }
+}
+
+/** The unit a salary question asks for, read off its label: lakhs per annum ("LPA", "in lakhs"),
+ *  per month, thousands, else the annual figure as is. */
+export function salaryInUnit(annual: number, label: string): number {
+  const t = label.toLowerCase();
+  const monthly = /\b(per month|monthly|a month|pm|lpm)\b/.test(t);
+  const base = monthly ? annual / 12 : annual;
+  if (/\b(lpa|lakhs?|lacs?|lpm)\b/.test(t)) return Math.round((base / 100_000) * 10) / 10;
+  if (/\b(in thousands|thousands|k)\b/.test(t)) return Math.round(base / 1000);
+  return Math.round(base);
+}
+
+/** "30 days" / "1 month" / "2 weeks" / "Immediate" / "15-30 days" / "More than 60 days" → days. */
+export function noticeDays(label: string): { min: number; max: number } | null {
+  const t = label.toLowerCase().replace(/[–—]/g, '-');
+  if (/immediate|immediately|right away|currently not working|not working|no notice|0 days|serving/.test(t) && !/\d/.test(t)) return { min: 0, max: 0 };
+  const unit = /\bmonths?\b/.test(t) ? 30 : /\bweeks?\b/.test(t) ? 7 : 1;
+  const nums = (t.match(/\d+(?:\.\d+)?/g) ?? []).map((n) => Number(n) * unit);
+  if (!nums.length) return null;
+  if (nums.length >= 2) return { min: Math.min(nums[0]!, nums[1]!), max: Math.max(nums[0]!, nums[1]!) };
+  const n = nums[0]!;
+  if (/less than|under|below|up to|within|or less|max/.test(t)) return { min: 0, max: n };
+  if (/more than|above|over|\+|or more|greater/.test(t)) return { min: n, max: Number.POSITIVE_INFINITY };
+  return { min: n, max: n };
+}
+
+/** The notice-period option whose range contains `days`, else the nearest one above it (a
+ *  longer notice is an honest answer; a shorter one is not), else the longest offered. */
+export function pickNoticeOption(options: readonly string[], days: number): string | null {
+  const parsed = options.map((o) => ({ o, r: noticeDays(o) })).filter((x): x is { o: string; r: { min: number; max: number } } => x.r !== null);
+  if (!parsed.length) return null;
+  const hit = parsed.find((x) => days >= x.r.min && days <= x.r.max);
+  if (hit) return hit.o;
+  const above = parsed.filter((x) => x.r.min > days).sort((a, b) => a.r.min - b.r.min)[0];
+  return above?.o ?? parsed.reduce((a, b) => (b.r.min > a.r.min ? b : a)).o;
+}
+
+const YESNO = (options: readonly string[]): { yes: string; no: string } | null => {
+  const yes = options.find((o) => YES.some((s) => hasWord(o, s)));
+  const no = options.find((o) => NO.some((s) => hasWord(o, s)));
+  return yes && no ? { yes, no } : null;
+};
+
+/** Answers computed from the profile rather than read verbatim. Null = not a derived intent. */
+function resolveDerived(intent: Intent, field: Field, profile: Profile, options: readonly string[]): Answer | null {
+  const a = profile.answers;
+  const choice = field.kind === 'select' || field.kind === 'multiselect';
+  const yn = YESNO(options);
+  switch (intent) {
+    case 'answers.expected_salary':
+    case 'answers.current_salary':
+    case 'answers.current_fixed_salary':
+    case 'answers.current_variable_salary':
+    case 'answers.total_ctc': {
+      const annual = salaryFor(intent, a);
+      if (annual === undefined) return { kind: 'unknown' };
+      const v = salaryInUnit(annual, field.label);
+      if (!choice) return { kind: 'text', value: String(v) };
+      // Range options ("10-15 LPA", "10,00,000 - 15,00,000"): parse in the option's own unit.
+      const plain = options.map((o) => o.replace(/(\d),(?=\d)/g, '$1'));
+      const inLakhs = plain.some((o) => /\b(lpa|lakhs?|lacs?)\b/i.test(o));
+      const picked = pickYearsOption(plain, inLakhs ? salaryInUnit(annual, 'lpa') : salaryInUnit(annual, field.label));
+      const idx = picked ? plain.indexOf(picked) : -1;
+      return idx >= 0 ? { kind: 'choice', values: [options[idx]!] } : { kind: 'unknown' };
+    }
+    case 'answers.notice_period': {
+      const raw = a['notice_period'];
+      const days = typeof raw === 'number' ? raw : typeof raw === 'string' ? (noticeDays(raw)?.min ?? undefined) : undefined;
+      if (days === undefined) return { kind: 'unknown' };
+      if (choice) {
+        if (yn) return { kind: 'choice', values: [days > 0 ? yn.yes : yn.no] }; // "Do you have a notice period?"
+        const opt = pickNoticeOption(options, days);
+        return opt ? { kind: 'choice', values: [opt] } : options.length ? { kind: 'unknown' } : { kind: 'choice', values: [String(days)] };
+      }
+      const t = field.label.toLowerCase();
+      if (/\bmonths?\b/.test(t)) return { kind: 'text', value: String(Math.max(0, Math.round(days / 30))) };
+      if (/\bweeks?\b/.test(t)) return { kind: 'text', value: String(Math.max(0, Math.round(days / 7))) };
+      return { kind: 'text', value: String(days) };
+    }
+    case 'answers.immediate_joiner': {
+      const explicit = a['immediate_joiner'];
+      const notice = a['notice_period'];
+      const val = typeof explicit === 'boolean' ? explicit : typeof notice === 'number' ? notice <= 15 : undefined;
+      if (val === undefined) return { kind: 'unknown' };
+      return toAnswer(val, field, options);
+    }
+    case 'answers.in_city': {
+      const city = profile.identity.city.trim().toLowerCase();
+      if (!city) return { kind: 'unknown' };
+      const here = field.label.toLowerCase().includes(city);
+      if (!choice) return { kind: 'text', value: here ? 'Yes' : profile.identity.city };
+      return toAnswer(here, field, options);
+    }
+    default:
+      return null;
+  }
 }
 
 function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): Answer {
@@ -106,6 +243,8 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
       const yes = options.find((o) => YES.some((s) => hasWord(o, s)));
       const no = options.find((o) => NO.some((s) => hasWord(o, s)));
       if (threshold && yes && no) return { kind: 'choice', values: [val >= Number(threshold) ? yes : no] };
+      // "Do you have experience …?" shaped as yes/no with no threshold: any experience at all = Yes.
+      if (yes && no && field.intent === 'answers.years_of_experience') return { kind: 'choice', values: [val > 0 ? yes : no] };
       return { kind: 'unknown' };
     }
     return { kind: 'text', value: String(val) };
@@ -156,8 +295,11 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
  *    3. "No" / "None" / "Not applicable" — the answer that opens no follow-up questions;
  *    4. last resort: the first real option (select) or "N/A" (free text).
  *  Callers mark the record "(guessed)" so a bad guess is visible after the fact. */
+const AGREEABLE = /comfortable|willing|okay|ok with|open to|agree|able to|can you|available|ready to|flexible|fine with|interested|would you/i;
+
 export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
-  if (field.kind === 'checkbox') return { kind: 'check', value: true };
+  // A required lone checkbox gates submit → tick it; an optional one is an opt-in extra → leave it off.
+  if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
   if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
   const decline = optionForToken('DECLINE', options);
@@ -165,6 +307,9 @@ export function guessAnswer(field: Field, options: readonly string[], profile?: 
   const country = profile?.identity.country?.trim().toLowerCase();
   const own = country ? options.find((o) => o.trim().toLowerCase() === country) : undefined;
   if (own) return { kind: 'choice', values: [own] };
+  // "Are you comfortable / willing / okay with …?" — an applicant says Yes; anything else, No.
+  const yn = YESNO(options);
+  if (yn && AGREEABLE.test(field.label)) return { kind: 'choice', values: [yn.yes] };
   const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
   if (no) return { kind: 'choice', values: [no] };
   const first = options.find((o) => o.trim() !== '' && !/^select/i.test(o.trim()));

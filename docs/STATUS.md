@@ -43,6 +43,19 @@ Snapshot for the next agent/session. Update it as things land.
   keys / field logs; the likeliest breakage is a selector (Continue button text, select2 change
   wiring, the modal). Everything else (API shape, ids, option keys) is from real captures.
 
+## LinkedIn pack — observability + answers (2026-09-14)
+- Live findings (on-disk log of 2026-09-06/08 + screenshots): every card "did not open" (our
+  synthetic click blocked LinkedIn's own handler), runs stalled for hours on the "Save this
+  application?" dialog and on "Mark job as a top choice" + its required message, salary /
+  notice / gender questions were left empty or filled with 0, the log rolled over (400-line cap)
+  and LinkedIn records only reached disk when the popup opened (13 on disk vs 60 applied).
+- Fixed: native card click + escalation; stray-dialog clearing; top-choice off; message min-length;
+  salary/notice/city/shift/company intents; per-field `source` audit; complete record written to
+  `profile/applications/` the moment it is reported (fields, log, résumé, location, description,
+  HTML capture + screenshot of the review/failure state, review.jsonl); popup Stop for LinkedIn runs;
+  dead-run watchdog clock. `node debug/outcomes.mjs --review` lists what still needs a profile answer.
+- Still unverified live: the first run with this build (read `--review` + `captures/` after it).
+
 ## Code-review blockers fixed (PR #1 review round 1)
 - OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
 - Profile now loads in the popup and is passed to the SW (FS-access can't run in a service worker).

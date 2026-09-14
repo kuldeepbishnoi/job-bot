@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolve, matchOptions, guessAnswer } from '@/engine/resolver';
+import { resolve, matchOptions, guessAnswer, salaryFor, salaryInUnit, noticeDays, pickNoticeOption } from '@/engine/resolver';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -45,7 +45,7 @@ describe('resolver', () => {
     const ladder = ['less than 2 years', '2 years to less than 3 years', '3 years to less than 4 years', '4 years to less than 5 years', 'more than 5 years'];
     expect(resolve(field, p, job, ladder)).toEqual({ kind: 'choice', values: ['more than 5 years'] });
     expect(resolve(f({ kind: 'text', intent: 'answers.years_of_experience' }), p, job)).toEqual({ kind: 'text', value: '6' });
-    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'unknown' }); // no threshold in the label either
+    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] }); // no threshold: "do you have experience …?" → any experience = Yes
     const fivePlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 5+ years of full software development life cycle experience?' });
     expect(resolve(fivePlus, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] }); // 6 >= 5
     const tenPlus = f({ kind: 'select', intent: 'answers.years_of_experience', label: 'Do you have 10+ years of engineering experience?' });
@@ -143,5 +143,61 @@ describe('resolver', () => {
   it('matchOptions is bidirectional/contains-based', () => {
     expect(matchOptions(['Paris, France'], ['Paris'])).toEqual(['Paris, France']);
     expect(matchOptions(['Yes', 'No'], ['yes'])).toEqual(['Yes']);
+  });
+});
+
+describe('derived answers (salary / notice / city / top choice)', () => {
+  const p = parseProfile({
+    identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+91 9', country: 'India', city: 'Bengaluru' },
+    resume: 'r.pdf',
+    answers: { current_salary: 2000000, current_variable_salary: 200000, expected_salary: 3000000, notice_period: 30, top_choice: false },
+  });
+  const job: Job = { id: '1', title: '', team: '', department: '', url: '', locations: [], seniority: [] };
+  const f = (label: string, intent: Field['intent'], kind: Field['kind'] = 'text'): Field => ({ id: label, label, kind, required: true, intent });
+
+  it('derives fixed / variable / total from one current_salary and converts to the unit the label names', () => {
+    expect(salaryFor('answers.current_fixed_salary', p.answers)).toBe(2000000);
+    expect(salaryFor('answers.current_variable_salary', p.answers)).toBe(200000);
+    expect(salaryFor('answers.total_ctc', p.answers)).toBe(2200000);
+    expect(salaryFor('answers.expected_salary', {})).toBeUndefined();
+    expect(salaryInUnit(2000000, 'What is your current CTC (in LPA)?')).toBe(20);
+    expect(salaryInUnit(2500000, 'Expected salary in lakhs')).toBe(25);
+    expect(salaryInUnit(2400000, 'Current salary per month')).toBe(200000);
+    expect(salaryInUnit(2000000, 'Total CTC - Fixed+Variable (INR_Annual)')).toBe(2000000);
+    expect(resolve(f('What is your current fixed salary?', 'answers.current_fixed_salary'), p, job)).toEqual({ kind: 'text', value: '2000000' });
+    expect(resolve(f('Expected CTC (LPA)', 'answers.expected_salary'), p, job)).toEqual({ kind: 'text', value: '30' });
+    expect(resolve(f('Expected CTC', 'answers.expected_salary', 'select'), p, job, ['Less than 10 LPA', '10-20 LPA', '20-40 LPA', 'More than 40 LPA'])).toEqual({ kind: 'choice', values: ['20-40 LPA'] });
+    expect(resolve(f('Current CTC', 'answers.current_salary', 'select'), p, job, ['5,00,000 - 10,00,000', '10,00,000 - 25,00,000', '25,00,000+'])).toEqual({ kind: 'choice', values: ['10,00,000 - 25,00,000'] });
+    expect(resolve(f('Expected Salary', 'answers.expected_salary'), parseProfile({ ...p, answers: {} }), job)).toEqual({ kind: 'unknown' });
+  });
+
+  it('notice period: days on a text box, the containing (or next longer) option on a ladder, months when asked', () => {
+    expect(noticeDays('Immediate')).toEqual({ min: 0, max: 0 });
+    expect(noticeDays('15 days')).toEqual({ min: 15, max: 15 });
+    expect(noticeDays('1 month')).toEqual({ min: 30, max: 30 });
+    expect(noticeDays('More than 60 days')).toEqual({ min: 60, max: Infinity });
+    expect(noticeDays('15-30 days')).toEqual({ min: 15, max: 30 });
+    expect(pickNoticeOption(['Immediate', '15 days', '30 days', '60 days', '90 days'], 30)).toBe('30 days');
+    expect(pickNoticeOption(['Immediate', '2 weeks', '1 month', '2 months'], 45)).toBe('2 months');
+    expect(pickNoticeOption(['Immediate', 'Less than 15 days', '15-30 days', 'More than 30 days'], 30)).toBe('15-30 days');
+    expect(resolve(f('What is your current notice period?', 'answers.notice_period', 'select'), p, job, ['Select an option', 'Immediate', '15 days', '30 days', '60 days'])).toEqual({ kind: 'choice', values: ['30 days'] });
+    expect(resolve(f('Notice period (in months)', 'answers.notice_period'), p, job)).toEqual({ kind: 'text', value: '1' });
+    expect(resolve(f('Notice period in days', 'answers.notice_period'), p, job)).toEqual({ kind: 'text', value: '30' });
+    expect(resolve(f('Do you have a notice period?', 'answers.notice_period', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(resolve(f('Are you an immediate joiner?', 'answers.immediate_joiner', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+  });
+
+  it('"are you located in <city>" is Yes only for the profile city; the top-choice box stays off', () => {
+    expect(resolve(f('Are you currently located in Bangalore?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    expect(resolve(f('Are you currently located in Bengaluru?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(resolve(f('Mark job as a top choice', 'answers.top_choice', 'checkbox'), p, job)).toEqual({ kind: 'check', value: false });
+    expect(resolve({ ...f('Mark job as a top choice', 'answers.top_choice', 'checkbox'), required: false }, parseProfile({ ...p, answers: {} }), job)).toEqual({ kind: 'check', value: false });
+  });
+
+  it('guess policy: Yes to "comfortable / willing / okay" questions, optional checkboxes stay unticked', () => {
+    expect(guessAnswer(f('Are you comfortable working from Bangalore office?', undefined, 'select'), ['Yes', 'No'], p)).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(guessAnswer(f('Have you been convicted of a felony?', undefined, 'select'), ['Yes', 'No'], p)).toEqual({ kind: 'choice', values: ['No'] });
+    expect(guessAnswer({ ...f('Mark job as a top choice', undefined, 'checkbox'), required: false }, [], p)).toEqual({ kind: 'check', value: false });
+    expect(guessAnswer(f('I agree to the terms', undefined, 'checkbox'), [], p)).toEqual({ kind: 'check', value: true });
   });
 });

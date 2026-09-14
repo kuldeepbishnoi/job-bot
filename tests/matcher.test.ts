@@ -43,11 +43,37 @@ describe('matchIntent (LinkedIn Easy Apply labels)', () => {
     ['Will you now or in the future require sponsorship for employment visa status?', 'answers.needs_sponsorship'],
     ['Are you legally authorized to work in India?', 'answers.work_authorization'],
     ['Why do you want to work at Acme?', 'answers.cover_letter'],
+    // Seen live 2026-09-06/14 (Swiggy / Freshworks SmartRecruiters-powered Easy Apply forms).
+    ['How many years experience do you have?', 'answers.years_of_experience'],
+    ['Please indicate how many exact years of relevant experience you have', 'answers.years_of_experience'],
+    ['Total experience (in years)', 'answers.years_of_experience'],
+    ['What is your current fixed salary?', 'answers.current_fixed_salary'],
+    ['What is your current variable salary?', 'answers.current_variable_salary'],
+    ['Expected Salary', 'answers.expected_salary'],
+    ['Total CTC - Fixed+Variable (INR_Annual)', 'answers.total_ctc'],
+    ['What is your expected fixed salary?', 'answers.expected_salary'],
+    ['What is your current notice period?', 'answers.notice_period'],
+    ['Are you currently serving your notice period?', 'answers.notice_serving'],
+    ['Are you an immediate joiner?', 'answers.immediate_joiner'],
+    ['Are you willing to relocate to Bangalore?', 'answers.willing_to_relocate'],
+    ['Are you currently located in Bangalore?', 'answers.in_city'],
+    ['Gender', 'answers.gender'],
+    ['Mark job as a top choice', 'answers.top_choice'],
+    ['Include a message with your application', 'answers.cover_letter'],
+    ['Are you comfortable working from office 5 days a week?', 'answers.commute_ok'],
+    ['Are you comfortable with rotational shifts?', 'answers.shifts_ok'],
+    ['Current company', 'answers.current_company'],
+    ['Current designation', 'answers.current_title'],
+    ['GitHub profile URL', 'answers.github'],
+    ['Reason for job change', 'answers.reason_for_change'],
+    ['Highest qualification', 'answers.education_level'],
+    ['How many years of experience in Java?', 'answers.years_of_experience'],
+    ['Do you have experience with Kafka?', 'answers.skills_experience'],
     ['Do you have experience with Kubernetes?', 'answers.skills_experience'],
     ['In what cities are you available to work?', 'locations'],
     // Whole-word "city": Amazon's "…participate in any capacity…" and "ethnicity" are not cities.
     ['Did you participate in any capacity in those decisions?', undefined],
-    ['Please provide additional information.', undefined], // Amazon compliance follow-up — not a cover letter
+    ['Please provide additional information.', 'answers.cover_letter'], // a free-text box: the cover letter beats "N/A" // Amazon compliance follow-up — not a cover letter
   ];
   it.each(cases)('%s', (label, intent) => {
     expect(matchIntent(label)).toBe(intent);

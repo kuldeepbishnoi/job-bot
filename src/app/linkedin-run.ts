@@ -1,9 +1,10 @@
 import type { Profile } from '../config/schema';
 import type { Application } from '../engine/types';
-import { dlog } from '../platform/debug-log';
+import { dlog, takePendingLines } from '../platform/debug-log';
+import { appendLogLines, persistApplication } from '../platform/fs-config';
 import { send, sendToTab, type LinkedinJob, type Msg } from '../platform/messaging';
 import type { SerializedFile } from '../platform/serialized-file';
-import { allRecords, record, saveProgress } from '../platform/store';
+import { allRecords, getAccount, record, saveProgress } from '../platform/store';
 
 // LinkedIn Easy Apply orchestration (background side). The content script works through ONE
 // results page per `linkedin-apply` message; this module owns everything that must survive a
@@ -46,6 +47,7 @@ export interface LinkedinRun {
   readonly tabId: number;
   readonly startedAt: number;
   readonly lastActivityAt: number;
+  readonly lastProgressAt: number; // last result / page-done — NOT reset by reloads or kicks (the dead-run clock)
   readonly lastKickAt: number;
   readonly budget: number; // applies allowed this run (profile caps)
 }
@@ -108,6 +110,7 @@ export async function startLinkedin(profile: Profile, resume: SerializedFile): P
     tabId: tab.id,
     startedAt: now,
     lastActivityAt: now,
+    lastProgressAt: now,
     lastKickAt: 0,
     budget,
   };
@@ -163,23 +166,38 @@ async function waitReady(tabId: number, tries = 60): Promise<void> {
  *  next run's exclude list) — an application submitted just as Stop landed still happened. The
  *  run counters/progress update only when the run is still the one that made it. */
 export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' }>): Promise<void> {
+  const at = new Date().toISOString();
   const app: Application = {
     company: 'linkedin',
     jobId: msg.job.id,
     title: `${msg.job.title} · ${msg.job.company}`.slice(0, 140),
     url: msg.job.url || JOB_URL(msg.job.id),
-    date: new Date().toISOString().slice(0, 10),
+    date: at.slice(0, 10),
     status: msg.status,
     ...(msg.note ? { note: msg.note } : {}),
     ...(msg.fields?.length ? { fields: msg.fields } : {}),
+    ...(msg.log?.length ? { log: msg.log } : {}),
+    ...(msg.resume ? { resume: msg.resume } : {}),
+    ...(msg.location ? { location: msg.location } : {}),
+    ...(msg.description ? { description: msg.description } : {}),
+    ...(msg.capture ? { capture: msg.capture } : {}),
   };
-  await record(app);
+  await record(app); // chrome.storage: fields + capped log (captures/description stripped)
+  // The complete record — with the capture files — goes to the profile folder NOW (not when the
+  // popup next opens). `at`/`account` match what the store stamped, so the flush key is the same.
+  const stamped: Application = { ...app, at, account: await getAccount() };
+  const onDisk = await persistApplication(stamped).catch((e: Error) => {
+    log('disk record failed', e.message);
+    return false;
+  });
+  if (!onDisk) log('disk record skipped (no profile folder grant) — the popup flush will write it without the capture');
+  await appendLogLines(await takePendingLines()).catch(() => {});
   await serialized(async () => {
     const run = await getLinkedinRun();
     if (!run || run.runId !== msg.runId) return;
     const applied = run.applied + (msg.status === 'applied' ? 1 : 0);
     const skipped = run.skipped + (msg.status === 'applied' ? 0 : 1);
-    await save({ ...run, applied, skipped, handled: [...new Set([...run.handled, msg.job.id])], lastActivityAt: Date.now() });
+    await save({ ...run, applied, skipped, handled: [...new Set([...run.handled, msg.job.id])], lastActivityAt: Date.now(), lastProgressAt: Date.now() });
     const current = `${msg.status === 'applied' ? '✓' : '⚠'} ${msg.job.title} · ${msg.job.company}`;
     await saveProgress({ done: applied, total: run.budget, current, phase: 'running', at: Date.now() });
     void send({ t: 'progress', done: applied, total: run.budget, current }).catch(() => {});
@@ -216,7 +234,8 @@ async function pageDone(msg: Extract<Msg, { t: 'linkedin-page-done' }>): Promise
   const run = await getLinkedinRun();
   if (!run || run.runId !== msg.runId) return null;
   log('page done', { reason: msg.reason, applied: msg.applied, skipped: msg.skipped, cards: msg.cards, newCards: msg.newCards, pages: msg.pages, note: msg.note, url: run.urls[run.urlIdx], start: run.start });
-  const touched: LinkedinRun = { ...run, lastActivityAt: Date.now() };
+  const touched: LinkedinRun = { ...run, lastActivityAt: Date.now(), lastProgressAt: Date.now() };
+  await appendLogLines(await takePendingLines()).catch(() => {});
   if (msg.reason === 'lost') return recoverPlan(touched, msg.note ?? 'lost');
   if (msg.reason !== 'exhausted') {
     await finish(touched, endNote(msg));
@@ -270,6 +289,7 @@ function endNote(msg: Extract<Msg, { t: 'linkedin-page-done' }>): string {
 async function finish(run: LinkedinRun, note: string): Promise<void> {
   log('run finished', { applied: run.applied, skipped: run.skipped, note });
   await chrome.storage.local.remove(KEY);
+  await appendLogLines(await takePendingLines()).catch(() => {});
   await chrome.alarms.clear(LINKEDIN_WATCHDOG_ALARM);
   await saveProgress({ done: run.applied, total: run.applied, current: `LinkedIn: ${note}`, phase: 'done', at: Date.now() });
   void send({ t: 'runDone' }).catch(() => {});
@@ -328,9 +348,13 @@ export function linkedinWatchdog(): Promise<void> {
       await chrome.alarms.clear(LINKEDIN_WATCHDOG_ALARM);
       return;
     }
+    // Two clocks: `idle` (silence since the last activity/kick) reloads a stuck page; `dead`
+    // (silence since the last RESULT/page-done — reloads don't reset it) ends the run. The old
+    // single clock was reset by the watchdog's own reload, so a stuck run never died.
     const idle = Date.now() - Math.max(run.lastActivityAt, run.lastKickAt);
-    if (idle > DEAD_MS) {
-      await finish(run, `no progress for ${Math.round(idle / 60_000)} min — gave up`);
+    const dead = Date.now() - (run.lastProgressAt ?? run.startedAt);
+    if (dead > DEAD_MS) {
+      await finish(run, `no progress for ${Math.round(dead / 60_000)} min — gave up`);
       return;
     }
     if (idle > STALL_MS) {

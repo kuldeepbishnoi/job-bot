@@ -42,6 +42,20 @@ export default defineBackground(() => {
       void onLinkedinResult(msg);
       return;
     }
+    // Screenshot for the record: only the background can capture, and only with the optional
+    // <all_urls> grant (the popup asks for it when a LinkedIn run starts). Never fails the apply.
+    if (msg.t === 'linkedin-capture') {
+      (async () => {
+        try {
+          const windowId = _sender.tab?.windowId;
+          const dataUrl = windowId === undefined ? null : await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 70 });
+          sendResponse({ dataUrl });
+        } catch (e) {
+          sendResponse({ dataUrl: null, error: String((e as Error).message) });
+        }
+      })();
+      return true;
+    }
     if (msg.t === 'linkedin-handled') {
       void onLinkedinHandled(msg.runId, msg.ids);
       return;

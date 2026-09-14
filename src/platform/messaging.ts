@@ -1,6 +1,6 @@
 // Typed message bus. Background orchestrates; the form frame does DOM work;
 // the Gmail frame yields the code; the popup starts runs and shows progress.
-import type { AppliedField, ApplyStatus, Job } from '../engine/types';
+import type { AppliedField, ApplyStatus, Capture, Job } from '../engine/types';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 
@@ -68,7 +68,12 @@ export type Msg =
   // background -> linkedin content script: is a page loop running right now? (re-kick guard)
   | { t: 'linkedin-status' }
   // linkedin content script -> background: one job attempted (applied / parked / failed) — recorded
-  | { t: 'linkedin-result'; runId: string; job: LinkedinJob; status: ApplyStatus; note?: string; fields?: AppliedField[] }
+  // in full: every field with its source, that job's log lines, the résumé used, the listing's
+  // location + description, and a capture (screenshot + HTML) of the review / failure state.
+  | { t: 'linkedin-result'; runId: string; job: LinkedinJob; status: ApplyStatus; note?: string; fields?: AppliedField[]; log?: string[]; resume?: string; location?: string; description?: string; capture?: Capture }
+  // linkedin content script -> background: screenshot the visible tab now (needs the optional
+  // <all_urls> grant; answers { dataUrl: null } without it)
+  | { t: 'linkedin-capture' }
   // linkedin content script -> background: cards skipped without an attempt (filtered / applied badge)
   | { t: 'linkedin-handled'; runId: string; ids: string[] }
   // linkedin content script -> background: this page is done; the background pages on or ends the run

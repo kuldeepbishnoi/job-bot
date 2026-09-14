@@ -45,9 +45,24 @@ answers:
   drivers_license: true
   security_clearance: false
   language_proficiency: Professional   # option text: Native | Professional | Conversational…
-  expected_salary: 3000000        # numeric boxes want a number; text boxes get it as typed
+  # Salary: ANNUAL figures in your currency (INR). The bot converts to the unit the question names
+  # ("LPA" / "in lakhs" → 30, "per month" → 250000, ranges → the matching option). Components
+  # derive from each other when unset: fixed = current_salary, variable = 0, total = fixed+variable.
+  expected_salary: 3000000
   current_salary: 2000000
-  notice_period: 30               # days
+  # current_fixed_salary: 1800000
+  # current_variable_salary: 200000
+  # total_ctc: 2000000
+  notice_period: 30               # days; "Immediate" → 0. Select ladders ("15 days", "1 month") pick the option containing it
+  notice_serving: false           # "Are you currently serving your notice period?"
+  # immediate_joiner: true        # default: notice_period <= 15 days
+  shifts_ok: true                 # "Are you comfortable with night / rotational shifts?"
+  current_company: "CHANGE ME"    # "Current company / employer"
+  current_title: "Software Engineer"   # "Current designation / role"
+  github: ""                      # "GitHub profile"
+  reason_for_change: "Looking for a larger engineering scope and stronger ownership of production systems."
+  top_choice: false               # LinkedIn "Mark job as a top choice" (3/month; opens a required 20+ char message box) — keep off
+  # "Are you currently located in <city>?" is answered from identity.city (Yes when the label names it).
   start_date: Immediately
   cover_letter: "I'm a backend engineer with 6 years of experience building distributed systems and I'd love to bring that to your team."
   # First-time profile sections (a fresh account has these empty; answered from here, never typed):

@@ -5,6 +5,7 @@ import {
   modal, safetyContinueButton, progress, actionButton, followCompanyCheckbox, uncheckFollowCompany, validationErrors,
   extract, optionsFor, isNumeric, currentAnswer, isAnswered, fill, isTypeaheadField, resumeSelected, attachResume,
   applicationSent, dismissButton, discardButton, limitReached, rateLimited, describeState, describeQuestions,
+  openDialogs, strayDialog, snapshotHtml, resumeName,
 } from '@/ats/linkedin';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer, pickPhoneCountry } from '@/engine/resolver';
@@ -175,6 +176,7 @@ const RESUME_STEP = `
 
 const SENT = `<div class="artdeco-modal" role="dialog" aria-labelledby="post-apply-modal"><button aria-label="Dismiss" class="artdeco-modal__dismiss"></button><h2 id="post-apply-modal">Your application was sent to Razorpay!</h2><button class="artdeco-button">Done</button></div>`;
 const DISCARD = `<div role="alertdialog" data-test-modal-id="data-test-easy-apply-discard-modal"><p>Discard application?</p><button data-control-name="discard_application_confirm_btn" data-test-dialog-primary-btn>Discard</button><button>Cancel</button></div>`;
+const SAVE_DIALOG = `<div role="dialog" class="artdeco-modal artdeco-modal--layer-confirmation"><h2>Save this application?</h2><p>Save to return to this application later. Any uploaded files will not be saved.</p><p>If you choose to not save, your application will be discarded.</p><button class="artdeco-button artdeco-button--secondary">Discard</button><button class="artdeco-button artdeco-button--primary">Save</button><button aria-label="Dismiss" class="artdeco-modal__dismiss"></button></div>`;
 const LIMIT = `<div role="dialog" class="artdeco-modal"><div class="artdeco-modal__content"><h2>You've reached today's Easy Apply limit</h2><p>Save this job and continue applying tomorrow.</p><button aria-label="Got it">Got it</button></div></div>`;
 const PACE = `<div class="artdeco-toast-item" role="alert">You're applying at a fast pace. We've briefly paused Easy Apply to safeguard against automated tools.</div>`;
 
@@ -219,24 +221,25 @@ describe('linkedin adapter — job list', () => {
     expect(currentJobIdFromUrl('https://www.linkedin.com/jobs/view/4038498140/')).toBe('4038498140');
   });
 
-  it('opens a card without following its link (a real navigation would kill the script)', () => {
+  it('opens a legacy card with a NATIVE click on its link (what the shipping extensions do), then escalates', () => {
     const doc = load(LIST);
     const card = jobCards(doc)[0]!;
     const link = card.querySelector('a')!;
-    let defaultPrevented: boolean | null = null;
-    let handlerRan = false;
+    const seen: string[] = [];
+    // LinkedIn's own handler: sees the click on the anchor and cancels the navigation itself.
     doc.addEventListener('click', (e) => {
-      handlerRan = true; // LinkedIn's delegated handler still sees the click…
-      defaultPrevented = e.defaultPrevented; // …but the anchor's navigation is off
+      seen.push(`click:${(e.target as Element).tagName}:cancelable=${e.cancelable}`);
+      e.preventDefault();
     });
-    openCard(card);
-    expect(handlerRan).toBe(true);
-    expect(defaultPrevented).toBe(true);
-    // The one-shot block is gone: a later (user) click on the link is normal again.
-    let later: boolean | null = null;
-    doc.addEventListener('click', (e) => (later = e.defaultPrevented));
-    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(later).toBe(false);
+    doc.addEventListener('pointerdown', (e) => seen.push(`pointerdown:${(e.target as Element).tagName}`));
+    doc.addEventListener('keydown', (e) => seen.push(`keydown:${(e as KeyboardEvent).key}`));
+    openCard(card, 0);
+    expect(seen).toEqual(['click:A:cancelable=true']); // a native click() is cancelable — their preventDefault sticks
+    expect(link).toBeTruthy();
+    openCard(card, 1); // React-style delegated handler on the wrapper: full pointer sequence + native click
+    expect(seen.filter((x) => x.startsWith('pointerdown:DIV')).length).toBe(1);
+    openCard(card, 3); // keyboard activation of the focused card
+    expect(seen).toContain('keydown:Enter');
   });
 
   it('knows which pages list cards', () => {
@@ -419,6 +422,33 @@ describe('linkedin adapter — dialogs after submit / on failure', () => {
     expect(limitReached(load(SENT))).toBe(false);
     expect(rateLimited(load(PACE))).toBe(true);
     expect(rateLimited(load(LIMIT))).toBe(false);
+  });
+
+  it('"Save this application?" (Discard / Save) is a stray dialog whose Discard we click', () => {
+    const doc = load(SAVE_DIALOG + LIST);
+    expect(modal(doc)).toBeNull();
+    expect(openDialogs(doc).length).toBe(1);
+    expect(strayDialog(doc)!.textContent).toContain('Save this application');
+    expect(discardButton(doc)!.textContent!.trim()).toBe('Discard');
+    // The Easy Apply modal itself is never "stray"; a confirm on top of it is.
+    const withModal = load(MODAL(QUESTIONS, NEXT));
+    expect(strayDialog(withModal)).toBeNull();
+    const both = load(MODAL(QUESTIONS, NEXT) + SAVE_DIALOG);
+    expect(strayDialog(both)!.textContent).toContain('Save this application');
+  });
+
+  it('snapshotHtml captures every open dialog (a fixture of what we saw) without scripts', () => {
+    const html = snapshotHtml(load(MODAL(QUESTIONS, NEXT) + SAVE_DIALOG + '<script>window.__jobbotProbe = 1</script>'));
+    expect(html).toContain('jobs-easy-apply-modal');
+    expect(html).toContain('Save this application');
+    expect(html).toContain('Enter a whole number between 0 and 99');
+    expect(html).not.toContain('__jobbotProbe');
+    expect(html.startsWith('<!-- ')).toBe(true);
+  });
+
+  it('names the pre-selected résumé for the record', () => {
+    expect(resumeName(modal(load(MODAL(RESUME_STEP, NEXT)))!)).toBe('kuldeep.pdf');
+    expect(resumeName(modal(load(MODAL(QUESTIONS, NEXT)))!)).toBe('');
   });
 
   it('describeState is self-describing', () => {

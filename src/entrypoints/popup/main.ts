@@ -43,6 +43,7 @@ async function startLinkedin(btn: HTMLButtonElement): Promise<void> {
     const { profile, resume } = await loadProfileAndResume();
     if (!profile.linkedin) throw new Error('profile.yaml needs a `linkedin:` block with search_urls (see profile.example.yaml)');
     await ensureHosts();
+    await ensureScreenshots();
     setStatus(`Starting LinkedIn… (${profile.linkedin.search_urls.length} search URL${profile.linkedin.search_urls.length === 1 ? '' : 's'}, auto_submit ${profile.auto_submit ? 'on' : 'OFF — one job, then halts'})`);
     const res = await send<{ ok: boolean; error?: string }>({ t: 'runLinkedin', profile, resume });
     if (!res?.ok) warn(res?.error ?? 'failed to start');
@@ -102,6 +103,17 @@ async function ensureHosts(): Promise<void> {
   const origins = chrome.runtime.getManifest().host_permissions ?? [];
   if (await chrome.permissions.contains({ origins })) return;
   if (!(await chrome.permissions.request({ origins }))) throw new Error('site access not granted (chrome://extensions → JobBot → Site access)');
+}
+
+/** Screenshots of every LinkedIn attempt need `<all_urls>` (captureVisibleTab refuses plain host
+ *  permissions). Optional: declining only loses the screenshots — the HTML capture, fields and log
+ *  are written regardless. Asked once; Chrome remembers the grant. */
+async function ensureScreenshots(): Promise<void> {
+  const origins = ['<all_urls>'];
+  if (await chrome.permissions.contains({ origins })) return;
+  setStatus('Allow "read data on all sites" for screenshots of each application (optional)…');
+  const ok = await chrome.permissions.request({ origins }).catch(() => false);
+  if (!ok) dlog('popup', 'screenshot permission declined — records will have HTML captures only');
 }
 
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
@@ -220,6 +232,15 @@ const STALE_RUN_MS = 2 * 60 * 60 * 1000; // a "running" record older than this i
 async function refreshProgress(): Promise<void> {
   if (Date.now() < warnUntil) return; // keep the warning readable
   const p = await getProgress();
+  // A LinkedIn run is "in progress" for exactly as long as its `linkedin_run` record exists (that is
+  // what "press Stop first" checks) — so Stop must show for it regardless of the progress record's age.
+  const li = (await chrome.storage.local.get('linkedin_run'))['linkedin_run'] as { applied: number; skipped: number; budget: number; startedAt: number } | undefined;
+  if (li) {
+    $('stop').hidden = false;
+    $('resume').hidden = true;
+    setStatus(`LinkedIn run in progress · ${li.applied}/${li.budget} applied, ${li.skipped} skipped · since ${new Date(li.startedAt).toLocaleTimeString()}${p?.current ? ' · ' + p.current : ''}`);
+    return;
+  }
   if (!p) return;
   const running = p.phase === 'running' && Date.now() - p.at < STALE_RUN_MS;
   $('stop').hidden = !running && p.phase !== 'paused';

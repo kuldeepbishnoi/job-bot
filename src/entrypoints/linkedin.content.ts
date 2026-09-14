@@ -4,11 +4,11 @@ import { describeAnswer, waitFor } from '@/ats/dom';
 import { withIntent } from '@/engine/matcher';
 import { guessAnswer, resolve } from '@/engine/resolver';
 import { titleWanted } from '@/engine/select-jobs';
-import type { AppliedField, ApplyStatus, Field, Job } from '@/engine/types';
+import type { Answer, AppliedField, ApplyStatus, Capture, Field, FieldSource, Job } from '@/engine/types';
 import type { Profile } from '@/config/schema';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { LinkedinJob, LinkedinPageEnd, Msg } from '@/platform/messaging';
-import { dlog } from '@/platform/debug-log';
+import { dlog, formatLine } from '@/platform/debug-log';
 
 // Runs in the user's logged-in LinkedIn jobs tab. One `linkedin-apply` message = work through every
 // unseen card on the CURRENT results page (the background pages on). Per card:
@@ -16,8 +16,10 @@ import { dlog } from '@/platform/debug-log';
 //   (intent → profile answer; on_unknown:guess never leaves a required box empty) → Next/Review →
 //   fix whatever LinkedIn's inline validation names → Submit (auto_submit) → dismiss the
 //   "application sent" dialog → report → next card.
-// Everything is verified by reading the DOM back; every step is logged (Logs page) and every
-// attempt — applied, parked, failed — is recorded with the exact values typed.
+// Everything is verified by reading the DOM back. OBSERVABILITY IS THE PRODUCT: every attempt —
+// applied, parked, failed — is reported with every field (value + where it came from + the options
+// offered + any validation error), that job's complete log lines, the résumé used, the listing's
+// location + description, and a capture (screenshot + HTML) of the review step or the failure.
 
 const MAX_STEPS = 15; // Easy Apply is 2–6 steps; a runaway loop must never spin forever
 const MAX_PAGES_IN_PAGE = 40; // LinkedIn caps search results at 40 pages anyway
@@ -25,6 +27,7 @@ const MAX_ERROR_RETRIES = 2; // per step, after LinkedIn's validation named what
 const MODAL_WAIT_MS = 12_000;
 const SUBMIT_WAIT_MS = 15_000;
 const PACE_BACKOFF_MS = 150_000; // LinkedIn's "applying at a fast pace" pause
+const OPEN_ATTEMPTS = 4; // ats/linkedin.ts#openCard strategies: native link click → pointer → inner → Enter
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Human-ish pause: base ±. LinkedIn pauses accounts that click at machine cadence. */
@@ -34,7 +37,12 @@ const report = (msg: Msg) => chrome.runtime.sendMessage(msg).catch(() => {});
 let running = false;
 let stopRequested = false;
 let currentJob = '';
-const log = (...a: unknown[]) => dlog('linkedin', currentJob ? `[${currentJob}]` : '', ...a);
+let jobLog: string[] = []; // every line logged while `currentJob` is set — travels with the record
+const log = (...a: unknown[]): void => {
+  const args = currentJob ? [`[${currentJob}]`, ...a] : a;
+  if (currentJob) jobLog.push(formatLine('linkedin', args));
+  dlog('linkedin', ...args);
+};
 
 export default defineContentScript({
   matches: ['https://www.linkedin.com/jobs/*'],
@@ -67,9 +75,11 @@ export default defineContentScript({
   },
 });
 
+type Resume = Extract<Msg, { t: 'linkedin-apply' }>['resume'];
+
 type CardOutcome =
   | { kind: 'skip'; note: string } // not attempted (filtered / not Easy Apply / already applied) — logged, not recorded
-  | { kind: 'result'; status: ApplyStatus; note?: string; fields: AppliedField[]; halt?: boolean; end?: LinkedinPageEnd };
+  | { kind: 'result'; status: ApplyStatus; note?: string; fields: AppliedField[]; resume?: string; capture?: Capture; halt?: boolean; end?: LinkedinPageEnd };
 
 async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void> {
   running = true;
@@ -89,6 +99,7 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
       note = `not a results page: ${location.href.slice(0, 120)}`;
       return;
     }
+    await clearStrayDialogs('page start');
     await waitFor(() => (li.jobCards(document).length ? true : null), 20_000).catch(() => {});
     await pause(1500);
     for (;;) {
@@ -114,19 +125,34 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
       handled.add(id);
       newCards++;
       currentJob = id;
+      jobLog = [];
       const outcome = await applyToCard(card, msg.profile, msg.resume);
       if (outcome.kind === 'skip') {
         log('skip', outcome.note);
         skippedIds.push(id);
         if (skippedIds.length % 5 === 0) void report({ t: 'linkedin-handled', runId: msg.runId, ids: skippedIds.splice(0) });
+        currentJob = '';
         await pause(600);
         continue;
       }
       const info = li.cardInfo(card);
       const pane = li.paneJob(document);
       const job: LinkedinJob = { id, title: pane.title || info.title || 'LinkedIn job', company: pane.company || info.company || '', url: `https://www.linkedin.com/jobs/view/${id}/` };
-      log('outcome', outcome.status, outcome.note ?? '', 'fields', outcome.fields.length);
-      void report({ t: 'linkedin-result', runId: msg.runId, job, status: outcome.status, note: outcome.note, fields: outcome.fields });
+      log('outcome', outcome.status, outcome.note ?? '', 'fields', outcome.fields.length, 'sources', summarizeSources(outcome.fields));
+      void report({
+        t: 'linkedin-result',
+        runId: msg.runId,
+        job,
+        status: outcome.status,
+        note: outcome.note,
+        fields: outcome.fields,
+        log: jobLog.slice(-400),
+        resume: outcome.resume,
+        location: li.paneLocation(document) || info.location,
+        description: li.paneDescription(document),
+        capture: outcome.capture,
+      });
+      currentJob = '';
       if (outcome.status === 'applied') applied++;
       else skipped++;
       if (outcome.end) {
@@ -153,6 +179,12 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
     log('page done', { reason, applied, skipped, cards, newCards, pages, note });
     void report({ t: 'linkedin-page-done', runId: msg.runId, reason, applied, skipped, cards, newCards, pages, note });
   }
+}
+
+function summarizeSources(fields: readonly AppliedField[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const f of fields) out[f.source ?? 'unknown'] = (out[f.source ?? 'unknown'] ?? 0) + 1;
+  return out;
 }
 
 /** LinkedIn's own pager (an SPA transition — this script survives it). True once new cards render. */
@@ -185,7 +217,27 @@ async function nextCard(handled: Set<string>): Promise<HTMLElement | null> {
   return null;
 }
 
-async function applyToCard(card: HTMLElement, profile: Profile, resume: Extract<Msg, { t: 'linkedin-apply' }>['resume']): Promise<CardOutcome> {
+/** A dialog that is not the Easy Apply modal blocks every click on the page: LinkedIn's "Save this
+ *  application?" (Discard / Save) after a closed modal, a modal that never finished loading, the
+ *  post-submit dialog, a safety reminder. Discard wins over dismiss wins over Escape. Seen live
+ *  2026-09-14: the run sat on "Save this application?" for hours because the old discard() only
+ *  ran while the (empty, spinner-only) modal counted as open. */
+async function clearStrayDialogs(where: string): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    const stray = li.strayDialog(document);
+    if (!stray) return;
+    const d = li.discardButton(document);
+    const x = d ?? li.safetyContinueButton(document) ?? li.dismissButton(document);
+    log('stray dialog at', where, JSON.stringify(stray.textContent?.trim().slice(0, 100)), '→', d ? 'Discard' : x ? 'dismiss' : 'Escape');
+    if (x) li.click(x);
+    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    await pause(900);
+  }
+  if (li.strayDialog(document)) log('WARNING: a dialog is still up after 5 tries', li.describeState(document));
+}
+
+async function applyToCard(card: HTMLElement, profile: Profile, resume: Resume): Promise<CardOutcome> {
+  await clearStrayDialogs('before card');
   const info = li.cardInfo(card);
   log('card', info);
   if (info.applied) return { kind: 'skip', note: 'already applied (card badge)' };
@@ -204,15 +256,15 @@ async function applyToCard(card: HTMLElement, profile: Profile, resume: Extract<
   };
   // LinkedIn pre-selects the first card (currentJobId already in the URL): don't click it again.
   if (li.currentJobIdFromUrl(location.href) !== info.id) {
-    li.openCard(card);
-    const opened = await waitFor(isOpen, 8000).catch(() => false);
-    if (!opened) {
-      li.openCard(card); // one retry — the list may have re-rendered under us
-      const again = await waitFor(isOpen, 5000).catch(() => false);
-      if (!again) return { kind: 'skip', note: `card did not open (url ${li.currentJobIdFromUrl(location.href) || 'no currentJobId'})` };
+    let opened = false;
+    for (let attempt = 0; attempt < OPEN_ATTEMPTS && !opened; attempt++) {
+      if (attempt) log('card did not open, retrying with strategy', attempt);
+      li.openCard(card, attempt);
+      opened = (await waitFor(isOpen, attempt === 0 ? 6000 : 3500).catch(() => false)) === true;
+      if (!li.isResultsPage(location.href)) throw new Error(`navigated away while opening the card: ${location.href.slice(0, 120)}`);
     }
+    if (!opened) return { kind: 'skip', note: `card did not open after ${OPEN_ATTEMPTS} strategies (url currentJobId=${li.currentJobIdFromUrl(location.href) || 'none'}, pane="${li.paneJob(document).title.slice(0, 50)}")` };
   }
-  if (!li.isResultsPage(location.href)) throw new Error(`navigated away while opening the card: ${location.href.slice(0, 120)}`);
   await pause(1500);
   if (!info.title && li.paneJob(document).title && (profile.linkedin?.filter_titles ?? true) && !titleWanted(li.paneJob(document).title, profile.want)) {
     return { kind: 'skip', note: `title filtered: "${li.paneJob(document).title}"` };
@@ -241,18 +293,29 @@ async function applyToCard(card: HTMLElement, profile: Profile, resume: Extract<
       btn.click(); // the new layout's <a> sometimes needs a native click
       m = await waitFor(() => li.modal(document), MODAL_WAIT_MS).catch(() => null);
     }
-    if (!m) return { kind: 'result', status: 'failed', note: `Easy Apply modal never opened — ${li.describeState(document)}`, fields: [] };
+    if (!m) {
+      const capture = await captureNow('no-modal');
+      await clearStrayDialogs('no modal');
+      return { kind: 'result', status: 'failed', note: `Easy Apply modal never opened — ${li.describeState(document)}`, fields: [], capture };
+    }
   }
   return driveModal(profile, resume);
 }
 
 /** Fill → Next … → Submit inside the open modal. Always leaves the page modal-free. */
-async function driveModal(profile: Profile, resume: Extract<Msg, { t: 'linkedin-apply' }>['resume']): Promise<CardOutcome> {
+async function driveModal(profile: Profile, resume: Resume): Promise<CardOutcome> {
   const filled: AppliedField[] = [];
+  let resumeUsed = '';
   const fail = async (note: string, status: ApplyStatus = 'failed', end?: LinkedinPageEnd): Promise<CardOutcome> => {
     log('FAIL', note, li.describeState(document));
+    const m = li.modal(document);
+    if (m) {
+      recordPrefilled(m, filled);
+      recordUnanswered(m, filled);
+    }
+    const capture = await captureNow(status);
     await discard();
-    return { kind: 'result', status, note, fields: filled, end };
+    return { kind: 'result', status, note, fields: filled, resume: resumeUsed, capture, end };
   };
   const job: Job = { id: currentJob, title: li.paneJob(document).title, team: '', department: '', url: location.href, locations: [], seniority: [] };
   const seen = new Map<string, number>(); // step signature → times seen (stuck guard)
@@ -269,20 +332,22 @@ async function driveModal(profile: Profile, resume: Extract<Msg, { t: 'linkedin-
       log('pace warning from LinkedIn — backing off 2.5 min');
       await discard();
       await sleep(PACE_BACKOFF_MS);
-      return { kind: 'result', status: 'parked', note: 'LinkedIn paused Easy Apply (pace); retried later', fields: filled };
+      return { kind: 'result', status: 'parked', note: 'LinkedIn paused Easy Apply (pace); retried later', fields: filled, resume: resumeUsed };
     }
     await settle(m);
     const progress = li.progress(m);
-    log('step', step, 'progress', progress, li.describeQuestions(m).slice(0, 1200));
+    log('step', step, 'progress', progress, li.describeQuestions(m).slice(0, 1500));
 
     // Résumé step: reuse the pre-selected card; attach ours only when nothing is selected.
     if (li.resumeInput(m) || li.resumeSelected(m)) {
       if (!li.resumeSelected(m) && li.attachResume(m, deserializeFile(resume))) {
         log('resume attached', resume.name);
-        filled.push({ id: 'resume', label: 'Résumé', value: resume.name });
+        resumeUsed = resume.name;
+        upsert(filled, { id: 'resume', label: 'Résumé', value: resume.name, source: 'profile', intent: 'resume', kind: 'file' });
         await pause(3500); // LinkedIn uploads + renders the card
       } else if (!filled.some((f) => f.id === 'resume')) {
-        filled.push({ id: 'resume', label: 'Résumé', value: 'LinkedIn\'s selected résumé (pre-filled)' });
+        resumeUsed = li.resumeName(m) || "LinkedIn's selected résumé";
+        upsert(filled, { id: 'resume', label: 'Résumé', value: `${resumeUsed} (pre-filled)`, source: 'prefilled', intent: 'resume', kind: 'file' });
       }
     }
 
@@ -297,9 +362,12 @@ async function driveModal(profile: Profile, resume: Extract<Msg, { t: 'linkedin-
     if (action.kind === 'submit') {
       if (li.uncheckFollowCompany(m)) log('unchecked "Follow company"');
       recordPrefilled(m, filled);
+      recordUnanswered(m, filled);
+      // The review step IS the audit: capture exactly what is about to be submitted.
+      const capture = await captureNow('review');
       if (!profile.auto_submit) {
         log('auto_submit off — leaving the modal open for the user');
-        return { kind: 'result', status: 'parked', note: 'Filled through Review; auto_submit is off — click "Submit application" yourself (run halted)', fields: filled, halt: true };
+        return { kind: 'result', status: 'parked', note: 'Filled through Review; auto_submit is off — click "Submit application" yourself (run halted)', fields: filled, resume: resumeUsed, capture, halt: true };
       }
       await pause(800);
       log('clicking Submit application', 'fields', filled.length);
@@ -307,9 +375,11 @@ async function driveModal(profile: Profile, resume: Extract<Msg, { t: 'linkedin-
       const done = await waitFor(() => (li.applicationSent(document) || !li.modal(document) ? 'sent' : li.validationErrors(li.modal(document)!).length ? 'errors' : null), SUBMIT_WAIT_MS).catch(() => 'timeout' as const);
       if (done === 'errors') return fail(`submit rejected: ${li.validationErrors(li.modal(document)!).join('; ')}`);
       if (done === 'timeout') return fail(`no confirmation ${SUBMIT_WAIT_MS / 1000}s after Submit — ${li.describeState(document)}`);
+      log('application sent', li.describeState(document));
       await pause(1200);
       await dismissAll();
-      return { kind: 'result', status: 'applied', fields: filled };
+      await clearStrayDialogs('after submit');
+      return { kind: 'result', status: 'applied', fields: filled, resume: resumeUsed, capture };
     }
 
     log('click', action.kind);
@@ -328,9 +398,23 @@ async function driveModal(profile: Profile, resume: Extract<Msg, { t: 'linkedin-
   }
   if (li.applicationSent(document) || !li.modal(document)) {
     await dismissAll();
-    return { kind: 'result', status: 'applied', fields: filled };
+    return { kind: 'result', status: 'applied', fields: filled, resume: resumeUsed };
   }
   return fail(`never reached Submit within ${MAX_STEPS} steps`);
+}
+
+/** Screenshot (via the background — needs the optional <all_urls> grant) + HTML of the modal and
+ *  every open dialog. Best-effort: a failed capture never fails the apply. */
+async function captureNow(label: string): Promise<Capture> {
+  const html = li.snapshotHtml(document);
+  let screenshot: string | undefined;
+  if (document.visibilityState === 'visible') {
+    const r = await chrome.runtime.sendMessage({ t: 'linkedin-capture' } satisfies Msg).catch((e: Error) => ({ dataUrl: null, error: e.message })) as { dataUrl: string | null; error?: string } | undefined;
+    if (r?.dataUrl) screenshot = r.dataUrl;
+    else log('screenshot unavailable', r?.error ?? 'no grant');
+  } else log('screenshot skipped: tab not visible');
+  log('capture', label, 'html', html.length, 'chars', screenshot ? `screenshot ${Math.round(screenshot.length / 1024)} KB` : 'no screenshot');
+  return { label, html, ...(screenshot ? { screenshot } : {}) };
 }
 
 /** Wait until the modal's control count has held still for 3 ticks (Ember/React finished). */
@@ -345,14 +429,21 @@ async function settle(m: Element): Promise<void> {
   }
 }
 
+function upsert(filled: AppliedField[], rec: AppliedField): void {
+  const idx = filled.findIndex((f) => f.id === rec.id);
+  if (idx >= 0) filled[idx] = { ...filled[idx], ...rec };
+  else filled.push(rec);
+}
+
 /** Answer every EMPTY question on this step (LinkedIn pre-fills from the last application —
- *  those are kept). Passes: answering one question can reveal dependents. */
+ *  those are kept), plus any ticked opt-in checkbox the profile says to leave off ("Mark job as a
+ *  top choice"). Passes: answering one question can reveal (or remove) dependents. */
 async function fillStep(m: Element, profile: Profile, job: Job, filled: AppliedField[]): Promise<void> {
   for (let pass = 0; pass < 3; pass++) {
-    const todo = li.extract(m).map(withIntent).filter((f) => f.kind !== 'file' && !li.isAnswered(m, f));
+    const todo = li.extract(m).map(withIntent).filter((f) => f.kind !== 'file' && (!li.isAnswered(m, f) || wantsUncheck(m, f, profile, job)));
     if (!todo.length) return;
     for (const field of todo) {
-      if (li.isAnswered(m, field)) continue;
+      if (li.isAnswered(m, field) && !wantsUncheck(m, field, profile, job)) continue;
       await answerField(m, field, profile, job, filled, '');
       await pause(350);
     }
@@ -360,24 +451,32 @@ async function fillStep(m: Element, profile: Profile, job: Job, filled: AppliedF
   }
 }
 
-/** Decide + put one answer; records what was typed (and whether it was guessed / coerced). */
+function wantsUncheck(m: Element, field: Field, profile: Profile, job: Job): boolean {
+  if (field.kind !== 'checkbox' || !li.isAnswered(m, field)) return false;
+  const a = resolve(field, profile, job, []);
+  return a.kind === 'check' && a.value === false;
+}
+
+/** Decide + put one answer; records what was typed and where it came from. */
 async function answerField(m: Element, field: Field, profile: Profile, job: Job, filled: AppliedField[], hint: string): Promise<boolean> {
   const options = li.optionsFor(m, field);
   const numeric = li.isNumeric(m, field);
-  let answer = resolve(field, profile, job, options);
-  let guessed = false;
+  const kind = `${field.kind}${numeric ? '#' : ''}`;
+  let answer: Answer = resolve(field, profile, job, options);
+  let source: FieldSource = profile.overrides[field.label.trim()] !== undefined ? 'override' : 'profile';
   if (answer.kind === 'unknown' && profile.on_unknown === 'guess') {
     const g = guessAnswer(field, options, profile);
     if (g) {
       answer = g;
-      guessed = true;
+      source = 'guessed';
     }
   }
-  if (answer.kind === 'text' && (numeric || /number|numeric|decimal/i.test(hint))) {
-    const coerced = coerceNumber(answer.value, field, profile, hint);
-    if (coerced !== answer.value) {
-      guessed = guessed || !/^\d/.test(answer.value);
-      answer = { kind: 'text', value: coerced };
+  if (answer.kind === 'text') {
+    const shaped = shapeText(answer.value, field, profile, hint, numeric);
+    if (shaped !== answer.value) {
+      log('coerced', JSON.stringify(answer.value.slice(0, 60)), '→', JSON.stringify(shaped.slice(0, 60)), 'hint', hint.slice(0, 80));
+      source = source === 'guessed' ? 'guessed' : 'coerced';
+      answer = { kind: 'text', value: shaped };
     }
   }
   // The contact step splits the phone: a country-code select + the national number box. Strip the
@@ -392,9 +491,11 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
       answer = { kind: 'text', value: national.replace(/\D/g, '') };
     }
   }
-  log('field', { id: field.id.slice(-40), label: field.label, kind: field.kind, numeric, intent: field.intent, options: options.slice(0, 8), answer, guessed, hint });
+  log('field', { id: field.id.slice(-40), label: field.label, kind, intent: field.intent, options: options.slice(0, 8), answer, source, hint });
+  const base = { id: field.id, label: field.label, intent: field.intent, options: options.slice(0, 12), kind, ...(hint ? { error: hint.slice(0, 160) } : {}) };
   if (answer.kind === 'unknown' || answer.kind === 'file') {
-    if (field.required && profile.on_unknown !== 'guess') log('no answer for required question', field.label);
+    log('NO ANSWER', field.required ? 'for REQUIRED question' : 'for optional question', JSON.stringify(field.label), 'intent', field.intent ?? 'none', 'options', options.slice(0, 8));
+    upsert(filled, { ...base, value: '', source: 'unanswered' });
     return false;
   }
   try {
@@ -403,21 +504,38 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
       shownValue = await li.fillTypeahead(m, field, answer.kind === 'choice' ? (answer.values[0] ?? '') : answer.kind === 'text' ? answer.value : '');
     } else {
       li.fill(m, field, answer);
-      if (!li.isAnswered(m, field)) {
+      if (!li.isAnswered(m, field) && !(answer.kind === 'check' && !answer.value)) {
         await sleep(300);
         if (!li.isAnswered(m, field)) li.fill(m, field, answer);
       }
     }
-    if (!li.isAnswered(m, field)) throw new Error('value did not stick');
-    const idx = filled.findIndex((f) => f.id === field.id);
-    const rec = { id: field.id, label: field.label, value: `${shownValue}${guessed ? ' (guessed)' : ''}` };
-    if (idx >= 0) filled[idx] = rec;
-    else filled.push(rec);
+    const stuck = answer.kind === 'check' && !answer.value ? li.isAnswered(m, field) : !li.isAnswered(m, field);
+    if (stuck) throw new Error('value did not stick');
+    upsert(filled, { ...base, value: answer.kind === 'check' && !answer.value ? 'unchecked' : shownValue, source });
     return true;
   } catch (e) {
     log('fill FAILED', field.label, (e as Error).message);
+    upsert(filled, { ...base, value: describeAnswer(answer), source: 'unanswered', error: `fill failed: ${(e as Error).message}` });
     return false;
   }
+}
+
+/** Reshape a text answer to what the box accepts: LinkedIn's numeric boxes ("Enter a whole number
+ *  between 0 and 99", "decimal number larger than 0.0") and length rules ("Minimum 20 characters",
+ *  "Maximum 400 characters"). Never leaves a required box with something the form will reject. */
+function shapeText(value: string, field: Field, profile: Profile, hint: string, numeric: boolean): string {
+  if (numeric || /whole number|numeric|decimal|enter a number|valid number/i.test(hint)) return coerceNumber(value, field, profile, hint);
+  let v = value;
+  const min = Number(/minimum (?:of )?(\d+) char/i.exec(hint)?.[1] ?? /at least (\d+) char/i.exec(hint)?.[1] ?? 0);
+  const max = Number(/maximum (?:of )?(\d+) char/i.exec(hint)?.[1] ?? /at most (\d+) char/i.exec(hint)?.[1] ?? /no more than (\d+) char/i.exec(hint)?.[1] ?? 0);
+  if (min && v.trim().length < min) {
+    const cover = typeof profile.answers['cover_letter'] === 'string' ? profile.answers['cover_letter'] : '';
+    const fallback = `${profile.identity.first_name} ${profile.identity.last_name} — ${cover || 'I am interested in this role and my background matches the requirements listed; happy to discuss further.'}`;
+    v = (/^(n\/?a|none|-|\.)$/i.test(v.trim()) || !v.trim() ? fallback : `${v}. ${fallback}`).trim();
+    while (v.length < min) v += ' Thank you for considering my application.';
+  }
+  if (max && v.length > max) v = v.slice(0, max).replace(/\s+\S*$/, '').trim() || v.slice(0, max);
+  return v;
 }
 
 /** LinkedIn's numeric boxes reject anything but a number ("Enter a whole number between 0 and
@@ -427,7 +545,9 @@ function coerceNumber(value: string, field: Field, profile: Profile, hint: strin
   let n = Number.parseFloat(value.replace(/[^\d.]/g, ''));
   if (!Number.isFinite(n)) {
     const years = profile.answers['years_of_experience'];
-    if (field.intent === 'answers.years_of_experience' || /year|experience/i.test(field.label)) n = typeof years === 'number' ? years : 10;
+    if (/^yes$/i.test(value.trim())) n = 1;
+    else if (/^no$/i.test(value.trim())) n = 0;
+    else if (field.intent === 'answers.years_of_experience' || /year|experience/i.test(field.label)) n = typeof years === 'number' ? years : 10;
     else if (field.intent === 'answers.notice_period') n = 30;
     else if (/salary|ctc|compensation/i.test(field.label)) n = 0;
     else n = 1; // "never stuck": a positive number passes every LinkedIn numeric rule
@@ -442,21 +562,31 @@ function coerceNumber(value: string, field: Field, profile: Profile, hint: strin
 async function fixErrors(m: Element, profile: Profile, job: Job, filled: AppliedField[], errors: string[]): Promise<void> {
   const hint = errors.join(' ');
   // Re-answer with the guess policy regardless of on_unknown: an empty required box blocks the
-  // whole run, and the record shows "(guessed)" so it can be reviewed.
+  // whole run, and the record shows the source so it can be reviewed.
   const forced: Profile = { ...profile, on_unknown: 'guess' };
   for (const field of li.fieldsInError(m).map(withIntent)) {
-    log('fixing', field.label, 'error hint', hint.slice(0, 120));
-    await answerField(m, field, forced, job, filled, hint);
+    const own = li.validationErrors(li.extract(m).length ? (m.querySelector(`[id="${CSS.escape(field.id)}"]`)?.closest('[data-test-form-element], .fb-dash-form-element, fieldset') ?? m) : m).join(' ') || hint;
+    log('fixing', field.label, 'error', own.slice(0, 120));
+    await answerField(m, field, forced, job, filled, own);
   }
-  await fillStep(m, { ...profile, on_unknown: 'guess' }, job, filled);
+  await fillStep(m, forced, job, filled);
 }
 
 /** Every question the step shows that we did NOT set (LinkedIn pre-filled) — for the record. */
 function recordPrefilled(m: Element, filled: AppliedField[]): void {
-  for (const f of li.extract(m)) {
+  for (const f of li.extract(m).map(withIntent)) {
     if (filled.some((x) => x.id === f.id)) continue;
     const v = li.currentAnswer(m, f);
-    if (v) filled.push({ id: f.id, label: f.label, value: `${v} (pre-filled)` });
+    if (v) filled.push({ id: f.id, label: f.label, value: `${v} (pre-filled)`, source: 'prefilled', intent: f.intent, options: li.optionsFor(m, f).slice(0, 12), kind: f.kind });
+  }
+}
+
+/** Required questions still empty at this point (the form may refuse them) — for the review file. */
+function recordUnanswered(m: Element, filled: AppliedField[]): void {
+  for (const f of li.extract(m).map(withIntent)) {
+    if (f.kind === 'file' || li.isAnswered(m, f)) continue;
+    if (filled.some((x) => x.id === f.id && x.source === 'unanswered')) continue;
+    upsert(filled, { id: f.id, label: f.label, value: '', source: 'unanswered', intent: f.intent, options: li.optionsFor(m, f).slice(0, 12), kind: f.kind });
   }
 }
 
@@ -475,18 +605,26 @@ async function dismissAll(): Promise<void> {
   }
 }
 
-/** Abandon an unfinished application: × → "Discard". Never leaves a modal behind. */
+/** Abandon an unfinished application: × → "Discard" (or "Save this application?" → Discard).
+ *  Never leaves a modal or a confirm behind — not even a spinner-only one. */
 async function discard(): Promise<void> {
-  for (let i = 0; i < 3 && li.modal(document); i++) {
-    const x = li.dismissButton(document);
-    if (x) li.click(x);
-    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-    await pause(800);
+  for (let i = 0; i < 3 && (li.modal(document) || li.openDialogs(document).length); i++) {
     const d = li.discardButton(document);
     if (d) {
       li.click(d);
       await pause(800);
+      continue;
+    }
+    const x = li.dismissButton(document);
+    if (x) li.click(x);
+    else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+    await pause(800);
+    const confirm = li.discardButton(document);
+    if (confirm) {
+      li.click(confirm);
+      await pause(800);
     }
   }
+  await clearStrayDialogs('after discard');
   if (li.modal(document)) log('WARNING: modal still open after discard', li.describeState(document));
 }

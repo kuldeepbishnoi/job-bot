@@ -4,7 +4,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 let all: string[] = [];
 let view: 'log' | 'apps' = 'log';
-interface AppRec { company: string; jobId: string; title: string; url: string; date: string; status: string; note?: string; fields?: { id: string; label: string; value: string }[] }
+interface AppRec { company: string; jobId: string; title: string; url: string; date: string; status: string; note?: string; resume?: string; location?: string; log?: string[]; fields?: { id: string; label: string; value: string; source?: string; intent?: string; options?: string[]; error?: string }[] }
 let apps: AppRec[] = [];
 
 async function load(): Promise<void> {
@@ -33,7 +33,7 @@ function renderApps(): void {
     const meta = document.createElement('div');
     meta.className = 'meta';
     const st = document.createElement('span'); st.className = `st-${a.status}`; st.textContent = a.status.toUpperCase();
-    meta.append(st, document.createTextNode(` · ${a.company} · ${a.date}${a.note ? ' · ' + a.note : ''}`));
+    meta.append(st, document.createTextNode(` · ${a.company} · ${a.date}${a.location ? ' · ' + a.location : ''}${a.resume ? ' · résumé: ' + a.resume : ''}${a.note ? ' · ' + a.note : ''}`));
     card.append(h, meta);
     if (a.fields?.length) {
       const t = document.createElement('table');
@@ -41,11 +41,20 @@ function renderApps(): void {
         const tr = document.createElement('tr');
         const td1 = document.createElement('td'); td1.textContent = f.label;
         const td2 = document.createElement('td'); td2.textContent = f.value;
-        if (/\(guessed/.test(f.value)) td2.className = 'guess';
-        else if (/\(pre-filled\)/.test(f.value)) td2.className = 'pre';
-        tr.append(td1, td2); t.appendChild(tr);
+        const src = f.source ?? (/\(guessed/.test(f.value) ? 'guessed' : /\(pre-filled\)/.test(f.value) ? 'prefilled' : 'profile');
+        const td3 = document.createElement('td'); td3.className = 'meta';
+        td3.textContent = [src, f.intent ?? 'no intent', f.options?.length ? `[${f.options.slice(0, 6).join(' | ')}]` : '', f.error ? `⚠ ${f.error}` : ''].filter(Boolean).join(' · ');
+        if (src === 'guessed' || src === 'unanswered' || src === 'coerced' || f.error) td2.className = 'guess';
+        else if (src === 'prefilled') td2.className = 'pre';
+        tr.append(td1, td2, td3); t.appendChild(tr);
       }
       card.appendChild(t);
+      if (a.log?.length) {
+        const pre = document.createElement('details');
+        const sum = document.createElement('summary'); sum.className = 'meta'; sum.textContent = `${a.log.length} log lines`;
+        const body = document.createElement('pre'); body.className = 'meta'; body.textContent = a.log.join('\n');
+        pre.append(sum, body); card.appendChild(pre);
+      }
     } else {
       const none = document.createElement('div'); none.className = 'meta'; none.textContent = '(no field data recorded)'; card.appendChild(none);
     }

@@ -146,30 +146,49 @@ export function cardLink(card: Element): HTMLElement {
   return (card.querySelector<HTMLElement>('a.job-card-container__link, a.job-card-list__title--link, a[href*="/jobs/view/"], a') as HTMLElement | null) ?? (card as HTMLElement);
 }
 
-/** Open a card in the details pane WITHOUT following its link. Seen live (2026-09-04): a synthetic
- *  click on the card's `<a href="/jobs/view/…">` is a full navigation to the job page, which kills
- *  the content script. LinkedIn's own handler selects the job in-pane on the click event; only the
- *  anchor's default action must not fire — so block it for this one click, then click the link
- *  (its handler runs on the way up), falling back to the card container when there is no link. */
-export function openCard(card: HTMLElement): void {
-  const link = card.querySelector<HTMLAnchorElement>('a[href]');
-  const block = (e: Event): void => e.preventDefault();
-  if (link) {
-    link.addEventListener('click', block, { capture: true, once: true });
-    try {
-      cancelableClick(link);
-    } finally {
-      link.removeEventListener('click', block, { capture: true });
-    }
+/** Open a card in the details pane. What the shipping extensions do (AutoApplyMax
+ *  `clickJobCard`, verified live on both layouts, 2026-08):
+ *   - legacy `li[data-occludable-job-id]`: a NATIVE `link.click()` on the card's `<a>` — LinkedIn's
+ *     own handler cancels the anchor's navigation and switches the pane. (Our old synthetic,
+ *     non-cancelable event navigated because their preventDefault could not stick; our later
+ *     capture-phase preventDefault stopped the navigation but ALSO their handler — 33/33 cards
+ *     "did not open" in the 2026-09-06/08 runs.)
+ *   - new `div[componentkey]` cards (no inner `<a>`): a full pointer+mouse+click sequence with real
+ *     coordinates on the wrapper, then on an inner `<p>`, then keyboard Enter on the focused card.
+ *  `attempt` selects the strategy; the caller checks `currentJobId` in the URL between attempts. */
+export function openCard(card: HTMLElement, attempt = 0): void {
+  const link = card.querySelector<HTMLAnchorElement>('a.job-card-container__link, a.job-card-list__title--link, a[href*="/jobs/view/"], a[href]');
+  if (link && attempt === 0) {
+    link.click();
     return;
   }
-  cancelableClick(card.querySelector<HTMLElement>('.job-card-container, [data-job-id], [role="button"]') ?? card);
+  const wrapper = card.querySelector<HTMLElement>('.job-card-container, [data-job-id], [role="button"]') ?? card;
+  if (attempt <= 1) {
+    pointerClick(wrapper);
+    return;
+  }
+  if (attempt === 2) {
+    const inner = card.querySelector<HTMLElement>('p, strong, .artdeco-entity-lockup__title') ?? wrapper;
+    pointerClick(inner);
+    return;
+  }
+  wrapper.focus();
+  const opts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+  for (const type of ['keydown', 'keypress', 'keyup']) wrapper.dispatchEvent(new KeyboardEvent(type, opts));
 }
 
-/** Like dom.ts#click but cancelable, as a real click is: the shared helper's non-cancelable event
- *  makes every preventDefault a no-op, so a click on an anchor always navigated. */
-function cancelableClick(el: Element): void {
-  for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true }));
+/** pointerdown → mousedown → pointerup → mouseup → click with the element's centre as the
+ *  coordinates, then a native click — what React's delegated onClick on the cards responds to. */
+function pointerClick(el: HTMLElement): void {
+  const r = el.getBoundingClientRect();
+  const base = { bubbles: true, cancelable: true, composed: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+  const Pointer = typeof PointerEvent === 'function' ? PointerEvent : null;
+  if (Pointer) el.dispatchEvent(new Pointer('pointerdown', { ...base, buttons: 1, pointerType: 'mouse', isPrimary: true }));
+  el.dispatchEvent(new MouseEvent('mousedown', { ...base, buttons: 1 }));
+  if (Pointer) el.dispatchEvent(new Pointer('pointerup', { ...base, buttons: 0, pointerType: 'mouse', isPrimary: true }));
+  el.dispatchEvent(new MouseEvent('mouseup', { ...base, buttons: 0 }));
+  el.dispatchEvent(new MouseEvent('click', { ...base, buttons: 0 }));
+  el.click();
 }
 
 /** A jobs page that lists cards (search / collections / new search-results) — the only pages the
@@ -497,6 +516,13 @@ export function resumeSelected(m: Element): boolean {
   return !!m.querySelector('.jobs-document-upload-redesign-card__container--selected, [data-test-document-upload-item][aria-selected="true"], [class*="document-upload"][aria-selected="true"], input[type="radio"][name*="resume" i]:checked, [class*="resume-card"][class*="selected"]');
 }
 
+/** The file name on the selected résumé card, for the record ("" when none is selected). */
+export function resumeName(m: Element): string {
+  const card = m.querySelector<HTMLElement>('.jobs-document-upload-redesign-card__container--selected, [data-test-document-upload-item][aria-selected="true"], [class*="document-upload"][aria-selected="true"], [class*="resume-card"][class*="selected"]');
+  const t = text(card?.querySelector('.jobs-document-upload-redesign-card__file-name, [class*="file-name"], h3, label') ?? card);
+  return t.replace(/\s+(?:uploaded|last used|selected)\b.*$/i, '').slice(0, 120);
+}
+
 export function resumeInput(m: Element): HTMLInputElement | null {
   return m.querySelector<HTMLInputElement>('input[type="file"]');
 }
@@ -624,13 +650,58 @@ export function dismissButton(doc: Document): HTMLElement | null {
   return null;
 }
 
-/** "Discard" confirm after closing an unfinished application. */
+const DIALOG_SELECTORS = '[role="dialog"], [role="alertdialog"], .artdeco-modal, dialog[open], [data-test-modal], [class*="modal-overlay"] [class*="modal"]';
+
+/** "Discard" confirm after closing an unfinished application — LinkedIn's "Discard application?"
+ *  and the newer "Save this application?" (Discard / Save) dialogs both end in a Discard button. */
 export function discardButton(doc: Document): HTMLElement | null {
   return (
     firstShown(doc, 'button[data-control-name="discard_application_confirm_btn"], [data-test-modal-id*="discard"] button[data-test-dialog-primary-btn]') ??
-    qa<HTMLElement>(doc, '[role="dialog"] button, [role="alertdialog"] button, .artdeco-modal button, dialog[open] button').find((b) => shown(b) && /^discard$/i.test(text(b))) ??
+    qa<HTMLElement>(doc, DIALOG_SELECTORS.split(', ').map((s) => `${s} button`).join(', ')).find((b) => shown(b) && /^discard( application)?$/i.test(text(b))) ??
     null
   );
+}
+
+/** Every visible dialog-like element on the page (the Easy Apply modal, confirms, post-submit,
+ *  limit / safety dialogs) — outermost first. Empty = the page is clean. */
+export function openDialogs(doc: Document): HTMLElement[] {
+  const all = qa<HTMLElement>(doc, DIALOG_SELECTORS).filter((d) => shown(d) && text(d).length > 0);
+  return all.filter((d) => !all.some((o) => o !== d && o.contains(d)));
+}
+
+/** True when some dialog is up that is NOT the Easy Apply modal (a leftover confirm, a "Save this
+ *  application?" prompt, a spinner-only modal that never loaded) — the loop must clear it first. */
+export function strayDialog(doc: Document): HTMLElement | null {
+  const m = modal(doc);
+  return openDialogs(doc).find((d) => !m || (d !== m && !d.contains(m) && !m.contains(d))) ?? null;
+}
+
+// ---------- page data for the record ----------
+
+/** The job's location line from the details pane (falls back to the card's text). */
+export function paneLocation(doc: Document): string {
+  const el = qa<HTMLElement>(doc, '.job-details-jobs-unified-top-card__primary-description-container .tvm__text, .job-details-jobs-unified-top-card__bullet, .jobs-unified-top-card__bullet, .job-details-jobs-unified-top-card__tertiary-description-container span, .jobs-unified-top-card__subtitle-primary-grouping .tvm__text').find((e) => shown(e) && /[A-Za-z]/.test(text(e)));
+  return text(el).slice(0, 160);
+}
+
+/** The job description text as shown in the pane (trimmed) — what the answers were given against. */
+export function paneDescription(doc: Document, max = 6000): string {
+  const el = qa<HTMLElement>(doc, '#job-details, .jobs-description__content, .jobs-description-content__text, .jobs-box__html-content, [class*="jobs-description"], article').find((e) => shown(e) && text(e).length > 80);
+  return (el?.textContent ?? '').replace(/\s+\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, max);
+}
+
+/** The form / modal + every open dialog as HTML — a real capture of the step we were on, written
+ *  to disk next to the record (a fixture for the next selector fix). Scripts are dropped; ids,
+ *  classes, values and validation messages stay. */
+export function snapshotHtml(doc: Document, max = 400_000): string {
+  const parts = openDialogs(doc).map((d) => d.outerHTML);
+  if (!parts.length) {
+    const pane = qa<HTMLElement>(doc, DETAIL_SCOPE).find((e) => shown(e));
+    if (pane) parts.push(pane.outerHTML);
+  }
+  const html = parts.join('\n<!-- ── next dialog ── -->\n').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  const head = `<!-- ${doc.location?.href ?? ''} @ ${new Date().toISOString()} -->\n<base href="https://www.linkedin.com/">\n`;
+  return (head + html).slice(0, max);
 }
 
 const LIMIT = /reached today.{0,3}s easy apply limit|easy apply limit|exceeded the daily application limit|continue applying tomorrow|great effort applying today|limit daily submissions|linkedin apply limit/i;
@@ -661,6 +732,7 @@ export function describeState(doc: Document): string {
     `sent=${applicationSent(doc)}`,
     `limit=${limitReached(doc)}`,
     `closed=${jobClosedMessage(doc) || 'no'}`,
+    `dialogs=${JSON.stringify(openDialogs(doc).map((d) => text(d).slice(0, 60)))}`,
   ];
   return parts.filter(Boolean).join(' ');
 }

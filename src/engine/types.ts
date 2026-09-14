@@ -89,7 +89,20 @@ export type Intent =
   | 'answers.language_proficiency' // "What is your level of proficiency in English?"
   | 'answers.drivers_license'
   | 'answers.security_clearance'
-  | 'answers.cover_letter' // free-text "why do you want to work here" style prompts
+  | 'answers.cover_letter' // free-text "why do you want to work here" / "include a message" prompts
+  // Indian-market screening questions (LinkedIn Easy Apply, SmartRecruiters-powered forms).
+  | 'answers.current_fixed_salary' // "What is your current fixed salary?" (annual, converted to the unit the label names)
+  | 'answers.current_variable_salary'
+  | 'answers.total_ctc' // "Total CTC - Fixed+Variable (INR_Annual)"
+  | 'answers.notice_serving' // "Are you currently serving your notice period?" (yes/no)
+  | 'answers.immediate_joiner' // "Are you an immediate joiner?" (yes/no)
+  | 'answers.in_city' // "Are you currently located in Bangalore?" → yes iff the label names identity.city
+  | 'answers.shifts_ok' // "Are you comfortable with night/rotational shifts?"
+  | 'answers.current_company'
+  | 'answers.current_title'
+  | 'answers.github'
+  | 'answers.reason_for_change'
+  | 'answers.top_choice' // LinkedIn "Mark job as a top choice" (limited to 3/month; opens a required message box)
   | 'locations'; // "which cities/locations" — resolved from job + want.locations
 
 /** What we decided to put in a field. */
@@ -102,11 +115,32 @@ export type Answer =
 
 export type ApplyStatus = 'applied' | 'parked' | 'failed';
 
+/** Where an answer came from — the audit trail for every value we put in a form. */
+export type FieldSource =
+  | 'profile' // resolved from profile.yaml (identity / answers / derived)
+  | 'override' // profile.overrides exact-text match
+  | 'guessed' // on_unknown: guess — nobody had an answer, the "safe obvious" option was picked
+  | 'coerced' // the profile answer was reshaped to satisfy the form's validation (number, min length…)
+  | 'prefilled' // the ATS pre-filled it from the last application; left as is
+  | 'unanswered'; // required, no answer, could not be filled — the form may have rejected it
+
 /** One field we actually filled, with the exact value we put in — for the on-disk record. */
 export interface AppliedField {
   readonly id: string;
   readonly label: string;
   readonly value: string; // display value (text, joined choices, "checked", or resume filename)
+  readonly source?: FieldSource;
+  readonly intent?: string; // the Intent the label matched, or undefined = unknown question
+  readonly options?: readonly string[]; // what the control offered (select / radio / checkbox group)
+  readonly kind?: string; // FieldKind (+ "#" for a numeric box)
+  readonly error?: string; // the validation message the form showed for this field, if any
+}
+
+/** Transient page captures attached to a record: written to disk, NEVER kept in chrome.storage. */
+export interface Capture {
+  readonly screenshot?: string; // JPEG/PNG dataURL of the visible tab
+  readonly html?: string; // the form / modal + any dialogs, as HTML — a real fixture of what we saw
+  readonly label?: string; // when it was taken ("review", "failed", …)
 }
 
 export interface Application {
@@ -119,6 +153,11 @@ export interface Application {
   readonly note?: string; // parked/failed reason
   readonly fields?: readonly AppliedField[]; // exactly what we filled
   readonly screenshot?: string; // transient PNG dataURL — written to disk, NOT kept in storage
+  readonly capture?: Capture; // transient — written to disk next to the record, NOT kept in storage
+  readonly log?: readonly string[]; // every log line this attempt produced (complete, per job)
+  readonly resume?: string; // which résumé went with it (file name, or the ATS's own pre-selected one)
+  readonly location?: string; // the job's location as the listing showed it
+  readonly description?: string; // the job description (trimmed) as shown when we applied
   readonly at?: string; // ISO timestamp, stamped by the repository when persisted
   readonly account?: string; // which login made it (multi-account setups) — stamped by the repository
 }

@@ -249,6 +249,87 @@ export async function readRegistry(): Promise<Set<string>> {
   return ids;
 }
 
+const REVIEW_JSONL = 'review.jsonl';
+const CAPTURES_DIR = 'captures';
+
+/** One line per question that needs a human look: guessed, coerced, unanswered, rejected by the
+ *  form, or with no intent at all. `node debug/outcomes.mjs --review` groups them by label so the
+ *  missing profile answers are one list. */
+export interface ReviewLine {
+  readonly at: string;
+  readonly company: string;
+  readonly jobId: string;
+  readonly title: string;
+  readonly url: string;
+  readonly status: string;
+  readonly label: string;
+  readonly kind?: string;
+  readonly intent?: string;
+  readonly options?: readonly string[];
+  readonly value: string;
+  readonly source: string;
+  readonly error?: string;
+}
+
+/** Write ONE application to disk the moment it is recorded — the complete record line (fields with
+ *  sources, the job's own log lines, résumé, location, description), the registry line, the
+ *  review lines, and the capture files (`captures/<date>_<jobId>_<status>.jpg|.html`). Called
+ *  from the background (holds the persisted readwrite grant); marks the record flushed so the
+ *  popup's flush never duplicates it. Returns false when there is no folder / permission (the
+ *  popup flush catches up later, without the capture). */
+export async function persistApplication(app: Application): Promise<boolean> {
+  const dir = await recordsDir();
+  if (!dir) return false;
+  const key = `${app.jobId}@${app.at ?? app.date}`;
+  const got = await chrome.storage.local.get(FLUSHED_KEY);
+  const flushed = new Set((got[FLUSHED_KEY] as string[] | undefined) ?? []);
+  if (flushed.has(key)) return true;
+  const { screenshot: _s, capture, ...rec } = app;
+  const stamp = `${app.date}_${app.jobId}_${app.status}`;
+  const files: string[] = [];
+  if (capture?.screenshot || capture?.html) {
+    const caps = await dir.getDirectoryHandle(CAPTURES_DIR, { create: true });
+    if (capture.screenshot) {
+      const ext = /image\/png/.test(capture.screenshot.slice(0, 20)) ? 'png' : 'jpg';
+      await writeFile(caps, `${stamp}.${ext}`, dataUrlToBlob(capture.screenshot));
+      files.push(`${CAPTURES_DIR}/${stamp}.${ext}`);
+    }
+    if (capture.html) {
+      await writeFile(caps, `${stamp}.html`, capture.html);
+      files.push(`${CAPTURES_DIR}/${stamp}.html`);
+    }
+  }
+  await appendLine(dir, APPLICATIONS_JSONL, JSON.stringify({ ...rec, log: app.log ?? [], captureLabel: capture?.label, files }));
+  const r: RegistryLine = { jobId: app.jobId, company: app.company, account: app.account ?? '', date: app.date, status: app.status };
+  await appendLine(dir, REGISTRY_JSONL, JSON.stringify(r));
+  const review = (app.fields ?? [])
+    .filter((f) => f.error || !f.source || f.source === 'guessed' || f.source === 'coerced' || f.source === 'unanswered' || (!f.intent && f.source !== 'prefilled'))
+    .map<ReviewLine>((f) => ({
+      at: app.at ?? new Date().toISOString(), company: app.company, jobId: app.jobId, title: app.title, url: app.url, status: app.status,
+      label: f.label, kind: f.kind, intent: f.intent, options: f.options, value: f.value, source: f.source ?? 'unknown', error: f.error,
+    }));
+  for (const line of review) await appendLine(dir, REVIEW_JSONL, JSON.stringify(line));
+  flushed.add(key);
+  await chrome.storage.local.set({ [FLUSHED_KEY]: [...flushed].slice(-5000) });
+  return true;
+}
+
+/** Append debug-log lines to `applications/log-<yyyy-mm-dd>.txt` — the complete, uncapped run log
+ *  (chrome.storage keeps only the last few thousand lines). No folder / permission = dropped. */
+export async function appendLogLines(lines: readonly string[]): Promise<boolean> {
+  if (!lines.length) return true;
+  const dir = await recordsDir();
+  if (!dir) return false;
+  const byDay = new Map<string, string[]>();
+  for (const l of lines) {
+    const day = l.slice(0, 10);
+    const key = /^\d{4}-\d\d-\d\d$/.test(day) ? day : new Date().toISOString().slice(0, 10);
+    byDay.set(key, [...(byDay.get(key) ?? []), l]);
+  }
+  for (const [day, ls] of byDay) await appendLine(dir, `log-${day}.txt`, ls.join('\n'));
+  return true;
+}
+
 /** Flush every not-yet-written record (with its log lines) to the append-only files.
  *  Idempotent: flushed keys are remembered in chrome.storage. Returns how many were written. */
 export async function flushToDisk(records: readonly Application[], log: readonly string[]): Promise<number> {
@@ -263,8 +344,8 @@ export async function flushToDisk(records: readonly Application[], log: readonly
   let apps = await readText(dir, APPLICATIONS_JSONL);
   let reg = await readText(dir, REGISTRY_JSONL);
   for (const a of pending) {
-    const { screenshot: _omit, ...rec } = a;
-    const lines = log.filter((l) => l.includes(`[${a.jobId}]`) || l.includes(` ${a.jobId} `));
+    const { screenshot: _omit, capture: _omit2, ...rec } = a;
+    const lines = a.log?.length ? [...a.log] : log.filter((l) => l.includes(`[${a.jobId}]`) || l.includes(` ${a.jobId} `));
     apps += JSON.stringify({ ...rec, log: lines }) + '\n';
     const r: RegistryLine = { jobId: a.jobId, company: a.company, account: a.account ?? '', date: a.date, status: a.status };
     reg += JSON.stringify(r) + '\n';
