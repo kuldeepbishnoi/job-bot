@@ -7,7 +7,11 @@
 // ~15 lines in a few seconds and the array is thousands of lines long.
 const KEY = 'debug_log';
 const PENDING_KEY = 'debug_log_pending'; // lines not yet appended to the on-disk log file
-export const CAP = 4000; // ~250 jobs of LinkedIn logging; the disk file is the complete history
+// chrome.storage.local is 10 MB with no `unlimitedStorage` permission, and the records share it,
+// so both lists are bounded by line COUNT and line LENGTH: 1000 × 1.2 KB ≈ 1.2 MB each, worst case.
+// The complete, unbounded history is the on-disk log-<date>.txt the background appends.
+export const CAP = 1000;
+const LINE_CHARS = 1200;
 const BATCH_MS = 400;
 
 let buffer: string[] = [];
@@ -24,7 +28,7 @@ export function dlog(scope: string, ...args: unknown[]): void {
 export function formatLine(scope: string, args: readonly unknown[]): string {
   return `${new Date().toISOString()} ${scope} ${args
     .map((a) => (typeof a === 'string' ? a : safeJson(a)))
-    .join(' ')}`.slice(0, 2000);
+    .join(' ')}`.slice(0, LINE_CHARS);
 }
 
 function flush(): void {

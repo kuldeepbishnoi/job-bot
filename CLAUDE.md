@@ -113,9 +113,13 @@ page capture — the first real run reads the Logs page and fixes selectors from
   lines; résumé used; location; description), `registry.jsonl`, `review.jsonl` (one line per
   guessed/unanswered/coerced/no-intent question), `captures/<date>_<jobId>_<status>.html` (the
   modal + dialogs as HTML — a real fixture) and `.jpg` (screenshot, needs the optional `<all_urls>`
-  grant the popup asks for), `log-<date>.txt` (the complete debug log; chrome.storage keeps 4000
-  lines). Read them with `node debug/outcomes.mjs` (`--review` = the questions that need a profile
+  grant the popup asks for), `log-<date>.txt` (the complete debug log). Read them with `node debug/outcomes.mjs` (`--review` = the questions that need a profile
   answer, `--job <id>` = one record with its log, `--fields`). The LevelDB reader is a lossy fallback.
+- **Storage budget**: `chrome.storage.local` is 10 MB (no `unlimitedStorage`) and the records, the
+  debug log and the pending-log list share it. Bounds: the log keeps 1000 lines of ≤1.2 KB (×2 for
+  the pending list), a record keeps its log lines only when it is parked/failed (30 lines), and a
+  quota error sheds the log from all but the newest 60 records and retries. The on-disk files are
+  the complete history — never widen these caps instead of reading `log-<date>.txt`.
 - Popup "Stop run" shows whenever `linkedin_run` exists (the same check "press Stop first" uses);
   the watchdog's dead-run clock (`lastProgressAt`) is no longer reset by its own reloads.
 - **Other LinkedIn bots must be OFF**: AutoApplyMax (`*.linkedin.com/jobs/*`) and LinkedIn

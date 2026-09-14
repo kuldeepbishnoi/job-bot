@@ -71,6 +71,13 @@ export async function setAccount(email: string): Promise<void> {
   await chrome.storage.local.set({ [ACCOUNT_KEY]: email.trim() });
 }
 
+// chrome.storage.local is 10 MB (no `unlimitedStorage`), shared with the debug log. A record's
+// heavy parts — the capture, the description, the log lines — live on disk (fs-config), so storage
+// keeps: the log only for attempts that need review, only on the most recent records, and a hard
+// retry that sheds the oldest logs if Chrome still refuses the write.
+const LOG_LINES_KEPT = 30;
+const RECORDS_KEEPING_LOGS = 60;
+
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
   // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
@@ -78,8 +85,19 @@ export async function record(app: Application): Promise<void> {
   // Same for the HTML/screenshot capture and the job description: the on-disk record keeps them
   // (fs-config.persistApplication); storage keeps the fields, note and a capped log.
   const { screenshot: _omit, capture: _omit2, description: _omit3, ...lean } = app;
-  const stamped: Application = { ...lean, ...(app.log ? { log: app.log.slice(-80) } : {}), at: new Date().toISOString(), account: await getAccount() };
-  await chrome.storage.local.set({ [KEY]: [...all, stamped] });
+  // An applied job's log is only interesting on disk; a parked/failed one is what the user reviews.
+  const keepLog = app.log?.length && app.status !== 'applied';
+  const stamped: Application = { ...lean, ...(keepLog ? { log: app.log!.slice(-LOG_LINES_KEPT) } : {}), at: new Date().toISOString(), account: await getAccount() };
+  const next = [...all, stamped];
+  try {
+    await chrome.storage.local.set({ [KEY]: next });
+  } catch (e) {
+    // Out of quota: drop the log lines from everything but the newest handful and try once more.
+    // Losing log lines that are already on disk beats losing the record itself.
+    const slim = next.map((a, i) => (i < next.length - RECORDS_KEEPING_LOGS && a.log ? { ...a, log: undefined } : a));
+    await chrome.storage.local.set({ [KEY]: slim });
+    console.warn('[jobbot] storage quota hit — trimmed old log lines from records', (e as Error).message);
+  }
 }
 
 /** Applications made today by one account (per-account daily limits, e.g. Amazon's 10). */
