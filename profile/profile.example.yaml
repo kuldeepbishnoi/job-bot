@@ -121,7 +121,11 @@ careers:
 accounts:
   - you.01@gmail.com
   - you.02@gmail.com
-# per_account_limit: 10  # optional safety cap; Amazon's own "application limit reached" page rotates accounts by itself
+# per_account_limit: 10  # optional safety cap, counted PER SITE per day (10 Amazon applications,
+#                        # not 10 across every site). In practice this is an Amazon-shaped knob:
+#                        # LinkedIn and Instahyre enforce their own daily caps, which the run
+#                        # detects and ends on. Amazon's own "application limit reached" page also
+#                        # rotates accounts by itself, so leaving this unset is fine.
 # Logins + passwords live in accounts.csv (email,site,password) — see accounts.example.csv.
 
 # Per-site knobs (optional).

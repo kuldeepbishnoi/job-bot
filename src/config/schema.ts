@@ -70,8 +70,10 @@ export const ProfileSchema = z.object({
   // The popup's "Account" field says which one THIS extension instance is; the shared
   // applications/registry.jsonl makes every instance skip jobs any account already applied to.
   accounts: z.array(z.string().email()).default([]),
-  // Optional safety cap per account per day. The real signal is the ATS's own limit page (Amazon:
-  // summary?result=application_limit_reach), which rotates accounts by itself.
+  // Optional safety cap per account per day, counted PER SITE (10 Amazon applications, not 10
+  // across every site — see store.ts#appliedTodayCount). The real signal is the ATS's own limit
+  // page (Amazon: summary?result=application_limit_reach), which rotates accounts by itself, and
+  // LinkedIn/Instahyre enforce their own caps, so this is an Amazon-shaped knob in practice.
   per_account_limit: z.number().int().positive().optional(),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),

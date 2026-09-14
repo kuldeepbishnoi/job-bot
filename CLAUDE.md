@@ -260,7 +260,10 @@ fixtures/    real captured data for offline tests
   (`fs-config.flushToDisk`, needs the folder grant) and by `node debug/export.mjs` straight from
   Chrome's storage on disk. `node debug/outcomes.mjs` = today's summary in a few lines.
 - **Multi-account, one Chrome profile**: `profile.accounts` lists every login; the popup's "Account"
-  field says which one is logged in now (stamped on every record). At `per_account_limit` (Amazon:
+  field says which one is logged in now (stamped on every record). `per_account_limit` and the
+  limit-page check are both counted **per site** (`store.ts#appliedTodayCount`/`accountsAtLimitToday`
+  take the site id): a day of LinkedIn applications must not rotate the Amazon account, and an
+  Amazon cap must not exclude that login from a Datadog run. At `per_account_limit` (Amazon:
   10/day) or the ATS's own limit page, the stepper **rotates**: opens `Site.logoutUrl` then
   `Site.loginUrl` in the worker tab, saves `run_state.paused = { nextAccount }`, and the popup
   shows "Resume as next account". The user logs in; Resume sets the account and continues the same
