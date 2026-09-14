@@ -32,6 +32,39 @@ export async function hasProfileDir(): Promise<boolean> {
   return (await getHandle()) !== null;
 }
 
+export type { DirHandle as ProfileDirHandle };
+
+/** The picked profile folder, for READERS (the dashboard shows the full on-disk record, which is
+ *  richer than the lean chrome.storage copy). Null when no folder was picked or the grant lapsed.
+ *  Never reach into the IndexedDB record directly — this is the one place that knows where the
+ *  handle lives. Writers use persistApplication / flushToDisk, which also keep the flush key. */
+export async function getProfileDir(mode: FsMode = 'read'): Promise<DirHandle | null> {
+  const dir = await getHandle();
+  if (!dir) return null;
+  return (await dir.queryPermission({ mode })) === 'granted' ? dir : null;
+}
+
+/** Read one file from `<profile>/applications/` ("" when absent). For the dashboard's reader:
+ *  applications.jsonl · review.jsonl · registry.jsonl · log-<date>.txt. */
+export async function readRecordsFile(name: string): Promise<string> {
+  const dir = await getProfileDir();
+  if (!dir) return '';
+  const records = await dir.getDirectoryHandle(RECORDS_DIR).catch(() => null);
+  return records ? readText(records, name) : '';
+}
+
+/** A capture file (`captures/<date>_<jobId>_<status>.jpg|.html`) as a Blob, or null. */
+export async function readCapture(file: string): Promise<Blob | null> {
+  const dir = await getProfileDir();
+  if (!dir) return null;
+  const [sub, name] = file.replace(/^applications\//, '').split('/');
+  if (!name) return null;
+  const records = await dir.getDirectoryHandle(RECORDS_DIR).catch(() => null);
+  const caps = await records?.getDirectoryHandle(sub!).catch(() => null);
+  const handle = await caps?.getFileHandle(name).catch(() => null);
+  return handle ? handle.getFile() : null;
+}
+
 /** Popup calls this once to grant access to the profile/ folder.
  *  We ask for readwrite so the background can later persist application records under
  *  applications/ — the picker prompt is a single grant covering both read + write. */
