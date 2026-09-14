@@ -89,7 +89,7 @@ export default defineBackground(() => {
     if (msg.t === 'runInstahyre') {
       (async () => {
         try {
-          await startInstahyre();
+          await startInstahyre('manual', msg.want);
           sendResponse({ ok: true });
         } catch (e) {
           sendResponse({ ok: false, error: String((e as Error).message) });

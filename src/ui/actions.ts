@@ -60,7 +60,10 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
 
     if (pack.id === 'instahyre') {
       if (opts.dryRun) return { ok: false, error: 'Instahyre applies with one in-page click — there is nothing to fill and park, so no dry run' };
-      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre' });
+      // want.titles_any/titles_none: Instahyre's own "matching" queue and its full search board
+      // both offer plenty of non-engineering roles, and neither is filtered by us without this.
+      const { profile } = await resolveRunInputs({ allowFolder: true });
+      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre', want: profile.want });
       return res ?? { ok: false, error: 'no answer from the background' };
     }
 

@@ -2,6 +2,7 @@ import { record } from '../platform/store';
 import { saveProgress, getProgress, getAccount } from '../platform/store';
 import { send, sendToTab } from '../platform/messaging';
 import type { Application } from '../engine/types';
+import type { Want } from '../config/schema';
 import * as observe from './observe';
 
 const OPPS_URL = 'https://www.instahyre.com/candidate/opportunities';
@@ -47,7 +48,7 @@ async function waitReady(tabId: number, tries = 40): Promise<void> {
 
 /** Kick off the in-page apply loop. The content script drives it and reports back via runtime
  *  messages (handled in background.ts); this just finds the tab and starts it. */
-export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual'): Promise<void> {
+export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual', want?: Want): Promise<void> {
   const tabId = await ensureOppsTab();
   await waitReady(tabId);
   const runId = await observe.runStarted({
@@ -61,7 +62,7 @@ export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual'): Pr
   });
   await setRunId(runId);
   await saveProgress({ done: 0, total: 0, current: 'Instahyre', phase: 'running', at: Date.now() });
-  await sendToTab(tabId, { t: 'instahyre-apply' });
+  await sendToTab(tabId, { t: 'instahyre-apply', want });
 }
 
 /** Persist one applied opportunity + nudge the popup's live counter. */

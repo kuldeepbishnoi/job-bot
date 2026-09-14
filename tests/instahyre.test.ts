@@ -12,7 +12,9 @@ import {
   showResultsButton,
   closeModalButton,
   currentJob,
+  bulkCancelButton,
 } from '@/ats/instahyre';
+import { titleWanted } from '@/engine/select-jobs';
 
 // Fixtures mirror the live logged-in Instahyre opportunities DOM (AngularJS 1.2), verified via the
 // Chrome MCP: listing cards open a modal (`openApplyModal`), and the Apply DIV
@@ -163,5 +165,51 @@ describe('instahyre adapter — search-list fallback', () => {
     const doc = parse(`<div class="application-modal"><a ng-click="closeApplyModal()">×</a></div>`);
     visible(doc);
     expect(closeModalButton(doc)!.getAttribute('ng-click')).toBe('closeApplyModal()');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// #regression (2026-09-15): the Instahyre loop had NO title filter and applied to every card with
+// an Apply button. Real applications went out to Finance Manager, Customer Support Executive and
+// IP Sales Engineer roles under the owner's name. Every unit test passed the whole time, because
+// the bug was never in the logic — profile.want simply never reached the page. These assert the
+// wiring itself: the filter decision, and the bulk-apply path that bypasses it.
+describe('instahyre title filtering (the wiring that was missing)', () => {
+  const want = { titles_any: ['SDE', 'Software Engineer', 'Backend'], titles_none: ['Manager', 'Intern'], locations: [], seniority: [] };
+
+  it('rejects the exact titles that were wrongly applied to live', () => {
+    for (const bad of ['Finance Manager', 'Customer Support Executive', 'IP Sales Engineer', 'Head HRBP', 'Office Manager']) {
+      expect(titleWanted(bad, want), bad).toBe(false);
+    }
+  });
+
+  it('still accepts the roles the owner actually wants', () => {
+    for (const good of ['Senior Software Engineer', 'SDE II (Backend)', 'Backend Developer']) {
+      expect(titleWanted(good, want), good).toBe(true);
+    }
+  });
+
+  it('titles_none wins over titles_any, so "Engineering Manager" is never applied to', () => {
+    expect(titleWanted('Engineering Manager', { ...want, titles_any: ['Engineer'] })).toBe(false);
+  });
+
+  it('an explicitly empty filter still means "no title restriction" (the user\'s own choice)', () => {
+    expect(titleWanted('Finance Manager', { titles_any: [], titles_none: [], locations: [], seniority: [] })).toBe(true);
+  });
+
+  it('the search-board card text is filterable as-is — "<Company> - <Title>" contains the title', () => {
+    const doc = parse(`<div class="employer-block"><a ng-click="openApplyModal(opp)">Convosight - Finance Manager</a></div>`);
+    visible(doc);
+    expect(titleWanted(cardId(openModalLinks(doc)[0]!), want)).toBe(false);
+    const ok = parse(`<div class="employer-block"><a ng-click="openApplyModal(opp)">Razorpay - Senior Software Engineer</a></div>`);
+    visible(ok);
+    expect(titleWanted(cardId(openModalLinks(ok)[0]!), want)).toBe(true);
+  });
+
+  it('exposes a cancel control for the "all similar roles" modal, whose other roles are never title-checked', () => {
+    const doc = parse(`<div class="modal"><button ng-click="applyBulk()">Apply to all</button><button ng-click="applyBulkCancel()">No thanks</button></div>`);
+    visible(doc);
+    expect(bulkApplyAllButton(doc)?.textContent).toBe('Apply to all');
+    expect(bulkCancelButton(doc)?.textContent).toBe('No thanks'); // used whenever a filter is set
   });
 });
