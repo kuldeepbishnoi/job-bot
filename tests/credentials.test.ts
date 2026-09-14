@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCredentialsCsv, passwordFor, accountsFor } from '@/platform/credentials';
+import { parseCredentialsCsv, passwordFor, accountsFor, credentialsFor } from '@/platform/credentials';
 
 describe('accounts.csv', () => {
   const c = parseCredentialsCsv(`# comment
@@ -23,5 +23,23 @@ bad-row-without-password,amazon,
   });
   it('accepts a headerless email,site,password file', () => {
     expect(passwordFor(parseCredentialsCsv('x@y.com,amazon,pw'), 'amazon', 'x@y.com')).toBe('pw');
+  });
+});
+
+describe('credentialsFor — a run holds only the site it is running', () => {
+  const all = parseCredentialsCsv([
+    'email,site,password',
+    'a@x.com,amazon,amazon-secret',
+    'a@x.com,datadog,datadog-secret',
+    'b@x.com,*,shared-secret',
+  ].join('\n'));
+
+  it('keeps this site\'s rows (and the * fallback), drops every other site\'s password', () => {
+    const amazon = credentialsFor(all, 'amazon');
+    expect(JSON.stringify(amazon)).not.toContain('datadog-secret');
+    expect(passwordFor(amazon, 'amazon', 'a@x.com')).toBe('amazon-secret');
+    expect(passwordFor(amazon, 'amazon', 'b@x.com')).toBe('shared-secret');
+    expect(credentialsFor(all, 'linkedin')).toEqual({ bySite: { linkedin: { 'b@x.com': 'shared-secret' } } });
+    expect(credentialsFor(undefined, 'amazon')).toBeUndefined();
   });
 });

@@ -33,6 +33,14 @@ export function passwordFor(c: Credentials | undefined, site: string, email: str
   return c?.bySite[site]?.[e] ?? c?.bySite['*']?.[e];
 }
 
+/** Only the rows that can log in to `site` — what a run needs to hold. Storing the whole CSV put
+ *  every other site's passwords into chrome.storage.local for the length of an unrelated run. */
+export function credentialsFor(c: Credentials | undefined, site: string): Credentials | undefined {
+  if (!c) return undefined;
+  const merged: Record<string, string> = { ...(c.bySite['*'] ?? {}), ...(c.bySite[site] ?? {}) };
+  return Object.keys(merged).length ? { bySite: { [site]: merged } } : undefined;
+}
+
 /** Every login that has a password for `site` (in file order). */
 export function accountsFor(c: Credentials | undefined, site: string): string[] {
   if (!c) return [];
