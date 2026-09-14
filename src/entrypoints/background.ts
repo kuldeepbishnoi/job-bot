@@ -8,10 +8,16 @@ import {
 } from '@/app/linkedin-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
 import type { Msg } from '@/platform/messaging';
+import * as observe from '@/app/observe';
+import { appendEvents } from '@/platform/data/events';
 
 // Main: wires concrete ports to the alarm-driven stepper.
 // The run is NOT a single long await (MV3 would kill the SW) — each job is one alarm wake.
 export default defineBackground(() => {
+  // Every dlog line in this service worker also becomes a structured event (batched per flush),
+  // so the console's Logs page shows everything without touching 40+ call sites.
+  observe.mirrorLogsToEvents();
+
   chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
     if (msg.t === 'run') {
       (async () => {
@@ -96,7 +102,16 @@ export default defineBackground(() => {
       return; // fire-and-forget
     }
     if (msg.t === 'instahyre-done') {
-      void finishInstahyre(msg.applied);
+      void finishInstahyre(msg.applied, msg.skipped);
+      return;
+    }
+    // A frame that can't reach the event store itself (content scripts see the PAGE's IndexedDB).
+    if (msg.t === 'log') {
+      void appendEvents([{ ...msg.event, origin: msg.event.origin ?? 'content' }]).catch(() => {});
+      return;
+    }
+    if (msg.t === 'capture') {
+      void observe.capture(msg);
       return;
     }
     return;
@@ -134,8 +149,8 @@ async function runScheduled(siteId: string): Promise<void> {
     return;
   }
   try {
-    if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume);
-    else await startRun(siteId, sched.profile, sched.resume, chromePorts());
+    if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, 'daily');
+    else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], undefined, 'daily');
   } catch (e) {
     console.error('[jobbot] daily run failed to start', e);
   }

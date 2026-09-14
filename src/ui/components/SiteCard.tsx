@@ -11,6 +11,7 @@ import { profile, resumes, runs, activeRuns, health, now } from '../store';
 import { href } from '../router';
 import { Ago, Bar, Pill, RunPill, duration } from './common';
 import { Requirements } from './Requirements';
+import { WarningsBanner } from './WarningsBanner';
 
 // One card per site pack: what it is, what it needs, what it is doing RIGHT NOW (with the
 // heartbeat age that proves it), and the four buttons that change any of that.
@@ -69,20 +70,31 @@ export function startBlock(active: Run | undefined, reqs: readonly Requirement[]
 // ---- components ----------------------------------------------------------------------------
 
 /** Start for one pack, with the background's own error shown inline instead of a silent no-op. */
-export function StartButton({ pack, disabled, title }: { pack: SitePack; disabled?: boolean; title?: string }): JSX.Element {
+export function StartButton({
+  pack,
+  disabled,
+  title,
+  dryRun = false,
+}: {
+  pack: SitePack;
+  disabled?: boolean;
+  title?: string;
+  dryRun?: boolean;
+}): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const start = async (): Promise<void> => {
     setBusy(true);
     setErr('');
-    const res = await startSite(pack); // first await of the click — keeps the gesture for permissions
+    const res = await startSite(pack, { dryRun }); // first await of the click — keeps the gesture for permissions
     if (!res.ok) setErr(res.error ?? 'the background did not say why');
     setBusy(false);
   };
+  const label = dryRun ? 'Dry run one job' : 'Start';
   return (
     <>
-      <button class="primary" disabled={disabled || busy} title={title} onClick={() => void start()}>
-        {busy ? 'Starting…' : 'Start'}
+      <button class={dryRun ? '' : 'primary'} disabled={disabled || busy} title={title} onClick={() => void start()}>
+        {busy ? 'Starting…' : label}
       </button>
       {err && (
         <span class="small" style={{ color: 'var(--err)' }}>
@@ -92,6 +104,17 @@ export function StartButton({ pack, disabled, title }: { pack: SitePack; disable
     </>
   );
 }
+
+/** A dry run only means something where the pack fills a form we can leave open for inspection —
+ *  the in-page packs. A worker-window pack would park in a hidden window you cannot look at, so it
+ *  is not offered here (Profile › Safety's `auto_submit` is that knob). */
+export function offersDryRun(pack: SitePack): boolean {
+  return pack.supports.dryRun && pack.kind === 'in-page';
+}
+
+const DRY_RUN_HELP =
+  'Fills exactly one application and stops with the form open in the tab, so you can read every answer before anything is submitted. ' +
+  'One job, not N: the run budget counts submitted applications, and a dry run never submits — so it ends as soon as the first job halts.';
 
 export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
   const p = profile.value;
@@ -188,8 +211,11 @@ export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
         )}
       </div>
 
+      <WarningsBanner siteId={pack.id} />
+
       <div class="row wrap">
         <StartButton pack={pack} disabled={!!active} title={block ?? `start ${pack.label}`} />
+        {offersDryRun(pack) && <StartButton pack={pack} dryRun disabled={!!active} title={DRY_RUN_HELP} />}
         {pack.supports.stop && (
           <button class="danger" disabled={!active} onClick={() => void act(stopRuns)}>
             Stop
@@ -203,6 +229,7 @@ export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
           </span>
         )}
       </div>
+      {offersDryRun(pack) && <div class="tiny muted">{DRY_RUN_HELP}</div>}
     </section>
   );
 }

@@ -7,7 +7,8 @@ import { record, appliedIds, saveProgress, getProgress } from '../platform/store
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
-import { dlog } from '../platform/debug-log';
+import { dlog, elog } from '../platform/debug-log';
+import * as observe from './observe';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const APPLY_CAP_MS = 4 * 60 * 1000; // a content script that never answers must not hang the run
@@ -62,19 +63,20 @@ export function chromePorts(): RunPorts {
     openJob,
     apply: async (site, tabId, profile, job, resume) => {
       await waitForFrame(tabId);
-      dlog('apply', site.id, job.id, job.title);
+      const ctx = { jobId: job.id, siteId: site.id };
+      elog('info', 'apply', `${job.id} ${job.title}`, { url: job.url }, ctx);
       try {
         const out = await withTimeout(
           sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit }),
           APPLY_CAP_MS,
           `apply ${job.id}`,
         );
-        dlog('outcome', job.id, out.status, 'note' in out ? out.note : '', 'filled', out.filled?.length ?? 0);
+        elog(out.status === 'error' ? 'error' : 'info', 'outcome', `${job.id} ${out.status} ${'note' in out ? out.note ?? '' : ''}`, { filled: out.filled?.length ?? 0 }, ctx);
         return out;
       } catch (e) {
-        dlog('port closed', job.id, String((e as Error).message));
+        elog('warn', 'apply', `${job.id} port closed: ${(e as Error).message}`, undefined, ctx);
         const out = await outcomeAfterPortClosed(site, tabId, job.id, e);
-        dlog('outcome', job.id, out.status, 'note' in out ? out.note : '');
+        elog(out.status === 'error' ? 'error' : 'info', 'outcome', `${job.id} ${out.status} ${'note' in out ? out.note ?? '' : ''}`, undefined, ctx);
         return out;
       }
     },
@@ -108,11 +110,15 @@ export function chromePorts(): RunPorts {
       return (await settle(20_000)) ? { ok: true } : { ok: false, note: 'still on the login page' };
     },
     sendOtp: (tabId, code, autoSubmit) => sendToTab<OtpOutcome>(tabId, { t: 'otp', code, autoSubmit }),
-    capture: async (tabId) => {
+    capture: async (tabId, ctx) => {
       try {
         const tab = await chrome.tabs.get(tabId);
         if (tab.windowId === undefined) return null;
-        return await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        // The Application keeps the dataURL only until store.record strips it, so the blob also
+        // goes to IndexedDB — that's the copy the console can actually render.
+        if (dataUrl && ctx) await observe.capture({ ...ctx, dataUrl });
+        return dataUrl;
       } catch {
         return null; // best-effort — a failed capture must never fail the apply
       }

@@ -1,8 +1,9 @@
 import type { LogEvent, LogLevel, Run } from '../engine/records';
+import { inferLevel } from '../engine/records';
 import { beginRun, updateRun, heartbeat, bumpCounts, endRun, getRun } from '../platform/data/runs';
 import { appendEvents } from '../platform/data/events';
 import { putDataUrlCapture } from '../platform/data/captures';
-import { dlog } from '../platform/debug-log';
+import { dlog, flatLog, setEventSink, type LogEntry } from '../platform/debug-log';
 
 // The observability seam. Run orchestration (stepper, linkedin-run, instahyre-run) calls these
 // instead of reaching into storage, so "what is this run doing" has exactly one writer and the
@@ -28,6 +29,8 @@ export async function runStarted(init: {
   resumeName?: string;
   tabId?: number;
   config?: Record<string, string>;
+  /** In-page packs own their run id already (LinkedIn's `li-<ts>`) — reuse it, don't mint a second. */
+  runId?: string;
 }): Promise<string | null> {
   try {
     const run = await beginRun({
@@ -37,6 +40,7 @@ export async function runStarted(init: {
       account: init.account,
       autoSubmit: init.autoSubmit,
       onUnknown: init.onUnknown,
+      ...(init.runId ? { runId: init.runId } : {}),
       ...(init.resumeName ? { resumeName: init.resumeName } : {}),
       ...(init.tabId !== undefined ? { tabId: init.tabId } : {}),
       ...(init.config ? { config: init.config } : {}),
@@ -55,7 +59,10 @@ export async function runStarted(init: {
 export async function runStep(runId: string | null, current?: Run['current']): Promise<void> {
   if (!runId) return;
   try {
-    await heartbeat(runId, current);
+    // A step on a job IS the end of discovery. Paused runs never step (the stepper returns early),
+    // so this only ever moves a run forward.
+    if (current) await updateRun(runId, { phase: 'running', current });
+    else await heartbeat(runId);
   } catch (e) {
     dlog('observe', 'heartbeat failed', (e as Error).message);
   }
@@ -65,6 +72,9 @@ export async function runOutcome(runId: string | null, status: 'applied' | 'park
   if (!runId) return;
   try {
     await bumpCounts(runId, status);
+    // `queued` is what's LEFT: the UI's total is done + queued, so it has to shrink as jobs finish.
+    const run = await getRun(runId);
+    if (run && run.counts.queued > 0) await updateRun(runId, { counts: { ...run.counts, queued: run.counts.queued - 1 } });
   } catch (e) {
     dlog('observe', 'bumpCounts failed', (e as Error).message);
   }
@@ -123,11 +133,34 @@ export async function event(
     ...(ctx?.jobId ? { jobId: ctx.jobId } : {}),
     ...(ctx?.siteId ? { siteId: ctx.siteId } : {}),
   };
+  flatLog(scope, msg, ...(data ? [data] : [])); // the on-disk log stays complete; no double event
   try {
     await appendEvents([ev]);
   } catch (e) {
     dlog('observe', 'appendEvents failed', (e as Error).message);
   }
+}
+
+/** Mirror every `dlog`/`elog` line into the event store, so the Logs page shows everything without
+ *  touching 40+ call sites. Installed by Main (background.ts) — one IDB write per log flush. */
+export function mirrorLogsToEvents(): void {
+  setEventSink((entries: readonly LogEntry[]) => {
+    const evs: LogEvent[] = entries.map((e) => {
+      const runId = e.ctx?.runId ?? currentRunId ?? undefined;
+      return {
+        ts: e.ts,
+        level: e.level ?? inferLevel(e.scope, e.text),
+        origin: 'sw',
+        scope: e.scope,
+        msg: e.text,
+        ...(e.data ? { data: e.data } : {}),
+        ...(runId ? { runId } : {}),
+        ...(e.ctx?.jobId ? { jobId: e.ctx.jobId } : {}),
+        ...(e.ctx?.siteId ? { siteId: e.ctx.siteId } : {}),
+      };
+    });
+    void appendEvents(evs).catch(() => {}); // best-effort: never re-log from here (that would recurse)
+  });
 }
 
 /** Store a screenshot where the console can actually show it (chrome.storage can't hold these). */

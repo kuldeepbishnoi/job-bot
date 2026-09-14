@@ -393,3 +393,350 @@ export function runNdjson(run: Run, apps: readonly RichApp[], events: readonly L
   ];
   return `${lines.join('\n')}\n`;
 }
+
+/* ---- questions to answer (the review inbox's real unit of work) ---------------------------- */
+
+// The inbox groups by QUESTION, not by record: "How many years of Kubernetes?" blocked 14 jobs is
+// one fix, not fourteen. Two sources produce the same group shape so the page renders one way:
+//   · <profile>/applications/review.jsonl — written per uncertain answer, with the options the form
+//     offered and the intent the matcher assigned. Richer, and it survives a storage prune.
+//   · chrome.storage `applications` — the lean copy, parsed back out of each record's fields.
+
+export interface QuestionJob {
+  readonly jobId: string;
+  readonly title: string;
+  readonly company: string;
+  readonly url: string;
+  readonly status: string;
+  readonly at: string;
+  readonly value: string;
+  readonly source?: string;
+  readonly error?: string;
+}
+
+export interface QuestionGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly intent?: string;
+  readonly kind?: string;
+  readonly options: readonly string[];
+  readonly sources: readonly string[];
+  /** The answer most recently given (or left blank) — what the fix is replacing. */
+  readonly value?: string;
+  readonly jobs: readonly QuestionJob[];
+}
+
+/** Stable id for dismissals and URLs: the label is the identity of a question across jobs. */
+export const questionId = (label: string): string => `q:${label.trim().toLowerCase()}`;
+
+/** Structural mirror of platform/data/disk-records `ReviewLine` — kept structural so this module
+ *  imports nothing that touches chrome, and stays unit-testable. */
+export interface ReviewLineLike {
+  readonly at: string;
+  readonly company: string;
+  readonly jobId: string;
+  readonly title: string;
+  readonly url: string;
+  readonly status: string;
+  readonly label: string;
+  readonly kind?: string;
+  readonly intent?: string;
+  readonly options?: readonly string[];
+  readonly value?: string;
+  readonly source?: string;
+  readonly error?: string;
+}
+
+/** Same for `ReviewGroup` (the output of disk-records#groupReview). */
+export interface ReviewGroupLike {
+  readonly label: string;
+  readonly intent?: string;
+  readonly kind?: string;
+  readonly options: readonly string[];
+  readonly sources: readonly string[];
+  readonly jobs: readonly ReviewLineLike[];
+}
+
+const byNewest = <T extends { at: string }>(rows: readonly T[]): T[] =>
+  [...rows].sort((x, y) => (Date.parse(y.at) || 0) - (Date.parse(x.at) || 0));
+
+/** review.jsonl groups → what the page renders. */
+export function questionGroupsFromReview(groups: readonly ReviewGroupLike[]): QuestionGroup[] {
+  return groups
+    .map((g) => {
+      const jobs = byNewest(g.jobs).map<QuestionJob>((j) => ({
+        jobId: j.jobId,
+        title: j.title,
+        company: j.company,
+        url: j.url,
+        status: j.status,
+        at: j.at,
+        value: j.value ?? '',
+        ...(j.source ? { source: j.source } : {}),
+        ...(j.error ? { error: j.error } : {}),
+      }));
+      return {
+        id: questionId(g.label),
+        label: g.label,
+        ...(g.intent ? { intent: g.intent } : {}),
+        ...(g.kind ? { kind: g.kind } : {}),
+        options: g.options,
+        sources: g.sources,
+        ...(jobs[0]?.value ? { value: jobs[0].value } : {}),
+        jobs,
+      };
+    })
+    .sort((a, b) => b.jobs.length - a.jobs.length);
+}
+
+/** The fallback source: the same grouping recovered from chrome.storage records. */
+export function questionGroupsFromApps(apps: readonly RichApp[]): QuestionGroup[] {
+  const lines: ReviewLineLike[] = [];
+  for (const a of newestFirst(apps)) {
+    for (const f of parseFields(a)) {
+      const weak = !!f.error || f.source === 'guessed' || f.source === 'unanswered' || f.source === 'coerced';
+      if (!weak || !f.label.trim()) continue;
+      lines.push({
+        at: a.at ?? a.date,
+        company: a.company,
+        jobId: a.jobId,
+        title: a.title,
+        url: a.url,
+        status: a.status,
+        label: f.label,
+        ...(f.kind ? { kind: f.kind } : {}),
+        ...(f.intent ? { intent: f.intent } : {}),
+        ...(f.options ? { options: f.options } : {}),
+        value: f.value,
+        ...(f.source ? { source: f.source } : {}),
+        ...(f.error ? { error: f.error } : {}),
+      });
+    }
+  }
+  return questionGroupsFromReview(groupLines(lines));
+}
+
+/** Group by label — the same rule disk-records#groupReview uses, for the in-memory source. */
+function groupLines(lines: readonly ReviewLineLike[]): ReviewGroupLike[] {
+  const by = new Map<string, ReviewLineLike[]>();
+  for (const l of lines) {
+    const key = l.label.trim().toLowerCase();
+    const list = by.get(key);
+    if (list) list.push(l);
+    else by.set(key, [l]);
+  }
+  return [...by.values()].map((jobs) => {
+    const first = jobs[0]!;
+    return {
+      label: first.label,
+      ...(first.intent ? { intent: first.intent } : {}),
+      ...(first.kind ? { kind: first.kind } : {}),
+      options: [...new Set(jobs.flatMap((j) => j.options ?? []))],
+      sources: [...new Set(jobs.map((j) => j.source).filter((s): s is string => !!s))],
+      jobs,
+    };
+  });
+}
+
+/* ---- résumé consistency: years of experience ---------------------------------------------- */
+
+// `answers.exact_years_of_experience` is the number on the résumé. Anything we told a form that is
+// meaningfully bigger is a lie we typed on the user's behalf, and "MAX" (always pick the top
+// bucket) is the same lie whenever a real figure exists. Both get flagged, with the résumé figure
+// shown beside them so the mismatch is arithmetic, not a feeling.
+
+/** Slack in years: forms ask "5+" when the résumé says 4.8, and rounding up by one is honest. */
+export const YEARS_SLACK = 1;
+
+export interface YearsIssue {
+  readonly kind: 'exceeds' | 'max';
+  /** Years the answer claims — the FLOOR of a range ("5 to less than 8 years" claims 5). */
+  readonly claimed: number | null;
+  readonly exact: number;
+  readonly value: string;
+  readonly message: string;
+}
+
+/** `answers.exact_years_of_experience` as a number, when the profile states one. */
+export function exactYears(profile: { readonly answers?: Readonly<Record<string, unknown>> } | null | undefined): number | undefined {
+  const raw = profile?.answers?.['exact_years_of_experience'];
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** The lowest number an answer claims. "8+" → 8, "5 to less than 8 years" → 5, "6.5" → 6.5. */
+export function claimedYears(value: string): number | null {
+  const m = /-?\d+(?:\.\d+)?/.exec(value);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
+}
+
+const YEARS_INTENTS = new Set(['answers.years_of_experience', 'answers.exact_years_of_experience']);
+
+/** Is this question about how long the applicant has done something? */
+export function isYearsQuestion(input: { readonly label: string; readonly intent?: string }): boolean {
+  if (input.intent && YEARS_INTENTS.has(input.intent)) return true;
+  return /\byears?\b/i.test(input.label) && /experience|exp\b|working|worked|using|with\b/i.test(input.label);
+}
+
+/** Flag an answer that outruns the résumé. Null = nothing to say (no figure, or the answer fits). */
+export function yearsIssue(
+  q: { readonly label: string; readonly intent?: string; readonly value: string },
+  exact: number | undefined,
+): YearsIssue | null {
+  if (exact === undefined || !isYearsQuestion(q)) return null;
+  const value = q.value.trim();
+  if (!value) return null;
+  if (value.toUpperCase() === 'MAX') {
+    return {
+      kind: 'max',
+      claimed: null,
+      exact,
+      value,
+      message: `MAX always picks the form's top bucket, but your résumé says ${exact} years — answer with the figure instead.`,
+    };
+  }
+  const claimed = claimedYears(value);
+  if (claimed === null || claimed <= exact + YEARS_SLACK) return null;
+  return {
+    kind: 'exceeds',
+    claimed,
+    exact,
+    value,
+    message: `This answer claims ${claimed} years; your résumé says ${exact}.`,
+  };
+}
+
+/** Every years answer in a group that disagrees with the résumé (deduped by the answer text). */
+export function yearsIssues(group: QuestionGroup, exact: number | undefined): YearsIssue[] {
+  const seen = new Set<string>();
+  const out: YearsIssue[] = [];
+  for (const j of group.jobs) {
+    const issue = yearsIssue({ label: group.label, ...(group.intent ? { intent: group.intent } : {}), value: j.value }, exact);
+    if (!issue || seen.has(issue.value)) continue;
+    seen.add(issue.value);
+    out.push(issue);
+  }
+  return out;
+}
+
+/* ---- the on-disk record is the fuller one ------------------------------------------------- */
+
+/** `applications.jsonl` line: an Application plus the capture files written next to it. */
+export type DiskApp = RichApp & { readonly files?: readonly string[] };
+
+export interface DiskMatch {
+  readonly app: DiskApp;
+  /** exact = same job at the same instant; job = same job, closest attempt; none = nothing on disk. */
+  readonly matched: 'exact' | 'job' | 'none';
+}
+
+/**
+ * Enrich a chrome.storage record with its on-disk twin. `store.record()` strips the description,
+ * the résumé name, most log lines and the capture before persisting (the 10 MB quota), so the disk
+ * line is strictly richer — but only when it really is the same attempt. Matching is jobId + `at`;
+ * a jobId-only match is reported as such so the drawer can say it is showing the nearest attempt.
+ */
+export function mergeDiskApp(app: RichApp, disk: readonly DiskApp[]): DiskMatch {
+  const key = keyOf(app);
+  const exact = disk.find((d) => keyOf(d) === key);
+  const chosen = exact ?? newestFirst(disk.filter((d) => d.jobId === app.jobId))[0];
+  if (!chosen) return { app, matched: 'none' };
+  const merged: DiskApp = {
+    ...app,
+    ...Object.fromEntries(Object.entries(chosen).filter(([, v]) => v !== undefined && v !== null)),
+    // Keep whichever field list actually says more; the storage copy can be the richer one when
+    // the disk write happened before the fields came back.
+    fields: (chosen.fields?.length ?? 0) >= (app.fields?.length ?? 0) ? chosen.fields : app.fields,
+    // The transient capture only ever lives on the in-memory record.
+    ...(app.capture ? { capture: app.capture } : {}),
+    ...(app.screenshot ? { screenshot: app.screenshot } : {}),
+  };
+  return { app: merged, matched: exact ? 'exact' : 'job' };
+}
+
+/* ---- LinkedIn warnings -------------------------------------------------------------------- */
+
+export interface RunWarning {
+  readonly code: string;
+  readonly detail: string;
+  readonly at: number;
+}
+
+export interface WarningView {
+  readonly code: string;
+  readonly tone: 'err' | 'warn';
+  /** True = the run cannot do anything useful until the user acts. */
+  readonly blocking: boolean;
+  readonly title: string;
+  readonly body: string;
+  readonly detail: string;
+  readonly action?: { readonly label: string; readonly url: string };
+  readonly at: number;
+}
+
+/** "AutoApplyMax is also running on this page — disable it at…" → "AutoApplyMax". */
+export function conflictingNames(detail: string): string {
+  const m = /^(.*?)\s+(?:is|are)\s+also running/i.exec(detail.trim());
+  return (m?.[1] ?? '').trim() || 'another auto-apply extension';
+}
+
+/** One warning → what the banner says. The conflicting-extension copy is deliberate: JobBot does
+ *  NOT request the `management` permission (it would let the extension read and disable every
+ *  other extension you have), so it can only tell you what it saw and where to switch it off. */
+export function warningView(w: RunWarning): WarningView {
+  switch (w.code) {
+    case 'conflicting-extension': {
+      const who = conflictingNames(w.detail);
+      return {
+        code: w.code,
+        tone: 'err',
+        blocking: true,
+        title: `${who} is driving the same LinkedIn page`,
+        body:
+          `Two bots clicking the same buttons produce double applications and answers neither of them chose. ` +
+          `JobBot cannot switch ${who} off for you — it deliberately does not ask for the "management" permission, ` +
+          `which would let it read and disable every extension you have. Turn it off yourself, then start the run again.`,
+        detail: w.detail,
+        action: { label: 'Open chrome://extensions', url: 'chrome://extensions/' },
+        at: w.at,
+      };
+    }
+    case 'not-logged-in':
+      return {
+        code: w.code,
+        tone: 'err',
+        blocking: true,
+        title: 'LinkedIn is signed out in that tab',
+        body: 'Easy Apply needs your session. Log in in the LinkedIn tab, then start the run again — nothing was applied to.',
+        detail: w.detail,
+        action: { label: 'Open LinkedIn login', url: 'https://www.linkedin.com/login' },
+        at: w.at,
+      };
+    case 'pace':
+      return {
+        code: w.code,
+        tone: 'warn',
+        blocking: false,
+        title: 'LinkedIn is pacing us',
+        body: 'Easy Apply was paused for applying too fast. The run backs off and continues by itself — nothing to do.',
+        detail: w.detail,
+        at: w.at,
+      };
+    default:
+      return { code: w.code, tone: 'warn', blocking: false, title: w.code, body: w.detail, detail: w.detail, at: w.at };
+  }
+}
+
+/** Newest first, one per code — a repeated warning is the same problem, not a new one. */
+export function warningViews(warnings: readonly RunWarning[]): WarningView[] {
+  const by = new Map<string, RunWarning>();
+  for (const w of warnings) {
+    const prev = by.get(w.code);
+    if (!prev || w.at >= prev.at) by.set(w.code, w);
+  }
+  return [...by.values()]
+    .map(warningView)
+    .sort((a, b) => Number(b.blocking) - Number(a.blocking) || b.at - a.at); // blockers first, then newest
+}

@@ -28,7 +28,7 @@ export interface SitePack {
   needs: { resume: boolean; gmail: boolean; loggedInTab?: string; accounts: boolean };
   supports: { schedule: boolean; stop: boolean; resume: boolean; dryRun: boolean };
   /** A `profile.<key>` block the Sites page renders as a form. */
-  config?: { key: 'amazon' | 'linkedin'; fields: FieldSpec[]; doc?: string };
+  config?: { key: string; fields: FieldSpec[]; doc?: string };
   limits?: { perDay?: number; note?: string };
 }
 
@@ -38,14 +38,41 @@ const WORKER_DEAD_MS = 2 * 60 * MIN; // stepper.ts STALE_RUN_MS
 const IN_PAGE_STALL_MS = 5 * MIN; // linkedin-run.ts STALL_MS
 const IN_PAGE_DEAD_MS = 40 * MIN; // linkedin-run.ts DEAD_MS
 
-const ICONS: Record<string, string> = { datadog: '🐶', amazon: '📦' };
+const ICONS: Record<string, string> = { datadog: '🐶', amazon: '📦', greenhouse: '🌱', lever: '🎚️', ashby: '🌗' };
 const HOSTS: Record<string, string[]> = {
   datadog: ['careers.datadoghq.com', 'job-boards.greenhouse.io'],
   amazon: ['www.amazon.jobs'],
+  greenhouse: ['boards.greenhouse.io', 'job-boards.greenhouse.io'],
+  lever: ['jobs.lever.co'],
+  ashby: ['jobs.ashbyhq.com'],
 };
-const STEPS: Record<Site['ats'], readonly string[]> = {
+const DEFAULT_STEPS = ['open', 'fill', 'submit', 'confirm'] as const;
+const STEPS: Record<string, readonly string[]> = {
   greenhouse: ['open', 'fill', 'submit', 'otp', 'confirm'],
   amazon: ['open', 'fill', 'continue', 'review', 'submit'],
+  lever: ['open', 'fill', 'submit', 'confirm'],
+  ashby: ['open', 'fill', 'submit', 'confirm'],
+};
+
+/** A board list (Greenhouse/Lever/Ashby multi-company packs): the user's slugs plus, optionally,
+ *  the curated defaults the source file ships. One shape, three sites. */
+function boardListConfig(key: string, what: string, example: string): NonNullable<SitePack['config']> {
+  return {
+    key,
+    doc: `Each row is a ${what} slug or any job URL on that board — the pack normalises either.`,
+    fields: [
+      { key: 'boards', label: 'Boards', type: 'string[]', placeholder: example, help: 'A bad row is dropped at run time, so it is worth fixing here.' },
+      { key: 'include_defaults', label: 'Include the built-in company list', type: 'boolean', help: 'Off = only the boards listed above.' },
+    ],
+  };
+}
+
+/** Per-site settings forms, keyed by site id. Declared for sites that may not be registered yet,
+ *  so a pack added on another branch renders its form the moment it lands in SITES. */
+const CONFIGS: Record<string, NonNullable<SitePack['config']>> = {
+  greenhouse: boardListConfig('greenhouse', 'Greenhouse board', 'discord'),
+  lever: boardListConfig('lever', 'Lever', 'zoox'),
+  ashby: boardListConfig('ashby', 'Ashby', 'notion'),
 };
 
 const amazonConfig: NonNullable<SitePack['config']> = {
@@ -64,12 +91,16 @@ export function workerPack(site: Site): SitePack {
     icon: ICONS[site.id] ?? '🏢',
     kind: 'worker',
     hosts: HOSTS[site.id] ?? [],
-    steps: STEPS[site.ats],
+    steps: STEPS[site.id] ?? STEPS[site.ats] ?? DEFAULT_STEPS,
     stallMs: WORKER_STALL_MS,
     deadMs: WORKER_DEAD_MS,
     needs: { resume: true, gmail: site.ats === 'greenhouse', accounts: site.id === 'amazon' },
     supports: { schedule: true, stop: true, resume: true, dryRun: true },
-    ...(site.id === 'amazon' ? { config: amazonConfig, limits: { perDay: 10, note: "Amazon's own limit page rotates accounts" } } : {}),
+    ...(site.id === 'amazon'
+      ? { config: amazonConfig, limits: { perDay: 10, note: "Amazon's own limit page rotates accounts" } }
+      : CONFIGS[site.id]
+        ? { config: CONFIGS[site.id]! }
+        : {}),
   };
 }
 

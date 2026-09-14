@@ -16,7 +16,9 @@ export interface RunPorts {
   seenOtps(): Promise<string[]>; // codes already in Gmail (stale) — snapshot before submitting
   getOtp(exclude: readonly string[]): Promise<string | null>;
   sendOtp(tabId: number, code: string, autoSubmit: boolean): Promise<OtpOutcome>;
-  capture(tabId: number): Promise<string | null>; // PNG dataURL of the worker tab, best-effort
+  /** PNG dataURL of the worker tab, best-effort. `ctx` is what the shot is OF — the adapter also
+   *  files it under the run so the console can show it (a dataURL alone has no home). */
+  capture(tabId: number, ctx?: { siteId: string; jobId: string; label: string }): Promise<string | null>;
   /** Account rotation: drive the login page for `email`; resolves once the tab left the login site. */
   login(tabId: number, email: string, password: string): Promise<{ ok: boolean; note?: string }>;
   record(app: Application): Promise<void>;
@@ -65,7 +67,7 @@ export async function applyOne(
     const res = await ports.apply(site, tabId, profile, job, resume);
     // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
     // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
-    const shot = await ports.capture(tabId).catch(() => null);
+    const shot = await ports.capture(tabId, { siteId: site.id, jobId: job.id, label: res.status === 'submitted' ? 'submitted' : 'filled' }).catch(() => null);
     const rec = (status: ApplyStatus, note?: string): Application =>
       mk(site, job, ports.today(), status, note, res.filled, shot);
 
@@ -77,7 +79,7 @@ export async function applyOne(
     const code = await ports.getOtp(staleCodes);
     if (!code) return rec('parked', 'OTP not found (is Gmail open?)');
     const otp = await ports.sendOtp(tabId, code, profile.auto_submit);
-    const shot2 = await ports.capture(tabId).catch(() => null);
+    const shot2 = await ports.capture(tabId, { siteId: site.id, jobId: job.id, label: 'otp' }).catch(() => null);
     const rec2 = (status: ApplyStatus, note?: string): Application =>
       mk(site, job, ports.today(), status, note, res.filled, shot2 ?? shot);
     if (otp.status === 'submitted') return rec2('applied');

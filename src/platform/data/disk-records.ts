@@ -1,4 +1,5 @@
 import type { Application, AppliedField } from '../../engine/types';
+import { getProfileDir, readRecordsFile, readCapture } from '../fs-config';
 
 // The full record lives on disk, not in chrome.storage. `store.record()` deliberately strips the
 // screenshot, the job description and most of the log line before persisting (a run would blow the
@@ -7,25 +8,6 @@ import type { Application, AppliedField } from '../../engine/types';
 //
 // Read-only. The run writes those files (platform/fs-config.ts); this module never does.
 // Callable only from an extension page — the directory handle needs a grant the SW cannot hold.
-
-const HANDLE_DB = 'jobbot'; // fs-config's database — the handle it stored when the user picked the folder
-const HANDLE_STORE = 'h';
-const HANDLE_KEY = 'profileDirHandle';
-const RECORDS_DIR = 'applications';
-const CAPTURES_DIR = 'captures';
-
-type FsMode = 'read' | 'readwrite';
-interface FileHandleLike {
-  getFile(): Promise<File>;
-}
-interface DirHandleLike {
-  name?: string;
-  getFileHandle(name: string, opts?: { create?: boolean }): Promise<FileHandleLike>;
-  getDirectoryHandle(name: string, opts?: { create?: boolean }): Promise<DirHandleLike>;
-  queryPermission(o: { mode: FsMode }): Promise<PermissionState>;
-  requestPermission(o: { mode: FsMode }): Promise<PermissionState>;
-  values?(): AsyncIterableIterator<{ kind: string; name: string } & FileHandleLike>;
-}
 
 /** One uncertain answer, as `review.jsonl` records it: the "we are not sure" list. */
 export interface ReviewLine {
@@ -50,70 +32,17 @@ export interface DiskApplication extends Application {
   readonly fields?: readonly AppliedField[];
 }
 
-function idbGetHandle(): Promise<DirHandleLike | null> {
-  return new Promise((resolve) => {
-    let req: IDBOpenDBRequest;
-    try {
-      req = indexedDB.open(HANDLE_DB, 1);
-    } catch {
-      resolve(null);
-      return;
-    }
-    // Never create the store here: fs-config owns this database's schema. If the upgrade fires,
-    // the folder was never picked, so there is nothing to read.
-    req.onupgradeneeded = () => {
-      try {
-        if (!req.result.objectStoreNames.contains(HANDLE_STORE)) req.result.createObjectStore(HANDLE_STORE);
-      } catch {
-        /* fs-config will create it when the user picks a folder */
-      }
-    };
-    req.onerror = () => resolve(null);
-    req.onsuccess = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(HANDLE_STORE)) {
-        resolve(null);
-        return;
-      }
-      try {
-        const get = db.transaction(HANDLE_STORE, 'readonly').objectStore(HANDLE_STORE).get(HANDLE_KEY);
-        get.onsuccess = () => resolve((get.result as DirHandleLike | undefined) ?? null);
-        get.onerror = () => resolve(null);
-      } catch {
-        resolve(null);
-      }
-    };
-  });
-}
-
 /** Is a profile folder linked AND still readable? Both matter: a grant can lapse between sessions. */
 export async function diskAvailable(): Promise<{ linked: boolean; readable: boolean; folder?: string }> {
-  const dir = await idbGetHandle();
-  if (!dir) return { linked: false, readable: false };
-  const state = await dir.queryPermission({ mode: 'read' }).catch(() => 'denied' as PermissionState);
-  return { linked: true, readable: state === 'granted', ...(dir.name ? { folder: dir.name } : {}) };
+  const linked = await getProfileDir('read').then((d) => d !== null).catch(() => false);
+  // getProfileDir returns null both when nothing was picked and when the grant lapsed; the console
+  // treats either the same way — ask the user to pick the folder again.
+  return { linked, readable: linked };
 }
 
-/** Ask for read access. Must run inside a click handler — Chrome requires the user gesture. */
+/** Ask for read/write access. Must run inside a click handler — Chrome requires the user gesture. */
 export async function requestDiskAccess(): Promise<boolean> {
-  const dir = await idbGetHandle();
-  if (!dir) return false;
-  return (await dir.requestPermission({ mode: 'readwrite' }).catch(() => 'denied' as PermissionState)) === 'granted';
-}
-
-async function recordsDir(): Promise<DirHandleLike | null> {
-  const dir = await idbGetHandle();
-  if (!dir) return null;
-  if ((await dir.queryPermission({ mode: 'read' }).catch(() => 'denied' as PermissionState)) !== 'granted') return null;
-  return dir.getDirectoryHandle(RECORDS_DIR).catch(() => null);
-}
-
-async function readText(dir: DirHandleLike, name: string): Promise<string> {
-  try {
-    return await (await (await dir.getFileHandle(name)).getFile()).text();
-  } catch {
-    return ''; // the file only exists once something has been written
-  }
+  return (await getProfileDir('readwrite').catch(() => null)) !== null;
 }
 
 /** Parse a JSONL body, skipping malformed lines rather than losing the whole file to one bad write. */
@@ -131,18 +60,23 @@ export function parseJsonl<T>(text: string): T[] {
   return out;
 }
 
-/** Every application ever written to disk, oldest first. Empty when no folder is linked. */
+/** Every application ever written to disk, oldest first. Empty when no folder is linked.
+ *  The file is append-only and a job can legitimately appear twice (a parked attempt, then an
+ *  applied one), so callers that want "the outcome" should dedupe on jobId + at, last write wins. */
 export async function readDiskApplications(): Promise<DiskApplication[]> {
-  const dir = await recordsDir();
-  if (!dir) return [];
-  return parseJsonl<DiskApplication>(await readText(dir, 'applications.jsonl'));
+  return parseJsonl<DiskApplication>(await readRecordsFile('applications.jsonl').catch(() => ''));
+}
+
+/** Latest line per attempt, newest first — what the Applications page shows. */
+export function dedupeDiskApplications(lines: readonly DiskApplication[]): DiskApplication[] {
+  const by = new Map<string, DiskApplication>();
+  for (const a of lines) by.set(`${a.jobId}@${a.at ?? a.date}`, a); // last write wins
+  return [...by.values()].reverse();
 }
 
 /** The "not sure" list: one line per guessed / coerced / unanswered / unmatched question. */
 export async function readReviewLines(): Promise<ReviewLine[]> {
-  const dir = await recordsDir();
-  if (!dir) return [];
-  return parseJsonl<ReviewLine>(await readText(dir, 'review.jsonl'));
+  return parseJsonl<ReviewLine>(await readRecordsFile('review.jsonl').catch(() => ''));
 }
 
 /** Group uncertain answers by question, so one fix can clear every job it blocked. */
@@ -185,41 +119,13 @@ export function groupReview(lines: readonly ReviewLine[]): ReviewGroup[] {
 
 /** A capture file written next to the record (`files[]` on the application line). */
 export async function readCaptureFile(path: string): Promise<{ blob: Blob; name: string } | null> {
-  const dir = await recordsDir();
-  if (!dir) return null;
-  const parts = path.split('/').filter(Boolean);
-  const name = parts.at(-1);
-  if (!name) return null;
-  const inCaptures = parts.length > 1 && parts.at(-2) === CAPTURES_DIR;
-  try {
-    const host = inCaptures ? await dir.getDirectoryHandle(CAPTURES_DIR) : dir;
-    const file = await (await host.getFileHandle(name)).getFile();
-    return { blob: file, name };
-  } catch {
-    return null;
-  }
+  const blob = await readCapture(path).catch(() => null);
+  if (!blob) return null;
+  return { blob, name: path.split('/').filter(Boolean).at(-1) ?? path };
 }
 
 /** The complete daily log the run wrote (`log-<date>.txt`), newest lines last. */
 export async function readDiskLog(date: string): Promise<string[]> {
-  const dir = await recordsDir();
-  if (!dir) return [];
-  const text = await readText(dir, `log-${date}.txt`);
+  const text = await readRecordsFile(`log-${date}.txt`).catch(() => '');
   return text.split('\n').filter((l) => l.trim());
-}
-
-/** Which daily logs exist, newest first — the Logs page offers them as a source. */
-export async function listDiskLogDates(): Promise<string[]> {
-  const dir = await recordsDir();
-  if (!dir?.values) return [];
-  const dates: string[] = [];
-  try {
-    for await (const entry of dir.values()) {
-      const m = /^log-(\d{4}-\d{2}-\d{2})\.txt$/.exec(entry.name);
-      if (m?.[1]) dates.push(m[1]);
-    }
-  } catch {
-    return [];
-  }
-  return dates.sort().reverse();
 }

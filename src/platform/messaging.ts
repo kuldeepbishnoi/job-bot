@@ -1,6 +1,7 @@
 // Typed message bus. Background orchestrates; the form frame does DOM work;
 // the Gmail frame yields the code; the popup starts runs and shows progress.
 import type { AppliedField, ApplyStatus, Capture, Job } from '../engine/types';
+import type { LogEvent } from '../engine/records';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 
@@ -88,6 +89,12 @@ export type Msg =
   // `pages` = result pages walked in-page (LinkedIn's own pager); `cards` = cards on the last page
   // (0 = LinkedIn showed no results → this search URL is exhausted); `newCards` = unseen ones.
   | { t: 'linkedin-page-done'; runId: string; reason: LinkedinPageEnd; applied: number; skipped: number; cards: number; newCards: number; pages: number; note?: string }
+  // any frame -> background: one structured log line for the console's Logs page. Only the
+  // background can write the event store (a content script's IndexedDB is the PAGE's), so this is
+  // how an in-page adapter gets a line in there. `origin` defaults to 'content'.
+  | { t: 'log'; event: LogEvent }
+  // any frame -> background: a page capture (screenshot dataURL) to file under the run
+  | { t: 'capture'; siteId: string; jobId: string; label: string; dataUrl: string }
   // background -> popup (broadcast)
   | { t: 'progress'; done: number; total: number; current: string }
   | { t: 'runDone' };

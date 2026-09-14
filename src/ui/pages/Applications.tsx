@@ -4,6 +4,7 @@ import { go, route, setQuery } from '../router';
 import { Card, Empty, SearchInput, download } from '../components/common';
 import { AppTable } from '../components/AppTable';
 import { AppDetail } from '../components/AppDetail';
+import { WarningsBanner } from '../components/WarningsBanner';
 import { facets, filterApps, keyOf, newestFirst, type AppFilter, type RichApp } from '../app-view';
 
 // Every application ever recorded, filterable. Filters live in the URL (`setQuery`), so a view like
@@ -45,6 +46,8 @@ export function Applications(): JSX.Element {
   const active = Object.keys(filter).length > 0;
 
   const list = (
+    <>
+    <WarningsBanner />
     <Card
       title={`Applications (${rows.length}${rows.length === all.length ? '' : ` of ${all.length}`})`}
       right={
@@ -116,6 +119,7 @@ export function Applications(): JSX.Element {
         <AppTable apps={rows} selectedKey={selectedKey} onSelect={open} />
       )}
     </Card>
+    </>
   );
 
   if (!selected) return <div class="col">{list}</div>;

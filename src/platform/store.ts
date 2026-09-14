@@ -31,6 +31,9 @@ export async function getProgress(): Promise<RunProgress | null> {
 
 /** Persisted run state, so an alarm-driven step survives service-worker termination. */
 export interface RunState {
+  /** The observability Run this queue belongs to. In storage, not module scope: the SW dies
+   *  between jobs and the next wake must keep writing to the SAME Run (app/observe.ts). */
+  readonly runId?: string;
   readonly siteId: string;
   readonly profile: Profile;
   readonly resume: SerializedFile;

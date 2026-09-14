@@ -40,7 +40,8 @@ export const INTENT_CATALOG: Partial<Record<Intent, IntentMeta>> = {
   'answers.remote_ok': { label: 'OK with remote / hybrid', shape: 'boolean', group: 'Eligibility' },
 
   // Screening
-  'answers.years_of_experience': { label: 'Years of experience', shape: 'number', group: 'Screening', help: 'Picks the "N to less than M years" bucket containing it; MAX = always the top bucket.' },
+  'answers.years_of_experience': { label: 'Years of experience (ladders)', shape: 'number', group: 'Screening', help: 'Picks the "N to less than M years" bucket containing it; MAX = always the top bucket.' },
+  'answers.exact_years_of_experience': { label: 'Exact years of experience', shape: 'number', group: 'Screening', help: 'What a free-text year box gets. Keep it equal to the résumé — the review inbox flags answers that exceed it.' },
   'answers.skills_experience': { label: 'Has the asked-for experience', shape: 'boolean', group: 'Screening', help: 'Answers EVERY "Do you have experience with …?" the same way. Omit to park those.' },
   'answers.relevant_experience': { label: 'Has relevant experience', shape: 'boolean', group: 'Screening' },
   'answers.languages': { label: 'Languages spoken', shape: 'string[]', group: 'Screening' },
@@ -48,14 +49,26 @@ export const INTENT_CATALOG: Partial<Record<Intent, IntentMeta>> = {
   'answers.how_did_you_hear': { label: 'How did you hear about us', shape: 'text', group: 'Screening', help: 'Single choice or free text; matched against the dropdown by substring.' },
   'answers.how_did_you_hear_detail': { label: 'How did you hear (detail)', shape: 'text', group: 'Screening' },
   'answers.cover_letter': { label: 'Cover letter / why us', shape: 'text', group: 'Screening', help: 'Free-text prompts get this verbatim.' },
+  'answers.current_company': { label: 'Current employer', shape: 'text', group: 'Screening', help: 'Never guessed — a job that asks and has no answer parks instead.' },
+  'answers.current_title': { label: 'Current job title', shape: 'text', group: 'Screening' },
+  'answers.github': { label: 'GitHub profile', shape: 'text', group: 'Screening' },
+  'answers.reason_for_change': { label: 'Reason for looking', shape: 'text', group: 'Screening' },
 
   // Compensation
   'answers.expected_salary': { label: 'Expected salary / CTC', shape: 'number', group: 'Compensation', help: 'Numeric boxes want a number; text boxes get it as typed.' },
   'answers.current_salary': { label: 'Current salary / CTC', shape: 'number', group: 'Compensation' },
+  'answers.current_fixed_salary': { label: 'Current fixed salary', shape: 'number', group: 'Compensation', help: 'The fixed half of an Indian CTC split; annual, in the unit the question names.' },
+  'answers.current_variable_salary': { label: 'Current variable pay', shape: 'number', group: 'Compensation' },
+  'answers.total_ctc': { label: 'Total CTC (fixed + variable)', shape: 'number', group: 'Compensation' },
 
   // Availability
   'answers.notice_period': { label: 'Notice period (days)', shape: 'number', group: 'Availability' },
   'answers.start_date': { label: 'Earliest start date', shape: 'text', group: 'Availability' },
+  'answers.notice_serving': { label: 'Currently serving notice', shape: 'boolean', group: 'Availability' },
+  'answers.immediate_joiner': { label: 'Immediate joiner', shape: 'boolean', group: 'Availability', help: '"Can you join within N days?"' },
+  'answers.shifts_ok': { label: 'OK with night / rotational shifts', shape: 'boolean', group: 'Availability' },
+  'answers.in_city': { label: 'Currently in the job\'s city', shape: 'boolean', group: 'Availability', help: 'Answered yes when the question names your identity.city; set it only to override that.' },
+  'answers.top_choice': { label: 'Mark job as a top choice', shape: 'boolean', group: 'Availability', help: 'LinkedIn allows 3 a month and it opens a required message box — off unless you say otherwise.' },
 
   // Education
   'answers.degree_bachelors': { label: "Has a Bachelor's degree", shape: 'boolean', group: 'Education' },
