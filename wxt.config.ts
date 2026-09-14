@@ -32,6 +32,15 @@ export default defineConfig({
   }),
   manifest: {
     name: 'JobBot',
+    // Without these Chrome renders the first letter of the name on a grey tile. The small sizes are
+    // a DIFFERENT drawing on purpose: the briefcase's cut-out bolt turns to mush below ~48px, so
+    // 16/32 are the bolt alone (see assets/icon/*.svg, the source both are rasterised from).
+    icons: {
+      16: 'icon/16.png',
+      32: 'icon/32.png',
+      48: 'icon/48.png',
+      128: 'icon/128.png',
+    },
     description: 'Auto-apply to jobs across Greenhouse, Lever and Ashby boards, Datadog, Amazon, Instahyre and LinkedIn.',
     // Least privilege: only what the code actually uses.
     // storage = applications/stats + run state; tabs = drive the worker tab + find Gmail;
