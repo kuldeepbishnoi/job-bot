@@ -64,21 +64,25 @@ into a box's range, no accepting arbitration/waiver clauses, no `options[0]` on 
 aliases, per-site account limits, registry exclusion on every start path, storage quota bounds,
 stray-dialog recovery, and complete per-application records on disk.
 
-**Known-open, nobody assigned** (all Amazon-pack, all in code from PR #5):
-1. `ats/amazon.ts#resumeAttached` is never called and its expression is inverted
-   (`!x?.files?.length === false` parses as `(!(len)) === false`), so the résumé step never
-   verifies the upload — `entrypoints/amazon.content.ts` records the résumé as filled and can
-   re-attach it up to `MAX_FORMS` times, blowing the apply timeout while the record claims success.
-2. The daily scheduled run (`entrypoints/background.ts#runScheduled`) passes no credentials, so
-   auto-login never runs on the one path built for hands-off use: the run pauses for a human who
-   is not there.
-3. `app/stepper.ts#rotateAccount` can select the account already logged in when the popup's
-   "Account" field was never filled (`getAccount()` returns ''), burning a job and a login cycle
-   before rotating again.
+**Fixed (2026-09-15, PR #10)** — all three Amazon-pack bugs below, reported directly by the owner
+as "worked with a single email, broke with multiple" (every one of them only bites a *second*,
+fresh account, which a single-email setup never exercises):
+1. `ats/amazon.ts#resumeAttached` existed, computed the right boolean, and was never called — the
+   content script attached the résumé, slept a fixed 4s, then clicked Continue regardless of
+   whether Amazon actually confirmed the upload. Now polls `resumeAttached()` before advancing,
+   retries once, parks with a clear reason instead of guessing.
+2. The daily scheduled run (`entrypoints/background.ts#runScheduled`) passed no credentials, so
+   auto-login never ran on the one path built for hands-off use. `platform/schedule.ts#DailySchedule`
+   now snapshots `profile/accounts.csv` alongside profile+résumé, same reason: the alarm fires with
+   no page, no FS access.
+3. `app/stepper.ts#rotateAccount` could select the account already logged in when the popup's
+   "Account" field was never filled (`getAccount()` returns `''`, matching no real candidate).
+   `startRun` now refuses up front with a named error when several accounts are configured but none
+   is marked current, rather than risking a pointless logout/login cycle.
 
-Also open, outside this repo's stack: the résumé tailor (PR #4) is negation-blind, so a JD saying
-"Kubernetes is not required" still counts as a Kubernetes hit and bolds it; and `npm run tailor`
-overwrites the same output name on every run without a warning.
+**Still open, nobody assigned**, outside this repo's own stack: the résumé tailor (PR #4) is
+negation-blind, so a JD saying "Kubernetes is not required" still counts as a Kubernetes hit and
+bolds it; and `npm run tailor` overwrites the same output name on every run without a warning.
 
 ## Code-review blockers fixed (PR #1 review round 1)
 - OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
