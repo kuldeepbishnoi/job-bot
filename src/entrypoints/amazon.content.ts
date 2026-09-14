@@ -96,12 +96,22 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       // not question forms. Handle them by the rail's active title before the generic path.
       const railActive = az.progress(document).find((p) => p.state === 'active')?.title ?? '';
       if (/^resume/i.test(railActive) && az.resumeInput(document)) {
+        // Verify the upload actually landed before advancing — a fixed sleep here previously
+        // clicked Continue whether or not the file attached, which a fresh (multi-account) Amazon
+        // login hits on every first apply but an already-onboarded account never sees again.
         log('resume section: attaching', msg.resume.name);
         az.attachResume(document, deserializeFile(msg.resume));
+        let attached = await waitFor(() => (az.resumeAttached(document) ? true : null), 15_000).catch(() => false);
+        if (!attached) {
+          log('resume attach not confirmed, retrying', az.describeState(document));
+          az.attachResume(document, deserializeFile(msg.resume));
+          attached = await waitFor(() => (az.resumeAttached(document) ? true : null), 15_000).catch(() => false);
+        }
+        if (!attached) return parked(`Résumé did not attach — ${az.describeState(document)}`);
         filled.push({ id: 'resume', label: 'Résumé', value: msg.resume.name });
-        await sleep(4000); // Amazon uploads + parses; then its Continue/next appears
         const cont = await waitFor(() => az.continueButton(document.body), 20_000).catch(() => null);
-        if (cont) cont.click();
+        if (!cont) return parked(`Résumé attached but no Continue button appeared — ${az.describeState(document)}`);
+        cont.click();
         await sleep(2500);
         continue;
       }

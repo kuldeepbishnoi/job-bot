@@ -5,7 +5,7 @@ import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP } from '@/a
 import type { RunPorts } from '@/app/runner';
 import { listRuns } from '@/platform/data/runs';
 import { queryEvents, clearEvents } from '@/platform/data/events';
-import { getRunState, saveProgress } from '@/platform/store';
+import { getRunState, saveProgress, setAccount } from '@/platform/store';
 import { parseProfile } from '@/config/schema';
 import type { Application, Job } from '@/engine/types';
 import type { ApplyOutcome } from '@/platform/messaging';
@@ -248,5 +248,27 @@ describe('a pack walking hundreds of boards', () => {
     const { ports } = fakePorts(many);
     await startRun('datadog', { ...profile, max_per_run: 15 }, resume, ports, [], undefined, 'manual');
     expect((await getRunState())?.queue).toHaveLength(15);
+  });
+});
+
+describe('multi-account safety guard', () => {
+  const multi = { ...profile, accounts: ['a@x.com', 'b@x.com'] };
+
+  it('refuses to start when several accounts are configured but none is marked current (#regression: an unknown identity let rotation reuse the already-logged-in account and repeat the same limit failure forever, since getAccount() === "" matched no real candidate)', async () => {
+    const { ports } = fakePorts([job('j1')]);
+    await expect(startRun('amazon', multi, resume, ports)).rejects.toThrow(/no current account is set/);
+  });
+
+  it('runs normally once the current account is set', async () => {
+    await setAccount('a@x.com');
+    const { ports, recorded } = fakePorts([job('j1')]);
+    await startRun('amazon', multi, resume, ports);
+    expect(recorded).toHaveLength(1);
+  });
+
+  it('never requires an account when the site has one candidate or none configured', async () => {
+    const { ports, recorded } = fakePorts([job('j1')]);
+    await startRun('amazon', profile, resume, ports); // profile.accounts is empty here
+    expect(recorded).toHaveLength(1);
   });
 });

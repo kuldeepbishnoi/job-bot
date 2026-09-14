@@ -229,7 +229,9 @@ export function attachResume(doc: Document, file: File): void {
   setFile(input, file);
 }
 export function resumeAttached(doc: Document): boolean {
-  return !!doc.querySelector('.document-name, .resume-name, [class*="document-block"] [class*="name"]') && !resumeInput(doc)?.files?.length === false;
+  const shown = !!doc.querySelector('.document-name, .resume-name, [class*="document-block"] [class*="name"]');
+  const hasFile = (resumeInput(doc)?.files?.length ?? 0) > 0;
+  return shown && hasFile;
 }
 
 /** Contact information section: plain React text inputs named applicant[<field>]. */

@@ -151,8 +151,11 @@ async function runScheduled(siteId: string): Promise<void> {
   try {
     // No exclude passed: with none, both start paths read the shared registry themselves, so a
     // hands-off daily run excludes what every account already applied to, exactly like a manual one.
+    // sched.credentials (snapshotted when the toggle was armed) is what lets a multi-account site
+    // log the next account in itself when it hits a limit — without it, a daily run just pauses
+    // forever the first time rotation is needed, since nobody is there to click Resume.
     if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, [], 'daily');
-    else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], undefined, 'daily');
+    else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], sched.credentials, 'daily');
   } catch (e) {
     console.error('[jobbot] daily run failed to start', e);
   }

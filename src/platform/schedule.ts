@@ -1,5 +1,6 @@
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
+import type { Credentials } from './credentials';
 
 // Hands-off daily runs. The popup (which has the File System Access gesture) loads the profile +
 // résumé once and stores them here; a chrome.alarm then re-runs the site every 24h from the
@@ -15,6 +16,11 @@ export interface DailySchedule {
   readonly siteId: string;
   readonly profile: Profile;
   readonly resume: SerializedFile;
+  /** From profile/accounts.csv, snapshotted for the same reason profile/resume are: the service
+   *  worker can't read the profile folder itself. Without this, a daily run on a site with
+   *  multiple accounts and no credentials file has no way to log the next one in when it hits a
+   *  limit — it just pauses forever, since nobody is there to click Resume. */
+  readonly credentials?: Credentials;
 }
 
 /** Next occurrence of `hour`:00 local time strictly after `now`. Pure; unit-tested. */
@@ -33,8 +39,8 @@ export function siteIdFromAlarm(name: string): string | null {
   return name.startsWith(DAILY_ALARM_PREFIX) ? name.slice(DAILY_ALARM_PREFIX.length) : null;
 }
 
-export async function enableDaily(siteId: string, profile: Profile, resume: SerializedFile): Promise<void> {
-  const sched: DailySchedule = { siteId, profile, resume };
+export async function enableDaily(siteId: string, profile: Profile, resume: SerializedFile, credentials?: Credentials): Promise<void> {
+  const sched: DailySchedule = { siteId, profile, resume, ...(credentials ? { credentials } : {}) };
   await chrome.storage.local.set({ [KEY_PREFIX + siteId]: sched });
   await chrome.alarms.create(alarmName(siteId), { when: nextFire(DAILY_HOUR, Date.now()), periodInMinutes: 24 * 60 });
 }
