@@ -24,6 +24,9 @@ let stepping = false; // one step at a time — the timer and the backup alarm c
 // A step that shows no progress for this long is presumed dead (SW killed mid-apply, a tab that
 // never answered…). The apply port caps one job at 4 min, so 6 min means the alarm chain broke.
 const STALL_MS = 6 * 60 * 1000;
+// A persisted queue this long is ~1.4 MB of the 10 MB chrome.storage budget. Beyond it we would be
+// trading the records and the log for jobs this run was never going to reach anyway.
+export const QUEUE_CAP = 5000;
 
 // A run whose service worker died mid-step never reaches finish(); its run_state would otherwise
 // sit there forever. Progress is stamped on every step, so "no progress for this long" = dead.
@@ -67,7 +70,14 @@ export async function startRun(
   const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
   const already = new Set([...(await ports.appliedIds()), ...registry]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
-  const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
+  // The queue is PERSISTED (a killed service worker resumes from it), and chrome.storage.local is
+  // 10 MB shared with the application records and the log. A multi-company pack walking hundreds of
+  // boards discovers tens of thousands of jobs — ~277 bytes each, so ~36k jobs alone would fill the
+  // quota and the run would fail to start at all. Cap what we keep, and say so rather than letting
+  // the rest vanish silently: the next run picks them up, because applied ids are excluded.
+  const wanted = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
+  const queue = wanted.slice(0, QUEUE_CAP);
+  const dropped = wanted.length - queue.length;
   // One Run record per run, before any job: the console's whole view of this run hangs off it.
   const runId = await observe.runStarted({
     siteId,
@@ -79,7 +89,7 @@ export async function startRun(
     queued: queue.length,
     resumeName: resume.name,
     config: {
-      selected: `${queue.length} of ${all.length} discovered`,
+      selected: `${queue.length} of ${all.length} discovered${dropped ? `, ${dropped} left for the next run (queue capped at ${QUEUE_CAP})` : ''}`,
       excluded: String(already.size),
       ...(profile.max_per_run ? { max_per_run: String(profile.max_per_run) } : {}),
       ...(profile.per_account_limit ? { per_account_limit: String(profile.per_account_limit) } : {}),

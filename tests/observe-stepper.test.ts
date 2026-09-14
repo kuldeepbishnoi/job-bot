@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { installChromeRuntimeFake, type ChromeRuntimeFake } from './helpers/chrome-extras';
-import { startRun, step, stopRun, watchdog, runInProgress } from '@/app/stepper';
+import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP } from '@/app/stepper';
 import type { RunPorts } from '@/app/runner';
 import { listRuns } from '@/platform/data/runs';
 import { queryEvents, clearEvents } from '@/platform/data/events';
@@ -216,5 +216,27 @@ describe('the shared registry on a hands-off run', () => {
     const { ports } = fakePorts([job('j1'), job('j2')]);
     await startRun('datadog', profile, resume, ports, ['j2'], undefined, 'manual');
     expect((await getRunState())?.queue.map((j) => j.id)).toEqual(['j1']);
+  });
+});
+
+describe('a pack walking hundreds of boards', () => {
+  it('caps the persisted queue instead of failing to start, and says what it left behind', async () => {
+    // chrome.storage.local is 10 MB shared with the records and the log; a job is ~277 bytes, so an
+    // uncapped queue from a few hundred boards would blow the quota and the run would never begin.
+    const many = Array.from({ length: QUEUE_CAP + 250 }, (_, i) => job(`j${i}`));
+    const { ports } = fakePorts(many);
+    await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+
+    const state = await getRunState();
+    expect(state?.queue).toHaveLength(QUEUE_CAP);
+    const run = (await listRuns()).at(-1);
+    expect(run?.config?.['selected']).toMatch(/250 left for the next run/);
+  });
+
+  it('a smaller max_per_run still wins — the cap is a ceiling, not a target', async () => {
+    const many = Array.from({ length: 200 }, (_, i) => job(`j${i}`));
+    const { ports } = fakePorts(many);
+    await startRun('datadog', { ...profile, max_per_run: 15 }, resume, ports, [], undefined, 'manual');
+    expect((await getRunState())?.queue).toHaveLength(15);
   });
 });
