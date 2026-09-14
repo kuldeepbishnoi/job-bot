@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve, matchOptions, guessAnswer, salaryFor, salaryInUnit, noticeDays, pickNoticeOption } from '@/engine/resolver';
 import { fitNumber, fitText } from '@/engine/fit-answer';
+import { cityNames } from '@/engine/resolver';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -206,8 +207,10 @@ describe('derived answers (salary / notice / city / top choice)', () => {
   });
 
   it('"are you located in <city>" is Yes only for the profile city; the top-choice box stays off', () => {
-    expect(resolve(f('Are you currently located in Bangalore?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    // Bangalore and Bengaluru are the same city (see cityNames) — both answer Yes for this profile.
+    expect(resolve(f('Are you currently located in Bangalore?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
     expect(resolve(f('Are you currently located in Bengaluru?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(resolve(f('Are you currently located in Hyderabad?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
     expect(resolve(f('Mark job as a top choice', 'answers.top_choice', 'checkbox'), p, job)).toEqual({ kind: 'check', value: false });
     expect(resolve({ ...f('Mark job as a top choice', 'answers.top_choice', 'checkbox'), required: false }, parseProfile({ ...p, answers: {} }), job)).toEqual({ kind: 'check', value: false });
   });
@@ -273,5 +276,25 @@ describe('yes/no against options that do not say "yes" or "no"', () => {
   it('parks rather than guessing when three options carry no yes/no', () => {
     expect(resolve(f('Do you have experience with Kubernetes?', 'answers.skills_experience'), p, job, ['Expert', 'Intermediate', 'Beginner'])).toEqual({ kind: 'unknown' });
     expect(resolve(f('Do you have experience with Kubernetes?', 'answers.skills_experience'), p, job, ['Expert', 'Some', 'None at all'])).toEqual({ kind: 'unknown' });
+  });
+});
+
+describe('city aliases', () => {
+  const p = parseProfile({
+    identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+91 9', country: 'India', city: 'Bengaluru' },
+    resume: 'r.pdf',
+  });
+  const job: Job = { id: '1', title: '', team: '', department: '', url: '', locations: [], seniority: [] };
+  const f = (label: string): Field => ({ id: label, label, kind: 'select', required: true, intent: 'answers.in_city' });
+
+  it('Bangalore IS Bengaluru — the answer must not be a false "No"', () => {
+    expect(cityNames('Bengaluru')).toContain('bangalore');
+    expect(cityNames('Gurugram')).toContain('gurgaon');
+    expect(cityNames('Springfield')).toEqual(['springfield']);
+    expect(resolve(f('Are you currently located in Bangalore?'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(resolve(f('Are you currently located in Bengaluru?'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(resolve(f('Are you currently located in Chennai?'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    const gurugram = parseProfile({ ...p, identity: { ...p.identity, city: 'Gurugram' } });
+    expect(resolve(f('Are you based out of Gurgaon?'), gurugram, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
   });
 });

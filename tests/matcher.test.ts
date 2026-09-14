@@ -130,3 +130,22 @@ describe('matchIntent (real Amazon labels — fixtures/amazon-forms.json)', () =
     expect(normalize('  How DID you   hear? ')).toBe('how did you hear');
   });
 });
+
+// Labels that a BROAD keyword used to swallow. The matcher is first-match-wins, so a bare term
+// near the top of the list ("notice", "phone", "city") silently answers an unrelated question —
+// each of these was produced by running the real matcher, not by reading it.
+describe('matchIntent — broad terms must not shadow later rules', () => {
+  const cases: [string, string | undefined][] = [
+    ['Do you agree to our privacy notice?', 'answers.privacy_consent'],
+    ['Will you be able to attend a phone screen?', undefined],
+    ['Do you consent to a phone interview?', undefined],
+    ['Which city or cities would you prefer to work in?', 'locations'],
+    ['What city do you live in?', 'identity.city'],
+    ['What is your notice period?', 'answers.notice_period'],
+    ['Mobile phone number', 'identity.phone'],
+    ['How much do you earn currently?', 'answers.current_salary'],
+    ['Current Cost to Company', 'answers.current_salary'],
+    ['What is your salary?', 'answers.current_salary'],
+  ];
+  it.each(cases)('%s', (label, intent) => expect(matchIntent(label)).toBe(intent));
+});

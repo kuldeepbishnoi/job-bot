@@ -26,7 +26,7 @@ interface Rule {
 const RULES: readonly Rule[] = [
   // Contact-step fields (LinkedIn Easy Apply labels them; Greenhouse tags them by DOM id).
   { intent: 'identity.phone_country', any: ['phone country code', 'country code'] },
-  { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code'] },
+  { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code', 'screen', 'interview', 'call you', 'call with', 'available for a phone', 'attend a phone'] },
   { intent: 'identity.email', any: ['email address', 'email'], not: ['consent', 'receive', 'agree', 'subscribe'] },
   { intent: 'identity.first_name', any: ['first name', 'given name'] },
   { intent: 'identity.last_name', any: ['last name', 'surname', 'family name'] },
@@ -44,10 +44,11 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.current_variable_salary', any: ['variable salary', 'variable pay', 'variable component', 'current variable', 'variable ctc'], not: ['expected'] },
   { intent: 'answers.current_fixed_salary', any: ['fixed salary', 'fixed ctc', 'fixed pay', 'fixed component', 'current fixed', 'base salary', 'fixed compensation'], not: ['expected'] },
   { intent: 'answers.total_ctc', any: ['total ctc', 'fixed variable', 'total compensation', 'total salary', 'overall ctc', 'current total', 'gross salary', 'gross ctc', 'annual package', 'current package'], not: ['expected'] },
-  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary'], not: ['expected'] },
+  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary', 'cost to company', 'how much do you earn', 'how much are you earning', 'your salary', 'salary you are drawing', 'current remuneration', 'current emoluments'], not: ['expected'] },
   { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice'] },
   { intent: 'answers.immediate_joiner', any: ['immediate joiner', 'join immediately', 'can you join within', 'join us within', 'join within', 'immediately available', 'available immediately'] },
-  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'notice', 'joining time', 'time to join'] },
+  // NEVER a bare 'notice': "Do you agree to our privacy notice?" was answered with "30".
+  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required'], not: ['privacy', 'policy', 'agree'] },
   { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining'] },
   { intent: 'answers.current_company', any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
   { intent: 'answers.current_title', any: ['current designation', 'current title', 'current role', 'current job title', 'current position', 'present designation', 'present role'] },
@@ -60,8 +61,10 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.drivers_license', any: ['driver s license', 'drivers license', 'driving license', 'driving licence', 'driver s licence'] },
   { intent: 'answers.security_clearance', any: ['security clearance', 'clearance'] },
   { intent: 'identity.city', any: ['current city', 'current location', 'city you live', 'where are you located', 'where do you live', 'your city'] },
-  { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized'] },
-  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'preferred location', 'work location', 'available to work'], not: ['authorised', 'authorized'] },
+  // Plural / "where would you work" phrasing is the LOCATIONS question (a multi-choice of cities),
+  // never "what city do you live in" — it must be tested BEFORE the bare-word city rule.
+  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you'], not: ['authorised', 'authorized'] },
+  { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized', 'prefer', 'cities'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
   { intent: 'answers.how_did_you_hear', all: ['how did you hear'] },
   { intent: 'answers.how_did_you_hear_detail', any: ['please specify'] },

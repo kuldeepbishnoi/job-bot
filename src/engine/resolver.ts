@@ -98,6 +98,32 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   return toAnswer(val, field, options);
 }
 
+// One city, several names in circulation. "Are you currently located in Bangalore?" asked of
+// someone whose profile says Bengaluru must answer Yes — the old exact-substring test said No,
+// a false statement about where the applicant lives.
+const CITY_ALIASES: readonly (readonly string[])[] = [
+  ['bengaluru', 'bangalore', 'blr'],
+  ['gurugram', 'gurgaon'],
+  ['mumbai', 'bombay'],
+  ['kolkata', 'calcutta'],
+  ['chennai', 'madras'],
+  ['pune', 'poona'],
+  ['thiruvananthapuram', 'trivandrum'],
+  ['vadodara', 'baroda'],
+  ['kochi', 'cochin'],
+  ['mysuru', 'mysore'],
+  ['prayagraj', 'allahabad'],
+  ['noida', 'gautam buddha nagar'],
+  ['new delhi', 'delhi', 'ncr'],
+];
+
+/** Every name this city goes by, lowercased (itself included). */
+export function cityNames(city: string): string[] {
+  const c = city.trim().toLowerCase();
+  const group = CITY_ALIASES.find((g) => g.includes(c));
+  return group ? [...group] : [c];
+}
+
 const num = (v: AnswerValue | undefined): number | undefined => (typeof v === 'number' ? v : typeof v === 'string' && /^\s*[\d,.]+\s*$/.test(v) ? Number(v.replace(/,/g, '')) : undefined);
 
 /** Salary answers: profile numbers are ANNUAL in the applicant's currency (INR for the Indian
@@ -230,7 +256,7 @@ function resolveDerived(intent: Intent, field: Field, profile: Profile, options:
     case 'answers.in_city': {
       const city = profile.identity.city.trim().toLowerCase();
       if (!city) return { kind: 'unknown' };
-      const here = field.label.toLowerCase().includes(city);
+      const here = cityNames(city).some((n) => field.label.toLowerCase().includes(n));
       if (!choice) return { kind: 'text', value: here ? 'Yes' : profile.identity.city };
       return toAnswer(here, field, options);
     }

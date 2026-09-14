@@ -77,6 +77,10 @@ export async function setAccount(email: string): Promise<void> {
 // retry that sheds the oldest logs if Chrome still refuses the write.
 const LOG_LINES_KEPT = 30;
 const RECORDS_KEEPING_LOGS = 60;
+// The on-disk applications.jsonl is the complete history; chrome.storage only feeds the UI and the
+// dedupe list. Unbounded, it eventually exhausts the 10 MB quota, and a rejected write used to
+// cost the record, its capture and the run's counters.
+const MAX_RECORDS = 2000;
 
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
@@ -88,14 +92,20 @@ export async function record(app: Application): Promise<void> {
   // An applied job's log is only interesting on disk; a parked/failed one is what the user reviews.
   const keepLog = app.log?.length && app.status !== 'applied';
   const stamped: Application = { ...lean, ...(keepLog ? { log: app.log!.slice(-LOG_LINES_KEPT) } : {}), at: new Date().toISOString(), account: await getAccount() };
-  const next = [...all, stamped];
+  const next = [...all, stamped].slice(-MAX_RECORDS);
   try {
     await chrome.storage.local.set({ [KEY]: next });
   } catch (e) {
     // Out of quota: drop the log lines from everything but the newest handful and try once more.
     // Losing log lines that are already on disk beats losing the record itself.
     const slim = next.map((a, i) => (i < next.length - RECORDS_KEEPING_LOGS && a.log ? { ...a, log: undefined } : a));
-    await chrome.storage.local.set({ [KEY]: slim });
+    try {
+      await chrome.storage.local.set({ [KEY]: slim });
+    } catch {
+      // Still refused: keep the newest half rather than losing the write (and with it the job's
+      // place in the dedupe list, which is what makes a re-run apply to it twice).
+      await chrome.storage.local.set({ [KEY]: slim.slice(-Math.ceil(slim.length / 2)).map(({ log: _l, fields: _f, ...a }) => a) });
+    }
     console.warn('[jobbot] storage quota hit — trimmed old log lines from records', (e as Error).message);
   }
 }
