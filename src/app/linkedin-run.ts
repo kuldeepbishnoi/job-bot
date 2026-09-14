@@ -1,7 +1,7 @@
 import type { Profile } from '../config/schema';
 import type { Application } from '../engine/types';
 import { dlog, takePendingLines } from '../platform/debug-log';
-import { appendLogLines, persistApplication } from '../platform/fs-config';
+import { appendLogLines, persistApplication, readRegistry } from '../platform/fs-config';
 import { send, sendToTab, type LinkedinJob, type Msg } from '../platform/messaging';
 import type { SerializedFile } from '../platform/serialized-file';
 import { allRecords, getAccount, record, saveProgress } from '../platform/store';
@@ -99,6 +99,11 @@ export async function startLinkedin(base: Profile, resume: SerializedFile, overr
   if (!cfg) throw new Error('profile.yaml has no `linkedin:` block (search_urls) — see profile.example.yaml');
   if (await getLinkedinRun()) throw new Error('a LinkedIn run is already in progress — press Stop first');
   const budget = Math.max(1, Math.min(overrides?.maxPerRun ?? Number.POSITIVE_INFINITY, cfg.max_per_run, profile.max_per_run ?? cfg.max_per_run)); // finite: it's persisted as JSON
+  // Never re-apply to a job any account already recorded. The caller may pass the registry (the
+  // popup/console read it anyway); otherwise read it here, which works in the service worker —
+  // `writeRecord` has been writing to this same folder from the background since July, through the
+  // identical queryPermission check. A daily run must not be the one path that skips this.
+  const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
   const urls = cfg.search_urls.map((u) => searchUrl(u, 0));
   const tab = await chrome.tabs.create({ url: urls[0], active: true }); // LinkedIn throttles background tabs
   if (tab.id === undefined) throw new Error('could not open the LinkedIn tab');
@@ -115,7 +120,7 @@ export async function startLinkedin(base: Profile, resume: SerializedFile, overr
     applied: 0,
     skipped: 0,
     handled: [],
-    excluded: [...new Set(exclude)],
+    excluded: [...new Set(registry)],
     tabId: tab.id,
     startedAt: now,
     lastActivityAt: now,
@@ -126,7 +131,7 @@ export async function startLinkedin(base: Profile, resume: SerializedFile, overr
   await serialized(() => save(run));
   await saveProgress({ done: 0, total: budget, current: 'LinkedIn: opening search…', phase: 'running', at: now });
   await chrome.alarms.create(LINKEDIN_WATCHDOG_ALARM, { periodInMinutes: 1 });
-  log('run started', { runId: run.runId, urls, budget, autoSubmit: profile.auto_submit, overrides });
+  log('run started', { runId: run.runId, urls, budget, autoSubmit: profile.auto_submit, overrides, excluded: run.excluded.length });
   try {
     await kick(run.runId);
   } catch (e) {
