@@ -207,7 +207,9 @@ export function noticeDays(label: string): { min: number; max: number } | null {
   if (nums.length >= 2) return { min: Math.min(nums[0]!, nums[1]!), max: Math.max(nums[0]!, nums[1]!) };
   const n = nums[0]!;
   if (/less than|under|below|up to|within|or less|max/.test(t)) return { min: 0, max: n };
-  if (/more than|above|over|\+|or more|greater/.test(t)) return { min: n, max: Number.POSITIVE_INFINITY };
+  // "more then" is a typo seen live on a real Lever board ("More then 60 days") — treat it the
+  // same as "more than", or it falls to the exact-n branch and ties with a real "60 Days" option.
+  if (/more than|more then|above|over|\+|or more|greater/.test(t)) return { min: n, max: Number.POSITIVE_INFINITY };
   return { min: n, max: n };
 }
 
@@ -219,7 +221,10 @@ export function pickNoticeOption(options: readonly string[], days: number): stri
   const hit = parsed.find((x) => days >= x.r.min && days <= x.r.max);
   if (hit) return hit.o;
   const above = parsed.filter((x) => x.r.min > days).sort((a, b) => a.r.min - b.r.min)[0];
-  return above?.o ?? parsed.reduce((a, b) => (b.r.min > a.r.min ? b : a)).o;
+  // On a tie for the highest floor (a fixed "60 Days" alongside an open-ended "60+"/"More then 60
+  // days"), prefer the open-ended one — reporting a longer real notice as the fixed bucket
+  // understates it to the employer.
+  return above?.o ?? parsed.reduce((a, b) => (b.r.min > a.r.min || (b.r.min === a.r.min && b.r.max > a.r.max) ? b : a)).o;
 }
 
 const YESNO = (options: readonly string[]): { yes: string; no: string } | null => {

@@ -194,6 +194,13 @@ describe('derived answers (salary / notice / city / top choice)', () => {
     expect(resolve(f('Are you an immediate joiner?', 'answers.immediate_joiner', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
 
+  it('notice period: a real board\'s "More then 60 days" typo is read as open-ended, not a fixed 60 (#regression, seen live on Lever/nium)', () => {
+    expect(noticeDays('More then 60 days')).toEqual({ min: 60, max: Infinity });
+    // "60 Days" and "More then 60 days" tie on min=60 — the open-ended one must win so a longer
+    // real notice (90 days here) is reported honestly instead of understated as exactly 60.
+    expect(pickNoticeOption(['Immediate', '7-15 Days', '30 Days', '45 Days', '60 Days', 'More then 60 days'], 90)).toBe('More then 60 days');
+  });
+
   it('exact-years boxes use the honest figure even when the ladder answer is MAX', () => {
     const maxp = parseProfile({ ...p, answers: { years_of_experience: 'MAX', exact_years_of_experience: 4.7 } });
     const ladder = ['0-2 years', '3-5 years', '6-10 years', '10+ years'];
