@@ -54,7 +54,7 @@ describe('greenhouse boards discovery', () => {
 
   // An application cannot be withdrawn, and auto_submit is commonly on. So a profile that never
   // mentions the pack must apply to NOBODY — reaching the curated list has to be a decision.
-  it('a profile with no greenhouse block walks no boards at all', () => {
+  it('a profile with no greenhouse block walks no boards at all (#regression)', () => {
     const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
     expect(p.greenhouse).toEqual({ boards: [], include_defaults: false });
     expect(boardsToWalk(p.greenhouse)).toEqual([]);
@@ -67,6 +67,14 @@ describe('greenhouse boards discovery', () => {
       greenhouse: { include_defaults: true },
     });
     expect(boardsToWalk(p.greenhouse)).toEqual([...DEFAULT_GREENHOUSE_BOARDS]);
+  });
+});
+
+describe('greenhouse site refuses to run with nothing configured, rather than silently applying to the curated list', () => {
+  it('discover() throws a clear, actionable error when no boards are named and include_defaults is off', async () => {
+    const { greenhouse } = await import('@/sites/greenhouse');
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
+    await expect(greenhouse.discover(p)).rejects.toThrow(/no boards configured.*profile\.greenhouse\.boards.*include_defaults/);
   });
 });
 

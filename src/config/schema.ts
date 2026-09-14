@@ -53,13 +53,15 @@ export const LinkedinSchema = z.object({
 
 // Multi-company packs (Greenhouse boards, Lever, Ashby): a list of company job boards to walk.
 // Each entry is the board's slug ("discord") or any URL on that board — parseBoardRef() in the
-// matching src/sources/*.ts normalises both. include_defaults=true = the curated default list PLUS
-// yours; false = only yours. Everything here is meant to be edited from the dashboard.
+// matching src/sources/*.ts normalises both. These packs APPLY, not just discover — so the default
+// is "run exactly what you listed", never a silent fan-out.
 //
-// include_defaults defaults to FALSE deliberately. With `auto_submit: true` — which is a normal
-// setting here — turning it on means one click applies to dozens of companies the user never
-// named (41 in DEFAULT_GREENHOUSE_BOARDS alone), and an application cannot be withdrawn. Opting
-// in has to be a decision, not the consequence of leaving a key out of profile.yaml.
+// include_defaults defaults to FALSE deliberately. With `auto_submit: true` — a normal setting
+// here — turning it on means one click applies to companies the user never named (41 in
+// DEFAULT_GREENHOUSE_BOARDS alone, plus the Lever and Ashby lists), and an application cannot be
+// withdrawn. Opting in has to be a decision, not the consequence of leaving a key out of
+// profile.yaml. With it false and no boards, the pack refuses to run rather than pick a target the
+// user never chose. Everything here is meant to be edited from the dashboard.
 export const BoardListSchema = z.object({
   boards: z.array(z.string().min(1)).default([]),
   include_defaults: z.boolean().default(false),

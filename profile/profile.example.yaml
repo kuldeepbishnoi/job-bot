@@ -146,33 +146,37 @@ amazon:
   search_url: "https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant"
   ai_consent: false     # Amazon's one-time "may we use AI to recommend jobs / refer you" prompt (false = decline)
 
-# Multi-company packs — one button each in the popup/dashboard, every company in the list applied
-# to with the same résumé/answers. Each entry is the company's board slug OR any URL on its board.
+# Multi-company packs — one button each in the popup/dashboard. These APPLY, not just list jobs,
+# so each one runs ONLY the boards named below — never a silent fan-out to companies you never
+# picked. Each entry is the company's board slug OR any URL on its board; add as many as you like
+# (hundreds is fine — discovery is one API call per board and the run is still capped by
+# max_per_run above).
 #
 # READ THIS BEFORE SETTING include_defaults: true.
-# It adds a curated list of companies you did not name — 41 Greenhouse boards (databricks, stripe,
-# anthropic, datadog, mongodb, cloudflare, elastic, toast, okta, brex, samsara, scaleai, gitlab,
-# coinbase, affirm, lyft, pinterest, flexport, airbnb, figma, robinhood, reddit, twilio, nuro,
-# instacart, asana, gusto, vercel, duolingo, chime, faire, postman, carta, mercury, twitch,
-# discord, dropbox, webflow, cockroachlabs, nextdoor, lattice), plus the Lever and Ashby lists in
-# src/sources/*.ts. With `auto_submit: true` above, ONE click then sends real applications to
-# those companies, and an application cannot be withdrawn. It defaults to false for that reason:
-# list the companies you actually want, or turn it on deliberately.
+# It switches EACH pack on to ALSO run a curated list of real companies you did not name —
+# 41 Greenhouse boards (databricks, stripe, anthropic, datadog, mongodb, cloudflare, elastic,
+# toast, okta, brex, samsara, scaleai, gitlab, coinbase, affirm, lyft, pinterest, flexport,
+# airbnb, figma, robinhood, reddit, twilio, nuro, instacart, asana, gusto, vercel, duolingo,
+# chime, faire, postman, carta, mercury, twitch, discord, dropbox, webflow, cockroachlabs,
+# nextdoor, lattice), 8 for Lever and 27 for Ashby (full names in src/sources/*.ts DEFAULT_*_BOARDS).
+# With auto_submit: true that is real applications landing at every one of them the moment you
+# click the button, and an application cannot be withdrawn. It defaults to false for that reason.
 #
-# All three blocks are optional. Omitted = that pack has nothing to walk until you add boards.
+# All three blocks are optional. Omitted = that pack has nothing to walk, and says so instead of
+# guessing a target.
 greenhouse:
   boards:
     - discord                                   # board token
     - https://boards.greenhouse.io/figma        # or a URL on the board
     - https://job-boards.greenhouse.io/anthropic/jobs/4461450008
-  include_defaults: false   # true also applies to the 41 companies listed above
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_GREENHOUSE_BOARDS (41)
 lever:
   boards:
     - zoox
     - https://jobs.lever.co/nium
-  include_defaults: false   # true also applies to DEFAULT_LEVER_BOARDS
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_LEVER_BOARDS (8)
 ashby:
   boards:
     - notion
     - https://jobs.ashbyhq.com/linear
-  include_defaults: false   # true also applies to DEFAULT_ASHBY_BOARDS
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_ASHBY_BOARDS (27)
