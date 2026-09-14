@@ -46,6 +46,9 @@ const VALID: Profile = {
   auto_submit: false,
   careers: [],
   accounts: [],
+  greenhouse: { boards: [], include_defaults: false },
+  lever: { boards: [], include_defaults: false },
+  ashby: { boards: [], include_defaults: false },
 };
 
 describe('validateDraft', () => {
