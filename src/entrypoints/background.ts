@@ -2,6 +2,10 @@ import { defineBackground } from 'wxt/sandbox';
 import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, STEP_ALARM, WATCHDOG_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
+import {
+  startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning, onLinkedinAlive,
+  linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
+} from '@/app/linkedin-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
 import type { Msg } from '@/platform/messaging';
 
@@ -25,8 +29,54 @@ export default defineBackground(() => {
       return true;
     }
     if (msg.t === 'stop') {
-      stopRun(chromePorts()).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      Promise.all([stopRun(chromePorts()), stopLinkedin()]).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
       return true;
+    }
+    // LinkedIn Easy Apply: in-page like Instahyre, but with a form — the profile travels with the
+    // message; paging + recovery live in app/linkedin-run.ts.
+    if (msg.t === 'runLinkedin') {
+      startLinkedin(msg.profile, msg.resume, msg.overrides, msg.exclude ?? []).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      return true;
+    }
+    if (msg.t === 'linkedin-result') {
+      void onLinkedinResult(msg);
+      return;
+    }
+    // Screenshot for the record: only the background can capture, and only with the optional
+    // <all_urls> grant (the popup asks for it when a LinkedIn run starts). Never fails the apply.
+    if (msg.t === 'linkedin-capture') {
+      (async () => {
+        try {
+          // Capture ONLY the tab that asked, and only while it is the active tab of its window:
+          // captureVisibleTab grabs whatever is visible now, which may be the user's email if they
+          // switched tabs since the content script checked.
+          const tab = _sender.tab;
+          if (!tab?.id || tab.windowId === undefined) return sendResponse({ dataUrl: null, error: 'no tab' });
+          const fresh = await chrome.tabs.get(tab.id).catch(() => null);
+          if (!fresh?.active) return sendResponse({ dataUrl: null, error: 'tab is not active — screenshot skipped' });
+          const dataUrl = await chrome.tabs.captureVisibleTab(fresh.windowId, { format: 'jpeg', quality: 70 });
+          sendResponse({ dataUrl });
+        } catch (e) {
+          sendResponse({ dataUrl: null, error: String((e as Error).message) });
+        }
+      })();
+      return true;
+    }
+    if (msg.t === 'linkedin-alive') {
+      void onLinkedinAlive(msg);
+      return;
+    }
+    if (msg.t === 'linkedin-warning') {
+      void onLinkedinWarning(msg);
+      return;
+    }
+    if (msg.t === 'linkedin-handled') {
+      void onLinkedinHandled(msg.runId, msg.ids);
+      return;
+    }
+    if (msg.t === 'linkedin-page-done') {
+      void onLinkedinPageDone(msg);
+      return;
     }
     // Instahyre applies in-page in the user's logged-in tab; the content script drives the loop
     // and reports each apply back here so it lands in the same stats/records as Greenhouse.
@@ -61,9 +111,18 @@ export default defineBackground(() => {
       void watchdog(chromePorts());
       return;
     }
+    if (alarm.name === LINKEDIN_WATCHDOG_ALARM) {
+      void linkedinWatchdog();
+      return;
+    }
     // Daily hands-off run (enabled from the popup, which cached the profile + résumé for us).
     const siteId = siteIdFromAlarm(alarm.name);
     if (siteId) void runScheduled(siteId);
+  });
+
+  // LinkedIn reloads/navigates its own tab now and then — restart the loop from persisted state.
+  chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+    void onLinkedinTabUpdated(tabId, info, tab);
   });
 });
 
@@ -75,7 +134,8 @@ async function runScheduled(siteId: string): Promise<void> {
     return;
   }
   try {
-    await startRun(siteId, sched.profile, sched.resume, chromePorts());
+    if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume);
+    else await startRun(siteId, sched.profile, sched.resume, chromePorts());
   } catch (e) {
     console.error('[jobbot] daily run failed to start', e);
   }

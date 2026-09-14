@@ -12,7 +12,7 @@ debug/logs/
 debug/e2e/
 # Never commit personal data or the actual resume.
 profile/profile.yaml
-profile/accounts.yaml
+profile/accounts.csv
 profile/resume/*
 # On-disk application records (personal: names, answers, screenshots).
 profile/applications/

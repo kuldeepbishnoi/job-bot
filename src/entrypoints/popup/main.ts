@@ -26,6 +26,34 @@ function renderSites(): void {
   ih.textContent = 'Apply for Instahyre';
   ih.onclick = () => startInstahyre(ih);
   host.appendChild(ih);
+  // LinkedIn Easy Apply: in-page too, but the modal asks questions — so the profile is loaded here
+  // (FS-access gesture) and sent along, exactly like a worker-window run.
+  const lk = document.createElement('button');
+  lk.className = 'apply';
+  lk.textContent = 'Apply on LinkedIn';
+  lk.onclick = () => startLinkedin(lk);
+  host.appendChild(lk);
+  host.appendChild(dailyToggle('linkedin', 'LinkedIn'));
+}
+
+async function startLinkedin(btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    setStatus('Reading profile…');
+    const { profile, resume } = await loadProfileAndResume();
+    if (!profile.linkedin) throw new Error('profile.yaml needs a `linkedin:` block with search_urls (see profile.example.yaml)');
+    await ensureHosts();
+    await ensureScreenshots();
+    setStatus(`Starting LinkedIn… (${profile.linkedin.search_urls.length} search URL${profile.linkedin.search_urls.length === 1 ? '' : 's'}, auto_submit ${profile.auto_submit ? 'on' : 'OFF — one job, then halts'})`);
+    // Same rule as every other pack: never re-apply to a job any account already recorded.
+    const exclude = [...(await readRegistry())];
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'runLinkedin', profile, resume, exclude });
+    if (!res?.ok) warn(res?.error ?? 'failed to start');
+  } catch (e) {
+    warn((e as Error).message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // "Run daily" — caches the profile + résumé (loaded here, where the FS-access gesture lives) and
@@ -43,6 +71,7 @@ function dailyToggle(siteId: string, label: string): HTMLElement {
       if (box.checked) {
         setStatus('Reading profile…');
         const { profile, resume } = await loadProfileAndResume();
+        if (siteId === 'linkedin' && !profile.linkedin) throw new Error('profile.yaml needs a `linkedin:` block with search_urls first');
         await enableDaily(siteId, profile, resume);
         setStatus(`${label}: daily run armed ✓`);
       } else {
@@ -78,6 +107,17 @@ async function ensureHosts(): Promise<void> {
   if (!(await chrome.permissions.request({ origins }))) throw new Error('site access not granted (chrome://extensions → JobBot → Site access)');
 }
 
+/** Screenshots of every LinkedIn attempt need `<all_urls>` (captureVisibleTab refuses plain host
+ *  permissions). Optional: declining only loses the screenshots — the HTML capture, fields and log
+ *  are written regardless. Asked once; Chrome remembers the grant. */
+async function ensureScreenshots(): Promise<void> {
+  const origins = ['<all_urls>'];
+  if (await chrome.permissions.contains({ origins })) return;
+  setStatus('Allow "read data on all sites" for screenshots of each application (optional)…');
+  const ok = await chrome.permissions.request({ origins }).catch(() => false);
+  if (!ok) dlog('popup', 'screenshot permission declined — records will have HTML captures only');
+}
+
 async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
   btn.disabled = true;
   try {
@@ -102,6 +142,11 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
 // Append-only local files: flush whatever the background recorded since the last flush.
 async function flush(): Promise<void> {
   try {
+    // The background writes the same files (persistApplication) while a LinkedIn run is going, and
+    // both do read-whole-file → overwrite. Flushing on top of that erases whatever landed in
+    // between, including the review lines. The background is already writing every record, so
+    // there is nothing for us to flush until the run ends.
+    if ((await chrome.storage.local.get('linkedin_run'))['linkedin_run']) return;
     const got = await chrome.storage.local.get('debug_log');
     const n = await flushToDisk(await allRecords(), (got['debug_log'] as string[] | undefined) ?? []);
     if (n) console.log('[jobbot popup] flushed', n, 'records to applications.jsonl');
@@ -194,6 +239,15 @@ const STALE_RUN_MS = 2 * 60 * 60 * 1000; // a "running" record older than this i
 async function refreshProgress(): Promise<void> {
   if (Date.now() < warnUntil) return; // keep the warning readable
   const p = await getProgress();
+  // A LinkedIn run is "in progress" for exactly as long as its `linkedin_run` record exists (that is
+  // what "press Stop first" checks) — so Stop must show for it regardless of the progress record's age.
+  const li = (await chrome.storage.local.get('linkedin_run'))['linkedin_run'] as { applied: number; skipped: number; budget: number; startedAt: number } | undefined;
+  if (li) {
+    $('stop').hidden = false;
+    $('resume').hidden = true;
+    setStatus(`LinkedIn run in progress · ${li.applied}/${li.budget} applied, ${li.skipped} skipped · since ${new Date(li.startedAt).toLocaleTimeString()}${p?.current ? ' · ' + p.current : ''}`);
+    return;
+  }
   if (!p) return;
   const running = p.phase === 'running' && Date.now() - p.at < STALE_RUN_MS;
   $('stop').hidden = !running && p.phase !== 'paused';

@@ -1,4 +1,5 @@
 import type { Application, Job } from '../engine/types';
+import type { Credentials } from './credentials';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 import { appliedJobIds, computeStats, type Stats } from '../engine/stats';
@@ -37,8 +38,8 @@ export interface RunState {
   readonly cursor: number;
   /** Set when the run is waiting for the user to log in as `nextAccount` (account rotation). */
   readonly paused?: { readonly reason: string; readonly nextAccount: string };
-  /** From profile/accounts.yaml when present — lets rotation log the next account in itself. */
-  readonly credentials?: { readonly password: string; readonly overrides?: Record<string, string> };
+  /** From profile/accounts.csv when present — lets rotation log the next account in itself. */
+  readonly credentials?: Credentials;
 }
 
 export async function saveRunState(s: RunState): Promise<void> {
@@ -70,19 +71,63 @@ export async function setAccount(email: string): Promise<void> {
   await chrome.storage.local.set({ [ACCOUNT_KEY]: email.trim() });
 }
 
+// chrome.storage.local is 10 MB (no `unlimitedStorage`), shared with the debug log. A record's
+// heavy parts — the capture, the description, the log lines — live on disk (fs-config), so storage
+// keeps: the log only for attempts that need review, only on the most recent records, and a hard
+// retry that sheds the oldest logs if Chrome still refuses the write.
+const LOG_LINES_KEPT = 30;
+const RECORDS_KEEPING_LOGS = 60;
+// The on-disk applications.jsonl is the complete history; chrome.storage only feeds the UI and the
+// dedupe list. Unbounded, it eventually exhausts the 10 MB quota, and a rejected write used to
+// cost the record, its capture and the run's counters.
+const MAX_RECORDS = 2000;
+
 export async function record(app: Application): Promise<void> {
   const all = await readAll();
   // Drop the screenshot dataURL before persisting — it's ~100-300 KB and would blow the
   // chrome.storage quota over a run. It's written to disk (fs-config.writeRecord) instead.
-  const { screenshot: _omit, ...lean } = app;
-  const stamped: Application = { ...lean, at: new Date().toISOString(), account: await getAccount() };
-  await chrome.storage.local.set({ [KEY]: [...all, stamped] });
+  // Same for the HTML/screenshot capture and the job description: the on-disk record keeps them
+  // (fs-config.persistApplication); storage keeps the fields, note and a capped log.
+  const { screenshot: _omit, capture: _omit2, description: _omit3, ...lean } = app;
+  // An applied job's log is only interesting on disk; a parked/failed one is what the user reviews.
+  const keepLog = app.log?.length && app.status !== 'applied';
+  const stamped: Application = { ...lean, ...(keepLog ? { log: app.log!.slice(-LOG_LINES_KEPT) } : {}), at: new Date().toISOString(), account: await getAccount() };
+  const next = [...all, stamped].slice(-MAX_RECORDS);
+  try {
+    await chrome.storage.local.set({ [KEY]: next });
+  } catch (e) {
+    // Out of quota: drop the log lines from everything but the newest handful and try once more.
+    // Losing log lines that are already on disk beats losing the record itself.
+    const slim = next.map((a, i) => (i < next.length - RECORDS_KEEPING_LOGS && a.log ? { ...a, log: undefined } : a));
+    try {
+      await chrome.storage.local.set({ [KEY]: slim });
+    } catch {
+      // Still refused: keep the newest half rather than losing the write (and with it the job's
+      // place in the dedupe list, which is what makes a re-run apply to it twice).
+      await chrome.storage.local.set({ [KEY]: slim.slice(-Math.ceil(slim.length / 2)).map(({ log: _l, fields: _f, ...a }) => a) });
+    }
+    console.warn('[jobbot] storage quota hit — trimmed old log lines from records', (e as Error).message);
+  }
 }
 
-/** Applications made today by one account (per-account daily limits, e.g. Amazon's 10). */
-export async function appliedTodayCount(account: string): Promise<number> {
+/** Applications made today by one account, for ONE site when given (per-account daily limits are
+ *  per site: Amazon's 10/day is Amazon's). Counting every site together made an Amazon run rotate
+ *  accounts because the LinkedIn applications of the same morning had used up the number. */
+export async function appliedTodayCount(account: string, company?: string): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
-  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
+  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account && (!company || a.company === company)).length;
+}
+
+/** Accounts whose run hit THIS site's own limit page today (recorded as a failed note). Limits are
+ *  per site: Amazon's daily cap says nothing about Datadog's, and without the filter one capped
+ *  Amazon account was excluded from every other site's rotation for the rest of the day. */
+export async function accountsAtLimitToday(company?: string): Promise<Set<string>> {
+  const today = new Date().toISOString().slice(0, 10);
+  return new Set(
+    (await readAll())
+      .filter((a) => a.date === today && /limit reached/i.test(a.note ?? '') && (!company || a.company === company))
+      .map((a) => a.account ?? ''),
+  );
 }
 
 export async function allRecords(): Promise<Application[]> {

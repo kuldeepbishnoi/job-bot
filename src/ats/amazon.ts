@@ -1,4 +1,4 @@
-import { labelText, setReactValue } from './dom';
+import { labelText, setReactValue, setFile } from './dom';
 import type { Answer, Field, FieldKind } from '../engine/types';
 
 // Amazon apply adapter — pure DOM, no chrome/network, so it unit-tests in happy-dom.
@@ -180,6 +180,72 @@ export function isAnswered(doc: Document, field: Field): boolean {
   if (boxes.length) return boxes.some((b) => b.checked);
   const text = node.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
   return !!text && text.value.trim() !== '';
+}
+
+/** AUTO_SUGGESTION questions (school name) are a select2 live search: the native <select> holds
+ *  only the chosen value, results come from /api/apply/question_options/auto_suggestion after
+ *  3+ typed chars. Open the box, type, wait for a result, click the first. */
+export async function fillAutoSuggest(doc: Document, field: Field, text: string, waitMs = 6000): Promise<void> {
+  const node = questionNode(doc, field.id);
+  const box = node?.querySelector<HTMLElement>('.select2-selection');
+  if (!node || !box) throw new Error('no select2 box');
+  box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  box.click();
+  const search = await pollFor(() => doc.querySelector<HTMLInputElement>('.select2-search__field, .select2-container--open input.select2-search__field'), 2000);
+  if (!search) throw new Error('select2 search box did not open');
+  search.focus();
+  search.value = text;
+  search.dispatchEvent(new Event('input', { bubbles: true }));
+  search.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'a' }));
+  const option = await pollFor(() => [...doc.querySelectorAll<HTMLElement>('.select2-results__option')].find((o) => !/loading|searching|no results/i.test(o.textContent ?? '') && !o.classList.contains('loading-results')) ?? null, waitMs);
+  if (!option) throw new Error(`no live-search result for "${text}"`);
+  option.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  option.click();
+}
+
+async function pollFor<T>(fn: () => T | null | undefined, ms: number): Promise<T | null> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const v = fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return null;
+}
+
+export function isAutoSuggest(doc: Document, field: Field): boolean {
+  const node = questionNode(doc, field.id);
+  const select = node?.querySelector<HTMLSelectElement>('select');
+  return !!select && select.options.length <= 1 && !!node?.querySelector('.select2-selection');
+}
+
+/** Résumé section: Amazon's own upload input. Attach the file; its JS uploads. */
+export function resumeInput(doc: Document): HTMLInputElement | null {
+  return doc.querySelector<HTMLInputElement>('#resume_file_local_input, input[type="file"].upload');
+}
+export function attachResume(doc: Document, file: File): void {
+  const input = resumeInput(doc);
+  if (!input) throw new Error('no résumé upload input');
+  setFile(input, file);
+}
+export function resumeAttached(doc: Document): boolean {
+  return !!doc.querySelector('.document-name, .resume-name, [class*="document-block"] [class*="name"]') && !resumeInput(doc)?.files?.length === false;
+}
+
+/** Contact information section: plain React text inputs named applicant[<field>]. */
+export function contactInput(doc: Document, field: string): HTMLInputElement | null {
+  return doc.querySelector<HTMLInputElement>(`input[name="applicant[${field}]"], #applicant_${field}`);
+}
+export function fillContact(doc: Document, values: Record<string, string>): string[] {
+  const done: string[] = [];
+  for (const [k, v] of Object.entries(values)) {
+    const input = contactInput(doc, k);
+    if (input && !input.value.trim() && v) {
+      setReactValue(input, v);
+      done.push(k);
+    }
+  }
+  return done;
 }
 
 /** The value a question currently shows (selected option text, checked labels, typed text). */

@@ -4,7 +4,8 @@ Read this first. It's the contract for working in this repo. Keep it accurate wh
 
 ## What this is
 A Chrome MV3 extension (WXT + TypeScript) that auto-applies to jobs from the user's **real
-browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs) and **Instahyre** followed. The extension approach is deliberate: the real
+browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs), **Instahyre** and **LinkedIn**
+(Easy Apply) followed. The extension approach is deliberate: the real
 browser mints the reCAPTCHA token, carries the session/fingerprint, and uploads the resume
 natively — so we never fight the anti-bot stack. **Do not** rewrite this as a raw-HTTP API bot.
 
@@ -57,6 +58,85 @@ run against them. They're the offline oracle — don't hand-edit; refresh from a
 - Submit-by-navigation is declared per site (`Site.submittedUrl`, `src/sites/site.ts`) so the
   apply port stays site-agnostic.
 
+### LinkedIn Easy Apply ground truth (from two shipping auto-apply extensions' adapters, 2026-09-04)
+Built by reading the unpacked source of "LinkedIn AutoApplier" and "AutoApplyMax" (their selectors
+are what drives the live DOM); `tests/linkedin.test.ts` transcribes that markup. Not yet a live
+page capture — the first real run reads the Logs page and fixes selectors from `describeState`.
+- **Two layouts.** Legacy `/jobs/search/` (+ `/jobs/collections/*`): cards `li[data-occludable-job-id]`
+  (virtualized: below-the-fold cards hold `<!---->` until scrolled), details pane
+  `.jobs-search__job-details` with `button.jobs-apply-button` ("Easy Apply"; an external job says
+  plain "Apply"), modal `.jobs-easy-apply-modal` in the light DOM. New `/jobs/search-results/`:
+  cards `div[componentkey="job-card-component-ref-<id>"][role=button]` with positional `<p>`s
+  (title, company, location, …, "Easy Apply"), the control is `<a aria-label="Easy Apply to this job">`
+  and the modal lives in an OPEN shadow root at `#interop-outlet` — `ats/linkedin.ts#roots()` searches
+  both. Opening a card = the URL's `currentJobId` changes. Use `/jobs/search/` URLs (legacy) when possible.
+- **Modal**: one `[data-test-form-element]` block per question. Text/number
+  (`.artdeco-text-input--input`, numeric ids end `-numeric`, errors "Enter a whole number between 0
+  and 99"), native `<select>` (`[data-test-text-entity-list-form-select]`, first option "Select an
+  option"), radio fieldset (`[data-test-form-builder-radio-button-form-component]`, option text in
+  `data-test-text-selectable-option__input`), checkbox fieldset, city typeahead (`input[role=combobox]`
+  → `[role=listbox] [role=option]`), résumé (`.jobs-document-upload-redesign-card__container--selected`
+  or `input[type=file]` — never re-upload when a card is selected). LinkedIn **pre-fills** from the
+  last application; only empty questions are answered. Footer: `aria-label` "Continue to next step" /
+  "Review your application" / "Submit application" (+ `data-live-test-easy-apply-*-button`);
+  `#follow-company-checkbox` is pre-checked (we uncheck it). Errors:
+  `.artdeco-inline-feedback--error .artdeco-inline-feedback__message`.
+- **After Submit**: "Your application was sent to <co>" dialog (`button[aria-label=Dismiss]`).
+  Closing an unfinished modal pops Discard (`discard_application_confirm_btn`).
+- **Limits**: "You've reached today's Easy Apply limit" dialog ends the run; "applying at a fast
+  pace … briefly paused" = back off. Unfocused tabs get throttled — the run tab is opened active.
+- **Live-learned (2026-09-04)**: the legacy card link is a real `<a href="/jobs/view/<id>/">`, and the
+  shared `dom.ts#click` dispatches a NON-cancelable event, so no preventDefault can stop it → full
+  navigation → content script dead. The first card (`currentJobId` already in the URL) is never
+  clicked; a tab found on `/jobs/view/…` is steered back to the persisted search page
+  (`reason: 'lost'`, bounded by `MAX_RECOVERIES`). **Superseded 2026-09-14** on how the click is
+  made — see the next bullet; a card is reported `linkedin-handled` BEFORE it is opened, so a
+  navigation that kills the script cannot make recovery reopen the same card forever.
+- **Live-learned (2026-09-14, from the on-disk log + the user's screenshots + AutoApplyMax's
+  `clickJobCard`)**: (a) opening a legacy card = a NATIVE `link.click()` (cancelable, so LinkedIn's
+  own handler cancels the navigation and switches the pane); our capture-phase preventDefault had
+  blocked their handler too → 33/33 "card did not open". `openCard(card, attempt)` escalates:
+  native click → pointer sequence on the wrapper → inner `<p>` → focus+Enter (their strategies for
+  the new layout). (b) A closed/unfinished modal pops **"Save this application?" (Discard / Save)**;
+  a spinner-only modal is not `modal()` → the old `discard()` skipped it and the run sat on that
+  dialog for hours. `strayDialog()` + `clearStrayDialogs()` run before every card and after every
+  failure. (c) **"Mark job as a top choice"** is an opt-in checkbox (3/month) that adds a REQUIRED
+  20+-char message box; `answers.top_choice` defaults to unchecked; `answers.cover_letter` answers
+  "Include a message…" and any "Minimum N characters" hint pads from it. (d) Indian screening
+  questions: fixed/variable/total CTC (annual INR in the profile, converted to the label's unit —
+  LPA / per month), notice ladders ("15 days", "1 month" → days), "located in <city>", immediate
+  joiner, shifts, current company/title, GitHub, reason for change (all `answers.*`, see
+  `profile.example.yaml`).
+- **Records are complete and on disk immediately** (`platform/fs-config.ts#persistApplication`,
+  called from `app/linkedin-run.ts#onLinkedinResult` — the background holds the folder grant):
+  `applications/applications.jsonl` (every field with `source` profile|override|guessed|coerced|
+  prefilled|unanswered, its intent, the options offered, any validation error; the job's own log
+  lines; résumé used; location; description), `registry.jsonl`, `review.jsonl` (one line per
+  guessed/unanswered/coerced/no-intent question), `captures/<date>_<jobId>_<status>.html` (the
+  modal + dialogs as HTML — a real fixture) and `.jpg` (screenshot, needs the optional `<all_urls>`
+  grant the popup asks for), `log-<date>.txt` (the complete debug log). Read them with `node debug/outcomes.mjs` (`--review` = the questions that need a profile
+  answer, `--job <id>` = one record with its log, `--fields`). The LevelDB reader is a lossy fallback.
+- **Storage budget**: `chrome.storage.local` is 10 MB (no `unlimitedStorage`) and the records, the
+  debug log and the pending-log list share it. Bounds: the log keeps 1000 lines of ≤1.2 KB (×2 for
+  the pending list), a record keeps its log lines only when it is parked/failed (30 lines), and a
+  quota error sheds the log from all but the newest 60 records and retries. The on-disk files are
+  the complete history — never widen these caps instead of reading `log-<date>.txt`.
+- Popup "Stop run" shows whenever `linkedin_run` exists (the same check "press Stop first" uses);
+  the watchdog's dead-run clock (`lastProgressAt`) is no longer reset by its own reloads.
+- **Other LinkedIn bots must be OFF**: AutoApplyMax (`*.linkedin.com/jobs/*`) and LinkedIn
+  AutoApplier (`www.linkedin.com/*`) inject into the same pages and click the same controls.
+  `ats/linkedin.ts#conflictingExtensions` detects them by the UI they inject (`aam-*` / `eam-*`
+  badges, `data-eam-extension`) and `#loggedOut` detects the guest wall; both are reported as
+  `linkedin-warning` and kept on `linkedin_run.warnings` for the UI to show.
+- **Dry run from the UI**: `runLinkedin` takes `overrides: { autoSubmit?, maxPerRun? }` so a
+  "fill one job and park" run needs no profile.yaml edit.
+- Pipeline: `app/linkedin-run.ts` (background) persists the run (`linkedin_run`), pages
+  `start=0,25,…` of each `profile.linkedin.search_urls` entry with `f_AL=true` forced, re-kicks the
+  content script after any reload (`tabs.onUpdated`), watchdog alarm reloads a silent page;
+  `entrypoints/linkedin.content.ts` works one page: card → pane → Easy Apply → steps → Submit.
+  Every attempt (applied / parked / failed) is recorded with the typed values; `auto_submit:false`
+  fills through Review, parks, and halts the run with the modal open (one-job dry run).
+
 ## Architecture — Clean Architecture, applied
 Dependency direction points **inward**: outer layers depend on inner, never the reverse
 (the Dependency Rule, Clean Architecture ch. 22). Inner = pure policy; outer = details.
@@ -67,16 +147,17 @@ INNER (pure: no chrome, no DOM, no network — unit-tested)
                   select-jobs · stats
   src/config/     schema.ts (zod) — validates profile.yaml at the boundary
 APPLICATION (orchestration; depends on ports, not details)
-  src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring)
+  src/app/        runner.ts (the use case) + ports.ts (RunPorts interface + chrome wiring) ·
+                  instahyre-run.ts · linkedin-run.ts (in-page packs: tab, paging, recovery, records)
 ADAPTERS (details, behind interfaces)
   src/sources/    where jobs come from — typesense.ts · amazon-jobs.ts
-  src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts (+ dom.ts)
+  src/ats/        how a form is filled — greenhouse.ts · amazon.ts · instahyre.ts · linkedin.ts (+ dom.ts)
   src/sites/      a company = source + ATS — site.ts (interface), datadog.ts, amazon.ts, index.ts
   src/platform/   side effects, isolated — worker-window · gmail-otp · fs-config ·
                   messaging · serialized-file · store (chrome.storage repo) · schedule (daily alarm)
 MAIN (dirtiest; wires everything)
   src/entrypoints/  background.ts (assembles ports → runner; daily alarm) · greenhouse.content.ts ·
-                    amazon.content.ts · instahyre.content.ts · gmail.content.ts · popup/
+                    amazon.content.ts · instahyre.content.ts · linkedin.content.ts · gmail.content.ts · popup/
 profile/     the USER's data: profile.yaml + resume/ (git-ignored)
 fixtures/    real captured data for offline tests
 ```
@@ -94,6 +175,14 @@ fixtures/    real captured data for offline tests
    in `platform/messaging.ts`) — never DOM nodes or class instances across the wire.
 5. Answers are **intent-based**, never keyed by exact question text (except `profile.overrides`):
    raw label → `Intent` (`matcher.ts`) → value (`resolver.ts`). Same rules answer Datadog, Amazon…
+6b. **Some answers are never invented.** `on_unknown: guess` covers the obvious (decline → own
+   country → No → a binary's other side). It must never (a) accept a legal commitment —
+   `engine/resolver.ts#isConsequential` parks arbitration / waiver / class-action / non-compete /
+   NDA questions, including a *required* checkbox, (b) state compensation or an employer the
+   profile does not hold, (c) answer a salary box in a currency the profile's figures are not in
+   (`labelCurrency` vs `profileCurrency`), (d) pick `options[0]` on a list longer than two, which
+   asserts the strongest claim on a ladder ("Native or bilingual", "10+ years"), or (e) round years
+   UP. A parked job names the profile key to add, and the question lands in `review.jsonl`.
 6. Answer values are **typed by question shape**: `boolean` (yes/no), `string` (single choice/free
    text), `string[]` (multi), `number` (a "how many years" ladder → `engine/years.ts` picks the
    bucket), or a canonical **token** (`answer-tokens.ts`: `DECLINE`,
@@ -110,7 +199,10 @@ fixtures/    real captured data for offline tests
 - **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity` — each used (alarms
   steps the queue across SW restarts; identity fetches the read-only Gmail token for the OTP). No
   `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
-  OTP read), not `*://*`.
+  OTP read), not `*://*`. The one exception is **optional**: `optional_host_permissions: ['<all_urls>']`,
+  requested by the popup when a LinkedIn run starts, because `chrome.tabs.captureVisibleTab` refuses
+  plain host permissions (0 of 312 records ever got a screenshot before). Declining only loses the
+  screenshots; the HTML capture, fields and log are written regardless.
 - **MV3 lifetime**: never run a long loop in the background SW — it gets killed. The run is an
   alarm-driven stepper (`app/stepper.ts`): one job per wake, queue persisted in storage. Daily
   hands-off runs are a second alarm (`platform/schedule.ts`): the popup caches the profile + résumé
@@ -151,6 +243,12 @@ fixtures/    real captured data for offline tests
   that runs the click loop in-page + `src/app/<co>-run.ts` (find/focus the logged-in tab, ping-ready,
   kick off, record each apply into the shared store) wired from `background.ts` + its own popup button.
   Do NOT register it in `src/sites/` — that path assumes a worker window + Greenhouse form.
+- **In-page ATS with a form (LinkedIn Easy Apply)**: same in-page pattern, but the popup loads the
+  profile + résumé (FS gesture) and sends them in `runLinkedin`; the content script answers the modal
+  through the shared engine (`withIntent` → `resolve` → `guessAnswer`) and reports every attempt;
+  `app/linkedin-run.ts` owns paging + recovery. Profile: `linkedin.search_urls` (+ `identity.city`,
+  the `answers.*` LinkedIn screening keys in `profile.example.yaml`). Daily runs work via the same
+  `platform/schedule.ts` toggle (`siteId: 'linkedin'`).
 - **New question type**: add a rule in `engine/matcher.ts` + a default in `profile.example.yaml` + a
   case in `tests/matcher.test.ts`. New standard decline-style answer → add a token in
   `engine/answer-tokens.ts`.
@@ -162,7 +260,10 @@ fixtures/    real captured data for offline tests
   (`fs-config.flushToDisk`, needs the folder grant) and by `node debug/export.mjs` straight from
   Chrome's storage on disk. `node debug/outcomes.mjs` = today's summary in a few lines.
 - **Multi-account, one Chrome profile**: `profile.accounts` lists every login; the popup's "Account"
-  field says which one is logged in now (stamped on every record). At `per_account_limit` (Amazon:
+  field says which one is logged in now (stamped on every record). `per_account_limit` and the
+  limit-page check are both counted **per site** (`store.ts#appliedTodayCount`/`accountsAtLimitToday`
+  take the site id): a day of LinkedIn applications must not rotate the Amazon account, and an
+  Amazon cap must not exclude that login from a Datadog run. At `per_account_limit` (Amazon:
   10/day) or the ATS's own limit page, the stepper **rotates**: opens `Site.logoutUrl` then
   `Site.loginUrl` in the worker tab, saves `run_state.paused = { nextAccount }`, and the popup
   shows "Resume as next account". The user logs in; Resume sets the account and continues the same

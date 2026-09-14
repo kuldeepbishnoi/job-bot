@@ -1,0 +1,6 @@
+# Copy to accounts.csv (git-ignored). One row per login; site = a site id (amazon, datadog…) or * for all.
+# A TEMPORARY password you set on each account for the job hunt — change it afterwards.
+email,site,password
+you.01@gmail.com,amazon,change-me
+you.02@gmail.com,amazon,change-me
+you.03@gmail.com,*,change-me

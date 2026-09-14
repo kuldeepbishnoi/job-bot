@@ -33,6 +33,8 @@ export type Intent =
   | 'identity.country'
   | 'identity.linkedin'
   | 'identity.website'
+  | 'identity.city'
+  | 'identity.phone_country' // "Phone country code" select → the applicant's country / dial code
   | 'resume'
   | 'answers.work_authorization'
   | 'answers.needs_sponsorship'
@@ -46,10 +48,19 @@ export type Intent =
   | 'answers.disability'
   // Screening questions (Amazon "job-specific questions" and the like).
   | 'answers.years_of_experience' // "Which option best describes your total … experience?" (number)
+  | 'answers.exact_years_of_experience' // "how many EXACT years…" — the honest figure, never MAX
   | 'answers.skills_experience' // "Do you have experience with/in …?" (yes/no)
   | 'answers.degree_bachelors' // "Do you have a Bachelor's degree …?" (yes/no)
   | 'answers.degree_masters' // "Do you have a Master's degree …?" (yes/no)
   | 'answers.willing_to_relocate'
+  // First-time profile sections (Amazon Education / General questions).
+  | 'answers.education_level'
+  | 'answers.school_name'
+  | 'answers.area_of_study'
+  | 'answers.currently_student'
+  | 'answers.graduation'
+  | 'answers.relevant_experience'
+  | 'answers.how_did_you_hear_detail'
   // Work-eligibility / compliance questions.
   | 'answers.previously_applied'
   | 'answers.previous_employment'
@@ -67,6 +78,32 @@ export type Intent =
   | 'answers.ex_military'
   | 'answers.reserve_forces'
   | 'answers.military_spouse'
+  // LinkedIn Easy Apply screening questions.
+  | 'answers.commute_ok' // "Are you comfortable commuting to this job's location?"
+  | 'answers.remote_ok' // "Are you comfortable working in a remote/hybrid setting?"
+  | 'answers.expected_salary' // "What is your expected CTC / salary?" (text or number)
+  | 'answers.current_salary'
+  | 'answers.notice_period' // "What is your notice period (in days)?"
+  | 'answers.start_date' // "When can you start?" / "earliest start date"
+  | 'answers.background_check' // "Are you willing to undergo a background check?"
+  | 'answers.over_18' // "Are you 18 years or older?"
+  | 'answers.language_proficiency' // "What is your level of proficiency in English?"
+  | 'answers.drivers_license'
+  | 'answers.security_clearance'
+  | 'answers.cover_letter' // free-text "why do you want to work here" / "include a message" prompts
+  // Indian-market screening questions (LinkedIn Easy Apply, SmartRecruiters-powered forms).
+  | 'answers.current_fixed_salary' // "What is your current fixed salary?" (annual, converted to the unit the label names)
+  | 'answers.current_variable_salary'
+  | 'answers.total_ctc' // "Total CTC - Fixed+Variable (INR_Annual)"
+  | 'answers.notice_serving' // "Are you currently serving your notice period?" (yes/no)
+  | 'answers.immediate_joiner' // "Are you an immediate joiner?" (yes/no)
+  | 'answers.in_city' // "Are you currently located in Bangalore?" → yes iff the label names identity.city
+  | 'answers.shifts_ok' // "Are you comfortable with night/rotational shifts?"
+  | 'answers.current_company'
+  | 'answers.current_title'
+  | 'answers.github'
+  | 'answers.reason_for_change'
+  | 'answers.top_choice' // LinkedIn "Mark job as a top choice" (limited to 3/month; opens a required message box)
   | 'locations'; // "which cities/locations" — resolved from job + want.locations
 
 /** What we decided to put in a field. */
@@ -79,11 +116,32 @@ export type Answer =
 
 export type ApplyStatus = 'applied' | 'parked' | 'failed';
 
+/** Where an answer came from — the audit trail for every value we put in a form. */
+export type FieldSource =
+  | 'profile' // resolved from profile.yaml (identity / answers / derived)
+  | 'override' // profile.overrides exact-text match
+  | 'guessed' // on_unknown: guess — nobody had an answer, the "safe obvious" option was picked
+  | 'coerced' // the profile answer was reshaped to satisfy the form's validation (number, min length…)
+  | 'prefilled' // the ATS pre-filled it from the last application; left as is
+  | 'unanswered'; // required, no answer, could not be filled — the form may have rejected it
+
 /** One field we actually filled, with the exact value we put in — for the on-disk record. */
 export interface AppliedField {
   readonly id: string;
   readonly label: string;
   readonly value: string; // display value (text, joined choices, "checked", or resume filename)
+  readonly source?: FieldSource;
+  readonly intent?: string; // the Intent the label matched, or undefined = unknown question
+  readonly options?: readonly string[]; // what the control offered (select / radio / checkbox group)
+  readonly kind?: string; // FieldKind (+ "#" for a numeric box)
+  readonly error?: string; // the validation message the form showed for this field, if any
+}
+
+/** Transient page captures attached to a record: written to disk, NEVER kept in chrome.storage. */
+export interface Capture {
+  readonly screenshot?: string; // JPEG/PNG dataURL of the visible tab
+  readonly html?: string; // the form / modal + any dialogs, as HTML — a real fixture of what we saw
+  readonly label?: string; // when it was taken ("review", "failed", …)
 }
 
 export interface Application {
@@ -96,6 +154,11 @@ export interface Application {
   readonly note?: string; // parked/failed reason
   readonly fields?: readonly AppliedField[]; // exactly what we filled
   readonly screenshot?: string; // transient PNG dataURL — written to disk, NOT kept in storage
+  readonly capture?: Capture; // transient — written to disk next to the record, NOT kept in storage
+  readonly log?: readonly string[]; // every log line this attempt produced (complete, per job)
+  readonly resume?: string; // which résumé went with it (file name, or the ATS's own pre-selected one)
+  readonly location?: string; // the job's location as the listing showed it
+  readonly description?: string; // the job description (trimmed) as shown when we applied
   readonly at?: string; // ISO timestamp, stamped by the repository when persisted
   readonly account?: string; // which login made it (multi-account setups) — stamped by the repository
 }

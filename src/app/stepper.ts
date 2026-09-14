@@ -7,6 +7,8 @@ import type { RunState } from '../platform/store';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
 import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
+import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
+import { accountsAtLimitToday } from '../platform/store';
 
 // MV3 service workers get killed after ~30s idle (and can't run for hours). So we DON'T loop the
 // whole queue in one await. Instead: persist the queue, process ONE job, then schedule an alarm
@@ -28,6 +30,10 @@ const STALE_RUN_MS = 2 * 60 * 60 * 1000;
 export async function runInProgress(now = Date.now()): Promise<boolean> {
   const state = await getRunState();
   if (!state) return false;
+  // A run PAUSED for an account rotation is still a run: its queue is the user's, and they were
+  // told to click "Resume as next account". Deleting it here meant the daily alarm silently threw
+  // the queue away and Resume then reported success while doing nothing.
+  if (state.paused) return true;
   const p = await getProgress();
   if (p && p.phase === 'running' && now - p.at < STALE_RUN_MS) return true;
   await clearRunState();
@@ -49,7 +55,9 @@ export async function startRun(
   const already = new Set([...(await ports.appliedIds()), ...exclude]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
-  await saveRunState({ siteId, profile, resume, queue, cursor: 0, credentials });
+  // Only this site's logins go into storage — an Amazon run has no business holding the Datadog
+  // passwords, and run_state is an unencrypted LevelDB file until the run ends.
+  await saveRunState({ siteId, profile, resume, queue, cursor: 0, credentials: credentialsFor(credentials, siteId) });
 
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only
   // AFTER a step completes, so a step that dies leaves no alarm — the watchdog re-drives it.
@@ -91,7 +99,7 @@ export async function step(ports: RunPorts): Promise<void> {
 
     // Per-account daily limit (Amazon: 10) → rotate to the next account that still has room.
     const limit = state.profile.per_account_limit;
-    if (limit && (await appliedTodayCount(await getAccount())) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached`);
+    if (limit && (await appliedTodayCount(await getAccount(), site.id)) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached on ${site.id}`);
 
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
@@ -108,12 +116,15 @@ export async function step(ports: RunPorts): Promise<void> {
   }
 }
 
-/** Next account in profile.accounts with room left today, or null when all are exhausted. */
-async function nextAccountWithRoom(profile: Profile, current: string): Promise<string | null> {
-  const limit = profile.per_account_limit ?? Number.POSITIVE_INFINITY;
-  for (const a of profile.accounts) {
-    if (a === current) continue;
-    if ((await appliedTodayCount(a)) < limit) return a;
+/** Next login with room left today: the CSV's logins for this site, else profile.accounts. An
+ *  account that hit the ATS's limit page today is skipped too (we record that as a failed note). */
+async function nextAccountWithRoom(site: Site, state: RunState, current: string): Promise<string | null> {
+  const candidates = accountsFor(state.credentials, site.id).length ? accountsFor(state.credentials, site.id) : state.profile.accounts;
+  const limit = state.profile.per_account_limit ?? Number.POSITIVE_INFINITY;
+  const capped = await accountsAtLimitToday(site.id);
+  for (const a of candidates) {
+    if (a === current || capped.has(a)) continue;
+    if ((await appliedTodayCount(a, site.id)) < limit) return a;
   }
   return null;
 }
@@ -122,15 +133,19 @@ async function nextAccountWithRoom(profile: Profile, current: string): Promise<s
  *  the user logs the next account in and clicks Resume. Credentials never touch the extension. */
 async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reason: string): Promise<void> {
   const current = await getAccount();
-  const next = await nextAccountWithRoom(state.profile, current);
-  if (!next) return finish(ports, `${reason} — every account in profile.accounts is at its limit for today`);
+  const next = await nextAccountWithRoom(site, state, current);
+  if (!next) return finish(ports, `${reason} — every account is at its limit for today`);
   if (site.logoutUrl) await ports.openJob(site.logoutUrl).catch(() => {});
   const tabId = site.loginUrl ? await ports.openJob(site.loginUrl).catch(() => -1) : -1;
   // With credentials on file, log the next account in ourselves (email → password → emailed code).
-  const password = state.credentials?.overrides?.[next] ?? state.credentials?.password;
+  const password = passwordFor(state.credentials, site.id, next);
   if (tabId >= 0 && password) {
     await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} — logging in as ${next}…`, phase: 'running', at: Date.now() });
-    const res = await ports.login(tabId, next, password);
+    // ports.login can THROW (its waitForFrame gives up when no content script answers, e.g. the
+    // login URL redirected to a logged-in page). Unguarded, that rejected the whole step: the
+    // pause was never written, the alarm was already cleared, and the watchdog re-drove the same
+    // rotation every few minutes forever with the credentials still in storage.
+    const res = await ports.login(tabId, next, password).catch((e: Error) => ({ ok: false as const, note: `login threw: ${e.message}` }));
     if (res.ok) {
       await setAccount(next);
       await saveProgress({ done: state.cursor, total: state.queue.length, current: `switched to ${next}`, phase: 'running', at: Date.now() });

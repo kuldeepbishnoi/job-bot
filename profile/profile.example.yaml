@@ -8,6 +8,7 @@ identity:
   country: India
   linkedin: https://www.linkedin.com/in/bishnoikuldeep/
   website: ""
+  city: Bengaluru            # LinkedIn's "City" typeahead / "current location" questions
 
 resume: resume/kuldeep_bishnoi.pdf
 
@@ -28,14 +29,55 @@ answers:
   needs_sponsorship: false        # yes/no
   acknowledge_true: true          # yes/no
   privacy_consent: true           # yes/no
-  how_did_you_hear: "LinkedIn"    # single choice / free text
+  how_did_you_hear: "Amazon Career Site"  # single choice / free text (Amazon options: Advertisement | Amazon Career Site | Job Posting | …)
   languages: [English, Hindi]     # multi-select
   # Screening questions (Amazon "job-specific questions" and similar):
   years_of_experience: 6          # number -> the "N to less than M years" bucket containing it · MAX -> always the top bucket
+  exact_years_of_experience: 6    # "how many EXACT years…" free-text boxes — the figure on your résumé
+                                  # (MAX belongs on range dropdowns; an exact box must match the résumé)
   skills_experience: true         # answers Yes to EVERY "Do you have experience with/in …?"; false = No; omit = park for review
   degree_bachelors: true          # "Do you have a Bachelor's degree …?"
   degree_masters: false
   willing_to_relocate: true
+  # LinkedIn Easy Apply screening questions (yes/no radios, numbers, short text):
+  commute_ok: true                # "Are you comfortable commuting to this job's location?"
+  remote_ok: true                 # "…working in a remote/hybrid setting?"
+  background_check: true
+  over_18: true
+  drivers_license: true
+  security_clearance: false
+  language_proficiency: Professional   # option text: Native | Professional | Conversational…
+  # currency: INR                 # only if it differs from your identity.country's (INR for India).
+  #                               # A salary box naming a DIFFERENT currency parks: there is no
+  #                               # honest conversion without a rate, so you answer that one.
+  # Salary: ANNUAL figures in your currency (INR). The bot converts to the unit the question names
+  # ("LPA" / "in lakhs" → 30, "per month" → 250000, ranges → the matching option). Components
+  # derive from each other when unset: fixed = current_salary, variable = 0, total = fixed+variable.
+  expected_salary: 3000000
+  current_salary: 2000000
+  # current_fixed_salary: 1800000
+  # current_variable_salary: 200000
+  # total_ctc: 2000000
+  notice_period: 30               # days; "Immediate" → 0. Select ladders ("15 days", "1 month") pick the option containing it
+  notice_serving: false           # "Are you currently serving your notice period?"
+  # immediate_joiner: true        # default: notice_period <= 15 days
+  shifts_ok: true                 # "Are you comfortable with night / rotational shifts?"
+  current_company: "CHANGE ME"    # "Current company / employer"
+  current_title: "Software Engineer"   # "Current designation / role"
+  github: ""                      # "GitHub profile"
+  reason_for_change: "Looking for a larger engineering scope and stronger ownership of production systems."
+  top_choice: false               # LinkedIn "Mark job as a top choice" (3/month; opens a required 20+ char message box) — keep off
+  # "Are you currently located in <city>?" is answered from identity.city (Yes when the label names it).
+  start_date: Immediately
+  cover_letter: "I'm a backend engineer with 6 years of experience building distributed systems and I'd love to bring that to your team."
+  # First-time profile sections (a fresh account has these empty; answered from here, never typed):
+  education_level: "Bachelor's"
+  school_name: "Your University"      # Amazon's school picker is a live search — typed, first hit chosen
+  area_of_study: "Computer Science"
+  currently_student: false
+  graduation: "More than 3 years ago"
+  relevant_experience: true
+  how_did_you_hear_detail: "Amazon.jobs"
   # Work-eligibility questions (Amazon reuses last time's answers, so these only fill an EMPTY form):
   # previously_applied: true        # "Have you previously applied to Amazon …?"
   # previous_employment: false      # "Have you previously been employed by Amazon …?"
@@ -79,10 +121,24 @@ careers:
 accounts:
   - you.01@gmail.com
   - you.02@gmail.com
-per_account_limit: 10   # Amazon's cap per account/day. At the cap the bot logs out, opens the login page and PAUSES:
-                        # log the next account in, click "Resume as next account" in the popup, and it continues.
+# per_account_limit: 10  # optional safety cap, counted PER SITE per day (10 Amazon applications,
+#                        # not 10 across every site). In practice this is an Amazon-shaped knob:
+#                        # LinkedIn and Instahyre enforce their own daily caps, which the run
+#                        # detects and ends on. Amazon's own "application limit reached" page also
+#                        # rotates accounts by itself, so leaving this unset is fine.
+# Logins + passwords live in accounts.csv (email,site,password) — see accounts.example.csv.
 
 # Per-site knobs (optional).
+linkedin:
+  # Search pages WITH your filters applied (keywords, location, date posted, experience level…).
+  # The bot forces the Easy Apply filter and walks every page of each URL in order, applying
+  # in your logged-in tab. `want.titles_any/none` still filter the cards (filter_titles: false = all).
+  search_urls:
+    - "https://www.linkedin.com/jobs/search/?keywords=software%20engineer&location=India&f_TPR=r86400"
+    - "https://www.linkedin.com/jobs/search/?keywords=backend%20engineer&location=Bengaluru&f_TPR=r86400"
+  filter_titles: true
+  max_per_run: 100      # LinkedIn's own daily Easy Apply cap ends a run earlier (the bot detects it)
+
 amazon:
   # Apply your filters on amazon.jobs/en/search and paste the page URL. Discovery turns it into the
   # JSON API query, so the queue = exactly what that page lists (all pages). Required to run Amazon.

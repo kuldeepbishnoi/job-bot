@@ -1,6 +1,6 @@
 // Typed message bus. Background orchestrates; the form frame does DOM work;
 // the Gmail frame yields the code; the popup starts runs and shows progress.
-import type { AppliedField, Job } from '../engine/types';
+import type { AppliedField, ApplyStatus, Capture, Job } from '../engine/types';
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 
@@ -19,11 +19,20 @@ export type LoginOutcome =
   | { status: 'pending' }
   | { status: 'error'; note: string };
 
-/** Per-account credentials from profile/accounts.yaml (git-ignored; a temporary shared password). */
-export interface Credentials {
-  readonly password: string;
-  readonly overrides?: Record<string, string>; // email -> password when one account differs
+import type { Credentials } from './credentials';
+export type { Credentials };
+
+export interface LinkedinJob {
+  readonly id: string;
+  readonly title: string;
+  readonly company: string;
+  readonly url: string;
 }
+/** Why a results page stopped: exhausted = every card handled (page on); budget = run cap hit;
+ *  limit = LinkedIn's daily Easy Apply cap; halt = auto_submit off, modal left for the user;
+ *  stopped = user pressed Stop; lost = the tab is not on a results page (navigate back, retry);
+ *  error = the loop threw. */
+export type LinkedinPageEnd = 'exhausted' | 'budget' | 'limit' | 'halt' | 'stopped' | 'lost' | 'error';
 
 export type Msg =
   // background -> form frame
@@ -48,6 +57,37 @@ export type Msg =
   | { t: 'instahyre-applied'; job: { id: string; title: string; company: string } }
   // instahyre content script -> background: loop finished
   | { t: 'instahyre-done'; applied: number; skipped: number }
+  // popup -> background: LinkedIn Easy Apply, in-page in the user's logged-in tab. The profile
+  // answers the modal's questions; the résumé is attached only when no card is pre-selected.
+  // `overrides` lets the dashboard start a one-job dry run (autoSubmit:false, maxPerRun:1) without
+  // editing profile.yaml; absent = exactly what the profile says.
+  | { t: 'runLinkedin'; profile: Profile; resume: SerializedFile; exclude?: string[]; overrides?: { autoSubmit?: boolean; maxPerRun?: number } }
+  // background -> linkedin content script: apply through every card on the CURRENT results page.
+  // `exclude` = job ids already applied/handled (never reopened); `budget` = applies left this run.
+  | { t: 'linkedin-apply'; runId: string; profile: Profile; resume: SerializedFile; exclude: string[]; budget: number }
+  // background -> linkedin content script: abandon the loop after the current job
+  | { t: 'linkedin-stop' }
+  // background -> linkedin content script: is a page loop running right now? (re-kick guard)
+  | { t: 'linkedin-status' }
+  // linkedin content script -> background: one job attempted (applied / parked / failed) — recorded
+  // in full: every field with its source, that job's log lines, the résumé used, the listing's
+  // location + description, and a capture (screenshot + HTML) of the review / failure state.
+  | { t: 'linkedin-result'; runId: string; job: LinkedinJob; status: ApplyStatus; note?: string; fields?: AppliedField[]; log?: string[]; resume?: string; location?: string; description?: string; capture?: Capture }
+  // linkedin content script -> background: screenshot the visible tab now (needs the optional
+  // <all_urls> grant; answers { dataUrl: null } without it)
+  | { t: 'linkedin-capture' }
+  // linkedin content script -> background: something the USER must fix (another auto-apply
+  // extension is driving the same page, LinkedIn is throttling us…) — kept on the run for the UI.
+  // linkedin content script -> background: still working (inside a multi-step form / a back-off).
+  // Keeps the stall watchdog from reloading the tab between Submit and its confirmation.
+  | { t: 'linkedin-alive'; runId: string; where: string }
+  | { t: 'linkedin-warning'; runId: string; code: 'conflicting-extension' | 'not-logged-in' | 'pace'; detail: string }
+  // linkedin content script -> background: cards skipped without an attempt (filtered / applied badge)
+  | { t: 'linkedin-handled'; runId: string; ids: string[] }
+  // linkedin content script -> background: this page is done; the background pages on or ends the run
+  // `pages` = result pages walked in-page (LinkedIn's own pager); `cards` = cards on the last page
+  // (0 = LinkedIn showed no results → this search URL is exhausted); `newCards` = unseen ones.
+  | { t: 'linkedin-page-done'; runId: string; reason: LinkedinPageEnd; applied: number; skipped: number; cards: number; newCards: number; pages: number; note?: string }
   // background -> popup (broadcast)
   | { t: 'progress'; done: number; total: number; current: string }
   | { t: 'runDone' };

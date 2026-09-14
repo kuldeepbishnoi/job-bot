@@ -3,6 +3,7 @@ import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as az from '@/ats/amazon';
 import { waitFor, describeAnswer } from '@/ats/dom';
+import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
 import type { AppliedField } from '@/engine/types';
 import { dlog } from '@/platform/debug-log';
@@ -91,6 +92,34 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       }
       // The visible card mounts its controls a beat after the page settles — wait for it rather
       // than burning iterations (seen live: Job-specific dropdowns appeared ~0.5s after load).
+      // First-time profile sections (fresh account): Résumé upload and Contact information are
+      // not question forms. Handle them by the rail's active title before the generic path.
+      const railActive = az.progress(document).find((p) => p.state === 'active')?.title ?? '';
+      if (/^resume/i.test(railActive) && az.resumeInput(document)) {
+        log('resume section: attaching', msg.resume.name);
+        az.attachResume(document, deserializeFile(msg.resume));
+        filled.push({ id: 'resume', label: 'Résumé', value: msg.resume.name });
+        await sleep(4000); // Amazon uploads + parses; then its Continue/next appears
+        const cont = await waitFor(() => az.continueButton(document.body), 20_000).catch(() => null);
+        if (cont) cont.click();
+        await sleep(2500);
+        continue;
+      }
+      if (/^contact/i.test(railActive) && az.contactInput(document, 'first_name')) {
+        const done = az.fillContact(document, {
+          first_name: msg.profile.identity.first_name,
+          last_name: msg.profile.identity.last_name,
+          preferred_name: msg.profile.identity.preferred_name || msg.profile.identity.first_name,
+        });
+        log('contact section: filled', done, az.describeQuestions(document.body));
+        for (const k of done) filled.push({ id: `applicant[${k}]`, label: k, value: (msg.profile.identity as unknown as Record<string, string>)[k] ?? '' });
+        const cont = await waitFor(() => az.continueButton(document.body), 10_000).catch(() => null);
+        if (!cont) return parked(`Contact information needs more than the bot can fill — ${az.describeState(document)}`);
+        cont.click();
+        await sleep(2500);
+        continue;
+      }
+
       const form = await waitFor(() => (az.reviewMode(document) ? true : az.activeForm(document)), 15_000).catch(() => null);
       if (form === true) {
         reachedReview = true;
@@ -133,6 +162,9 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
           continue;
         }
         try {
+          if (answer.kind === 'choice' && az.isAutoSuggest(document, field)) {
+            await az.fillAutoSuggest(document, field, answer.values[0] ?? '');
+          } else
           try {
             az.fill(document, field, answer);
           } catch (first) {

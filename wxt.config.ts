@@ -32,6 +32,11 @@ export default defineConfig({
     // storage = applications/stats + run state; tabs = drive the worker tab + find Gmail;
     // alarms = step the queue across service-worker restarts; identity = Gmail API OAuth for the OTP.
     permissions: ['storage', 'tabs', 'alarms', 'identity'],
+    // Screenshots of every LinkedIn attempt (the review step before Submit; the failure state) go
+    // to the profile folder. `chrome.tabs.captureVisibleTab` needs `<all_urls>` or activeTab — host
+    // permissions are not enough (0 of 312 records ever got one). OPTIONAL: the popup asks when
+    // "Apply on LinkedIn" is clicked; declining keeps everything else working, minus screenshots.
+    optional_host_permissions: ['<all_urls>'],
     // host_permissions gate content-script injection, discovery, and the Gmail API fetch.
     host_permissions: [
       'https://careers.datadoghq.com/*',
@@ -39,6 +44,7 @@ export default defineConfig({
       'https://job-boards.greenhouse.io/*',
       'https://gk6e3zbyuntvc5dap.a1.typesense.net/*',
       'https://www.instahyre.com/*',
+      'https://www.linkedin.com/*',
       'https://www.amazon.jobs/*',
       'https://passport.amazon.jobs/*',
       'https://account.amazon.jobs/*',
