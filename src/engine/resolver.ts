@@ -198,6 +198,24 @@ function resolveDerived(intent: Intent, field: Field, profile: Profile, options:
       if (val === undefined) return { kind: 'unknown' };
       return toAnswer(val, field, options);
     }
+    case 'answers.years_of_experience': {
+      // A free-text "how many years of experience in X?" box gets the honest figure when the
+      // profile has one: MAX means "the top bucket of a ladder" (the owner's rule), not "type 10".
+      // Typing more years than the résumé shows contradicts the document the recruiter reads.
+      const exact = num(a['exact_years_of_experience']);
+      if (choice || exact === undefined || a['years_of_experience'] !== 'MAX') return null;
+      return { kind: 'text', value: String(exact) };
+    }
+    case 'answers.exact_years_of_experience': {
+      // "How many exact years…" must match the résumé, so MAX never applies here. Fall back to a
+      // numeric years_of_experience; a MAX ladder answer is not a number and leaves this unknown.
+      const exact = num(a['exact_years_of_experience']) ?? num(a['years_of_experience']);
+      if (exact === undefined) return { kind: 'unknown' };
+      if (!choice) return { kind: 'text', value: Number.isInteger(exact) ? String(exact) : String(exact) };
+      const opt = pickYearsOption(options, exact);
+      if (opt) return { kind: 'choice', values: [opt] };
+      return yn ? { kind: 'choice', values: [exact > 0 ? yn.yes : yn.no] } : { kind: 'unknown' };
+    }
     case 'answers.in_city': {
       const city = profile.identity.city.trim().toLowerCase();
       if (!city) return { kind: 'unknown' };

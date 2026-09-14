@@ -103,6 +103,7 @@ const RULES: readonly Rule[] = [
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
   { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your'] },
   // Screening questions.
+  { intent: 'answers.exact_years_of_experience', any: ['exact years', 'exact number of years', 'precisely how many years', 'exactly how many years'] },
   { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in', 'total experience', 'overall experience', 'experience in years', 'exp in years', 'total exp', 'yrs of', 'yrs experience', 'no of years', 'number of years', 'how many experience', 'how much experience', 'how many year'] },
   { intent: 'answers.degree_bachelors', any: ['bachelor'] },
   { intent: 'answers.degree_masters', any: ['master s degree', 'masters degree', 'master degree', 'graduate degree'] },

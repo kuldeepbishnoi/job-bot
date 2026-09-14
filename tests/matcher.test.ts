@@ -45,7 +45,7 @@ describe('matchIntent (LinkedIn Easy Apply labels)', () => {
     ['Why do you want to work at Acme?', 'answers.cover_letter'],
     // Seen live 2026-09-06/14 (Swiggy / Freshworks SmartRecruiters-powered Easy Apply forms).
     ['How many years experience do you have?', 'answers.years_of_experience'],
-    ['Please indicate how many exact years of relevant experience you have', 'answers.years_of_experience'],
+    ['Please indicate how many exact years of relevant experience you have', 'answers.exact_years_of_experience'],
     ['Total experience (in years)', 'answers.years_of_experience'],
     ['What is your current fixed salary?', 'answers.current_fixed_salary'],
     ['What is your current variable salary?', 'answers.current_variable_salary'],

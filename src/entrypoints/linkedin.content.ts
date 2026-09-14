@@ -576,10 +576,12 @@ function coerceNumber(value: string, field: Field, profile: Profile, hint: strin
   const decimal = /decimal/i.test(hint);
   let n = Number.parseFloat(value.replace(/[^\d.]/g, ''));
   if (!Number.isFinite(n)) {
+    const exact = profile.answers['exact_years_of_experience'];
     const years = profile.answers['years_of_experience'];
     if (/^yes$/i.test(value.trim())) n = 1;
     else if (/^no$/i.test(value.trim())) n = 0;
-    else if (field.intent === 'answers.years_of_experience' || /year|experience/i.test(field.label)) n = typeof years === 'number' ? years : 10;
+    else if (field.intent === 'answers.exact_years_of_experience' && typeof exact === 'number') n = exact;
+    else if (field.intent === 'answers.years_of_experience' || /year|experience/i.test(field.label)) n = typeof years === 'number' ? years : typeof exact === 'number' ? exact : 10;
     else if (field.intent === 'answers.notice_period') n = 30;
     else if (/salary|ctc|compensation/i.test(field.label)) n = 0;
     else n = 1; // "never stuck": a positive number passes every LinkedIn numeric rule

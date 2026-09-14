@@ -48,6 +48,7 @@ export type Intent =
   | 'answers.disability'
   // Screening questions (Amazon "job-specific questions" and the like).
   | 'answers.years_of_experience' // "Which option best describes your total … experience?" (number)
+  | 'answers.exact_years_of_experience' // "how many EXACT years…" — the honest figure, never MAX
   | 'answers.skills_experience' // "Do you have experience with/in …?" (yes/no)
   | 'answers.degree_bachelors' // "Do you have a Bachelor's degree …?" (yes/no)
   | 'answers.degree_masters' // "Do you have a Master's degree …?" (yes/no)

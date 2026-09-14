@@ -33,6 +33,8 @@ answers:
   languages: [English, Hindi]     # multi-select
   # Screening questions (Amazon "job-specific questions" and similar):
   years_of_experience: 6          # number -> the "N to less than M years" bucket containing it · MAX -> always the top bucket
+  exact_years_of_experience: 6    # "how many EXACT years…" free-text boxes — the figure on your résumé
+                                  # (MAX belongs on range dropdowns; an exact box must match the résumé)
   skills_experience: true         # answers Yes to EVERY "Do you have experience with/in …?"; false = No; omit = park for review
   degree_bachelors: true          # "Do you have a Bachelor's degree …?"
   degree_masters: false

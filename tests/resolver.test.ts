@@ -187,6 +187,18 @@ describe('derived answers (salary / notice / city / top choice)', () => {
     expect(resolve(f('Are you an immediate joiner?', 'answers.immediate_joiner', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
 
+  it('exact-years boxes use the honest figure even when the ladder answer is MAX', () => {
+    const maxp = parseProfile({ ...p, answers: { years_of_experience: 'MAX', exact_years_of_experience: 4.7 } });
+    const ladder = ['0-2 years', '3-5 years', '6-10 years', '10+ years'];
+    expect(resolve(f('How many years of experience do you have?', 'answers.years_of_experience', 'select'), maxp, job, ladder)).toEqual({ kind: 'choice', values: ['10+ years'] });
+    expect(resolve(f('Please indicate how many exact years of relevant experience you have', 'answers.exact_years_of_experience'), maxp, job)).toEqual({ kind: 'text', value: '4.7' });
+    expect(resolve(f('Exact years of experience', 'answers.exact_years_of_experience', 'select'), maxp, job, ladder)).toEqual({ kind: 'choice', values: ['3-5 years'] });
+    // No exact figure: fall back to a numeric years answer, never to MAX.
+    const numeric = parseProfile({ ...p, answers: { years_of_experience: 6 } });
+    expect(resolve(f('How many exact years?', 'answers.exact_years_of_experience'), numeric, job)).toEqual({ kind: 'text', value: '6' });
+    expect(resolve(f('How many exact years?', 'answers.exact_years_of_experience'), parseProfile({ ...p, answers: { years_of_experience: 'MAX' } }), job)).toEqual({ kind: 'unknown' });
+  });
+
   it('"are you located in <city>" is Yes only for the profile city; the top-choice box stays off', () => {
     expect(resolve(f('Are you currently located in Bangalore?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
     expect(resolve(f('Are you currently located in Bengaluru?', 'answers.in_city', 'select'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
