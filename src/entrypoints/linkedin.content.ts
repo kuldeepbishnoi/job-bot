@@ -27,6 +27,11 @@ const MAX_ERROR_RETRIES = 2; // per step, after LinkedIn's validation named what
 const MODAL_WAIT_MS = 12_000;
 const SUBMIT_WAIT_MS = 15_000;
 const PACE_BACKOFF_MS = 150_000; // LinkedIn's "applying at a fast pace" pause
+// Questions where a GUESS would put a false statement about the applicant in front of an employer.
+// The owner's "never stuck" policy covers decline/No/first-option choices, not fabricated numbers:
+// the previous build typed `0` into "What is your current fixed salary?". These park the job with
+// a note naming the profile key to add, and the review file lists them.
+const NEVER_GUESS = new Set(['answers.current_salary', 'answers.current_fixed_salary', 'answers.current_variable_salary', 'answers.total_ctc', 'answers.expected_salary', 'answers.current_company', 'answers.current_title']);
 const OPEN_ATTEMPTS = 4; // ats/linkedin.ts#openCard strategies: native link click → pointer → inner → Enter
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -76,6 +81,9 @@ export default defineContentScript({
 });
 
 type Resume = Extract<Msg, { t: 'linkedin-apply' }>['resume'];
+
+/** A required question we refuse to guess (see NEVER_GUESS): park the job, name the profile key. */
+class NeedsProfileAnswer extends Error {}
 
 type CardOutcome =
   | { kind: 'skip'; note: string } // not attempted (filtered / not Easy Apply / already applied) — logged, not recorded
@@ -351,7 +359,17 @@ async function driveModal(profile: Profile, resume: Resume): Promise<CardOutcome
       }
     }
 
-    await fillStep(m, profile, job, filled);
+    try {
+      await fillStep(m, profile, job, filled);
+    } catch (e) {
+      if (!(e instanceof NeedsProfileAnswer)) throw e;
+      recordPrefilled(m, filled);
+      recordUnanswered(m, filled);
+      const capture = await captureNow('needs-profile-answer');
+      log('parking:', (e as Error).message);
+      await discard();
+      return { kind: 'result', status: 'parked', note: `${(e as Error).message} — filled everything else, did not submit`, fields: filled, resume: resumeUsed, capture };
+    }
 
     const action = li.actionButton(m);
     if (!action) return fail(`no Next/Review/Submit button on step ${step} — ${li.describeState(document)}`);
@@ -390,7 +408,15 @@ async function driveModal(profile: Profile, resume: Resume): Promise<CardOutcome
     if (errors.length) {
       log('validation errors', errors);
       if (errorRetries++ >= MAX_ERROR_RETRIES) return fail(`LinkedIn rejected the step: ${errors.join('; ')}`);
-      await fixErrors(after!, profile, job, filled, errors);
+      try {
+        await fixErrors(after!, profile, job, filled, errors);
+      } catch (e) {
+        if (!(e instanceof NeedsProfileAnswer)) throw e;
+        const capture = await captureNow('needs-profile-answer');
+        log('parking:', (e as Error).message);
+        await discard();
+        return { kind: 'result', status: 'parked', note: `${(e as Error).message} — filled everything else, did not submit`, fields: filled, resume: resumeUsed, capture };
+      }
       continue; // same step re-evaluated: fill anything still empty, click again
     }
     errorRetries = 0;
@@ -444,7 +470,7 @@ async function fillStep(m: Element, profile: Profile, job: Job, filled: AppliedF
     if (!todo.length) return;
     for (const field of todo) {
       if (li.isAnswered(m, field) && !wantsUncheck(m, field, profile, job)) continue;
-      await answerField(m, field, profile, job, filled, '');
+      await answerField(m, field, profile, job, filled, ''); // NeedsProfileAnswer propagates → park
       await pause(350);
     }
     await sleep(400);
@@ -464,6 +490,12 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
   const kind = `${field.kind}${numeric ? '#' : ''}`;
   let answer: Answer = resolve(field, profile, job, options);
   let source: FieldSource = profile.overrides[field.label.trim()] !== undefined ? 'override' : 'profile';
+  if (answer.kind === 'unknown' && field.intent && NEVER_GUESS.has(field.intent) && field.required) {
+    const key = field.intent.replace(/^answers\./, '');
+    log('WILL NOT GUESS', JSON.stringify(field.label), `— add \`answers.${key}\` to profile.yaml`);
+    upsert(filled, { id: field.id, label: field.label, value: '', source: 'unanswered', intent: field.intent, options: options.slice(0, 12), kind, error: `no answer: add answers.${key} to profile.yaml (a guess here would misstate your compensation/employer)` });
+    throw new NeedsProfileAnswer(`"${field.label}" needs \`answers.${key}\` in profile.yaml`);
+  }
   if (answer.kind === 'unknown' && profile.on_unknown === 'guess') {
     const g = guessAnswer(field, options, profile);
     if (g) {
@@ -567,7 +599,7 @@ async function fixErrors(m: Element, profile: Profile, job: Job, filled: Applied
   for (const field of li.fieldsInError(m).map(withIntent)) {
     const own = li.validationErrors(li.extract(m).length ? (m.querySelector(`[id="${CSS.escape(field.id)}"]`)?.closest('[data-test-form-element], .fb-dash-form-element, fieldset') ?? m) : m).join(' ') || hint;
     log('fixing', field.label, 'error', own.slice(0, 120));
-    await answerField(m, field, forced, job, filled, own);
+    await answerField(m, field, forced, job, filled, own); // NeedsProfileAnswer propagates → park
   }
   await fillStep(m, forced, job, filled);
 }

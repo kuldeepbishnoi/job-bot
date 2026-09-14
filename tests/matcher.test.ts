@@ -69,6 +69,7 @@ describe('matchIntent (LinkedIn Easy Apply labels)', () => {
     ['Highest qualification', 'answers.education_level'],
     ['How many years of experience in Java?', 'answers.years_of_experience'],
     ['Do you have experience with Kafka?', 'answers.skills_experience'],
+    ['How many experience in leading team?', 'answers.years_of_experience'], // live label, 2026-09-06 (sic)
     ['Do you have experience with Kubernetes?', 'answers.skills_experience'],
     ['In what cities are you available to work?', 'locations'],
     // Whole-word "city": Amazon's "…participate in any capacity…" and "ethnicity" are not cities.
