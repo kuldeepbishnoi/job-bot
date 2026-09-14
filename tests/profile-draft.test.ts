@@ -50,6 +50,8 @@ const VALID: Profile = {
   greenhouse: { boards: [], include_defaults: false },
   lever: { boards: [], include_defaults: false },
   ashby: { boards: [], include_defaults: false },
+  amazon: { search_url: 'https://www.amazon.jobs/en/search?category[]=software-development&sort=recent', ai_consent: false },
+  linkedin: { search_urls: ['https://www.linkedin.com/jobs/search/?keywords=Software%20Engineer'], filter_titles: true, max_per_run: 100 },
 };
 
 describe('validateDraft', () => {

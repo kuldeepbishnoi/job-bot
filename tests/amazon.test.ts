@@ -326,3 +326,16 @@ describe('amazon adapter — résumé section (first-time profile, fresh account
     expect(resumeAttached(doc)).toBe(false);
   });
 });
+
+describe('amazon config defaults (#regression: the pack must work with zero configuration)', () => {
+  it('profile.amazon defaults to a broad, working search_url — Start must never block on "missing: Search URL" for a fresh profile', () => {
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
+    expect(p.amazon.search_url).toMatch(/^https:\/\/www\.amazon\.jobs\/en\/search\?/);
+    expect(p.amazon.ai_consent).toBe(false); // declines by default
+  });
+
+  it('an explicit search_url still overrides the default', () => {
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf', amazon: { search_url: 'https://www.amazon.jobs/en/search?country[]=IND' } });
+    expect(p.amazon.search_url).toBe('https://www.amazon.jobs/en/search?country[]=IND');
+  });
+});

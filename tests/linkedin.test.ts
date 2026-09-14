@@ -492,3 +492,17 @@ describe('linkedin adapter — dialogs after submit / on failure', () => {
     expect(s).toContain('whole number');
   });
 });
+
+describe('linkedin config defaults (#regression: the pack must work with zero configuration)', () => {
+  it('profile.linkedin defaults to a broad, working search — Start must never block on "missing: Search URLs" for a fresh profile', () => {
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
+    expect(p.linkedin.search_urls).toEqual(['https://www.linkedin.com/jobs/search/?keywords=Software%20Engineer']);
+    expect(p.linkedin.filter_titles).toBe(true);
+    expect(p.linkedin.max_per_run).toBe(100);
+  });
+
+  it('explicit search_urls still override the default', () => {
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf', linkedin: { search_urls: ['https://www.linkedin.com/jobs/search/?keywords=Backend'] } });
+    expect(p.linkedin.search_urls).toEqual(['https://www.linkedin.com/jobs/search/?keywords=Backend']);
+  });
+});

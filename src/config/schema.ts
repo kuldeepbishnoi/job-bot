@@ -33,8 +33,11 @@ export const AnswersSchema = z.record(AnswerValue);
 // Per-site knobs. Only what a site genuinely needs from the user; everything else is derived.
 export const AmazonSchema = z.object({
   // Paste the amazon.jobs search page URL with your filters applied (category, country,
-  // experience…). Discovery turns it into the JSON API query. Yours, not ours — no default.
-  search_url: z.string().url(),
+  // experience…) to narrow it to what you actually want. Discovery turns it into the JSON API
+  // query. Defaults to every open software-development role worldwide, sorted most-recent-first,
+  // so the pack works with zero configuration — narrow it (country[], industry_experience…) once
+  // you know what you want; `want` in profile.yaml still filters titles/locations on top either way.
+  search_url: z.string().url().default('https://www.amazon.jobs/en/search?category[]=software-development&sort=recent'),
   // Amazon asks once whether it may use AI to recommend jobs / refer you to recruiters.
   ai_consent: z.boolean().default(false),
 });
@@ -42,8 +45,11 @@ export const AmazonSchema = z.object({
 // LinkedIn Easy Apply runs in-page in the user's logged-in tab (no worker window, no OTP).
 export const LinkedinSchema = z.object({
   // Search pages WITH your filters applied (keywords, location, date posted…). The bot forces the
-  // Easy Apply filter (f_AL=true) and walks every page of each URL in order. Yours — no default.
-  search_urls: z.array(z.string().url()).min(1),
+  // Easy Apply filter (f_AL=true) and walks every page of each URL in order. Defaults to a broad
+  // "Software Engineer" search with no location filter so the pack works with zero configuration —
+  // narrow it (keywords, location, date posted) once you know what you want; `want.titles_any` /
+  // `want.titles_none` still filter which cards get opened either way (see filter_titles below).
+  search_urls: z.array(z.string().url()).min(1).default(['https://www.linkedin.com/jobs/search/?keywords=Software%20Engineer']),
   // Only open cards whose title passes want.titles_any / titles_none (default). false = every
   // Easy Apply card the search returns.
   filter_titles: z.boolean().default(true),
@@ -97,8 +103,10 @@ export const ProfileSchema = z.object({
   // LinkedIn/Instahyre enforce their own caps, so this is an Amazon-shaped knob in practice.
   per_account_limit: z.number().int().positive().optional(),
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
-  amazon: AmazonSchema.optional(),
-  linkedin: LinkedinSchema.optional(),
+  // Present with sensible defaults even when the block is absent — see AmazonSchema.search_url.
+  amazon: AmazonSchema.default({}),
+  // Present with sensible defaults even when the block is absent — see LinkedinSchema.search_urls.
+  linkedin: LinkedinSchema.default({}),
   // Always present (defaults exist), so these packs run out of the box.
   greenhouse: BoardListSchema.default({}),
   lever: BoardListSchema.default({}),
