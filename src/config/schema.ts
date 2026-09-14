@@ -63,8 +63,8 @@ export const LinkedinSchema = z.object({
 // is "run exactly what you listed", never a silent fan-out.
 //
 // include_defaults defaults to FALSE deliberately. With `auto_submit: true` — a normal setting
-// here — turning it on means one click applies to companies the user never named (41 in
-// DEFAULT_GREENHOUSE_BOARDS alone, plus the Lever and Ashby lists), and an application cannot be
+// here — turning it on means one click applies to companies the user never named (133 in
+// DEFAULT_GREENHOUSE_BOARDS alone, plus 12 Lever and 56 Ashby), and an application cannot be
 // withdrawn. Opting in has to be a decision, not the consequence of leaving a key out of
 // profile.yaml. With it false and no boards, the pack refuses to run rather than pick a target the
 // user never chose. Everything here is meant to be edited from the dashboard.

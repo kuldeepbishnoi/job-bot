@@ -6,7 +6,7 @@ import type { Site } from '../sites';
 import type { RunState } from '../platform/store';
 import type { Application, Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
-import { selectJobs } from '../engine/select-jobs';
+import { selectJobs, spreadAcrossEmployers } from '../engine/select-jobs';
 import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
 import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
 import { readRegistry } from '../platform/fs-config';
@@ -95,7 +95,10 @@ export async function startRun(
   // gesture-only APIs are the picker and requestPermission, neither of which this touches.
   const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
   const already = new Set([...(await ports.appliedIds()), ...registry]);
-  const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
+  // Spread before capping: the cap takes the head of the queue, and a multi-company pack discovers
+  // alphabetically, so an uninterleaved queue sends every application of a capped run to whichever
+  // employer sorts first.
+  const all = spreadAcrossEmployers(selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id)));
   // The queue is PERSISTED (a killed service worker resumes from it), and chrome.storage.local is
   // 10 MB shared with the application records and the log. A multi-company pack walking hundreds of
   // boards discovers tens of thousands of jobs — ~277 bytes each, so ~36k jobs alone would fill the
