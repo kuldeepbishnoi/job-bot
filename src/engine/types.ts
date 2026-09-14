@@ -149,7 +149,7 @@ export interface Capture {
 }
 
 export interface Application {
-  readonly company: string;
+  readonly company: string; // the SITE PACK id (datadog, linkedin, greenhouse…) — never the hiring company; see `employer`
   readonly jobId: string;
   readonly title: string;
   readonly url: string;
