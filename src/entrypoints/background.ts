@@ -149,8 +149,8 @@ async function runScheduled(siteId: string): Promise<void> {
     return;
   }
   try {
-    // No registry exclude here: reading it needs the profile-folder grant, which only an extension
-    // page holds. The run still skips anything already recorded (recordedOnLinkedin).
+    // No exclude passed: with none, both start paths read the shared registry themselves, so a
+    // hands-off daily run excludes what every account already applied to, exactly like a manual one.
     if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, [], 'daily');
     else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], undefined, 'daily');
   } catch (e) {

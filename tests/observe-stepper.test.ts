@@ -10,11 +10,19 @@ import { parseProfile } from '@/config/schema';
 import type { Application, Job } from '@/engine/types';
 import type { ApplyOutcome } from '@/platform/messaging';
 
+// The registry lives in the profile folder; there is none in a test, so stand in for the reader.
+let registry = new Set<string>();
+vi.mock('@/platform/fs-config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/platform/fs-config')>()),
+  readRegistry: async () => registry,
+}));
+
 // The worker-pack run lifecycle as the console sees it: one Run per run, a heartbeat per job,
 // counts that match the outcomes, and an end reason every single time.
 
 let chrome: ChromeRuntimeFake;
 beforeEach(async () => {
+  registry = new Set();
   chrome = installChromeRuntimeFake();
   await clearEvents();
   // Only timers: the stepper schedules the NEXT job with setTimeout, which a test must not run.
@@ -190,5 +198,23 @@ describe('worker run lifecycle (stepper → observe)', () => {
     const run = await onlyRun();
     const events = await queryEvents({ runId: run.runId });
     expect(events.some((e) => e.scope === 'run' && /run started on datadog/.test(e.msg))).toBe(true);
+  });
+});
+
+describe('the shared registry on a hands-off run', () => {
+  it('excludes what another account applied to, even when the caller passes no exclude list', async () => {
+    // The daily alarm has no extension page to read the registry for it. Passing [] used to mean
+    // "apply to everything", which is precisely what the registry exists to prevent.
+    registry = new Set(['j1']);
+    const { ports } = fakePorts([job('j1'), job('j2')]);
+    await startRun('datadog', profile, resume, ports, [], undefined, 'daily');
+    expect((await getRunState())?.queue.map((j) => j.id)).toEqual(['j2']);
+  });
+
+  it('an explicit exclude from a page still wins over the file', async () => {
+    registry = new Set(['j1']);
+    const { ports } = fakePorts([job('j1'), job('j2')]);
+    await startRun('datadog', profile, resume, ports, ['j2'], undefined, 'manual');
+    expect((await getRunState())?.queue.map((j) => j.id)).toEqual(['j1']);
   });
 });

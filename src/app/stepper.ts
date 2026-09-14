@@ -8,6 +8,7 @@ import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
 import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
 import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
+import { readRegistry } from '../platform/fs-config';
 import { accountsAtLimitToday } from '../platform/store';
 import type { Run } from '../engine/records';
 import * as observe from './observe';
@@ -59,7 +60,12 @@ export async function startRun(
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
-  const already = new Set([...(await ports.appliedIds()), ...exclude]);
+  // The shared registry is what stops N accounts re-applying to the same job. An extension page
+  // passes it in; the daily alarm has no page, so read it here rather than run without it. The
+  // worker CAN read it: writeRecord already writes that folder from this same context, and the
+  // gesture-only APIs are the picker and requestPermission, neither of which this touches.
+  const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
+  const already = new Set([...(await ports.appliedIds()), ...registry]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
   // One Run record per run, before any job: the console's whole view of this run hangs off it.
