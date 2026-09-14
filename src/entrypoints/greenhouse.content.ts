@@ -25,15 +25,20 @@ export default defineContentScript({
   main() {
     chrome.runtime.onMessage.addListener((msg: Msg, _s, respond) => {
       if (msg.t === 'ping') {
-        respond({ pong: true }); // readiness handshake for the background orchestrator
+        // `ready` is the point of the handshake: the embed's bootstrap document answers a ping too,
+        // and it is replaced moments later. Only a document that actually holds the form can be
+        // filled, so say which one this is rather than just "a script is here".
+        respond({ pong: true, ready: gh.submitButton(document) !== null, confirmed: gh.confirmed(document), why: location.href });
         return true;
       }
       if (msg.t === 'apply') {
-        applyForm(msg).then(respond);
+        // ALWAYS answer. A rejection that never responds reaches the background as Chrome's opaque
+        // "message channel closed", which is what hid this failure for a whole run.
+        applyForm(msg).then(respond, (e: Error) => respond({ status: 'error', note: `apply threw: ${e.message}` }));
         return true;
       }
       if (msg.t === 'otp') {
-        doOtp(msg.code, msg.autoSubmit).then(respond);
+        doOtp(msg.code, msg.autoSubmit).then(respond, (e: Error) => respond({ status: 'error', note: `otp threw: ${e.message}` }));
         return true;
       }
       return false;

@@ -396,8 +396,27 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
     const action = li.actionButton(m);
     if (!action) return fail(`no Next/Review/Submit button on step ${step} — ${li.describeState(document)}`);
     const signature = `${action.kind}:${progress}:${li.extract(m).map((f) => f.id).join(',')}`;
-    seen.set(signature, (seen.get(signature) ?? 0) + 1);
-    if ((seen.get(signature) ?? 0) > 3) return fail(`stuck on the same step (${action.kind}, progress ${progress}) — errors: ${li.validationErrors(m).join('; ') || 'none'}`);
+    const repeats = (seen.get(signature) ?? 0) + 1;
+    seen.set(signature, repeats);
+    if (repeats > 3) {
+      // The note is the whole diagnosis for a failure nobody watched: say what the step held, not
+      // just that it did not move. On 2026-09-14 six jobs died here reporting only "errors: none".
+      const errs = li.validationErrors(m);
+      return fail(
+        `stuck on the same step — ${action.kind} did not advance it after ${repeats} tries. ` +
+          `Step: progress ${progress}, ${li.extract(m).length} question(s). ` +
+          `Validation errors: ${errs.join('; ') || 'none shown'}. ${li.describeState(document)}`,
+      );
+    }
+    // Second try: the synthetic mouse sequence may not have activated the control. `el.click()` is
+    // the browser's own activation path, which behaves differently, so try it once before giving up.
+    if (repeats === 2) {
+      log('step did not advance — retrying with a native click');
+      action.el.focus();
+      action.el.click();
+      await pause(1500);
+      continue;
+    }
 
     if (action.kind === 'submit') {
       if (li.uncheckFollowCompany(m)) log('unchecked "Follow company"');

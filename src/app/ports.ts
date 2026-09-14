@@ -7,6 +7,9 @@ import { record, appliedIds, saveProgress, getProgress } from '../platform/store
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
+import type { Profile } from '../config/schema';
+import type { Job } from '../engine/types';
+import type { SerializedFile } from '../platform/serialized-file';
 import { dlog, elog } from '../platform/debug-log';
 import * as observe from './observe';
 
@@ -23,15 +26,30 @@ function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
 /** Poll the tab until the form content script answers — Greenhouse injects after the parent
  *  page's 'complete' (the form is a late async iframe) and Amazon's apply app renders after its
  *  own XHRs, so 'apply' can't be sent blind. */
+/** Wait until the frame that holds the FORM answers — not merely until some frame does.
+ *
+ *  A pong used to mean "a content script exists here". On Datadog that is true of the Greenhouse
+ *  embed's bootstrap document, which the embed then REPLACES with the real form: we sent `apply`
+ *  into a document that was about to be torn down, so the port closed with nothing filled and the
+ *  run recorded Chrome's opaque "message channel closed" for all 13 jobs on 2026-09-14.
+ *
+ *  A script that knows what it needs now says so (`ready`). `ready === undefined` keeps the old
+ *  meaning, so packs that have not adopted it are unaffected. */
 async function waitForFrame(tabId: number, tries = 30): Promise<void> {
+  let sawScript = false;
   for (let i = 0; i < tries; i++) {
-    const ready = await sendToTab<{ pong?: boolean }>(tabId, { t: 'ping' })
-      .then((r) => r?.pong === true)
-      .catch(() => false);
-    if (ready) return;
+    const r = await sendToTab<{ pong?: boolean; ready?: boolean; why?: string }>(tabId, { t: 'ping' }).catch(() => null);
+    if (r?.pong === true) {
+      sawScript = true;
+      if (r.ready !== false) return;
+    }
     await sleep(500);
   }
-  throw new Error('form frame never became ready');
+  throw new Error(
+    sawScript
+      ? 'the form never rendered in the frame (the page answered, but its form was not there)'
+      : 'form frame never became ready (no content script answered)',
+  );
 }
 
 /** Some apply apps (Amazon) *navigate away* the instant a submit succeeds, tearing down the
@@ -52,6 +70,38 @@ async function outcomeAfterPortClosed(site: Site, tabId: number, jobId: string, 
   const filled = (got[key] as ApplyOutcome extends { filled?: infer F } ? F : never) ?? undefined;
   await chrome.storage.local.remove(key).catch(() => {});
   return { status: 'submitted', note: `submitted — page moved on to ${url}`, ...(filled ? { filled } : {}) };
+}
+
+/** A closed port can mean the document was replaced mid-apply (the Greenhouse embed does exactly
+ *  that). That is recoverable — but only after proving we would not be applying twice. So: wait for
+ *  the real form frame again, ask it whether this application is already confirmed, and retry ONLY
+ *  when it is not. A site that signals success by navigating (Amazon) is left to
+ *  `outcomeAfterPortClosed`, which reads the URL instead. */
+async function retryAfterFrameSwap(
+  site: Site,
+  tabId: number,
+  profile: Profile,
+  job: Job,
+  resume: SerializedFile,
+  ctx: { jobId: string; siteId: string },
+): Promise<ApplyOutcome | null> {
+  if (site.submittedUrl) return null; // that site's closed port is its success signal, not a swap
+  try {
+    await waitForFrame(tabId, 12);
+  } catch {
+    return null; // no form came back — let the normal error path report it
+  }
+  const state = await sendToTab<{ confirmed?: boolean }>(tabId, { t: 'ping' }).catch(() => null);
+  if (state?.confirmed) {
+    elog('info', 'apply', `${job.id} the form was already submitted — not retrying`, undefined, ctx);
+    return { status: 'submitted', note: 'submitted before the frame was replaced' };
+  }
+  elog('warn', 'apply', `${job.id} the form frame was replaced mid-apply — filling the new one`, undefined, ctx);
+  return withTimeout(
+    sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit }),
+    APPLY_CAP_MS,
+    `apply ${job.id} (retry)`,
+  ).catch(() => null);
 }
 
 // Concrete ports, assembled from platform adapters. This is the "Main" seam (Ch26):
@@ -75,6 +125,8 @@ export function chromePorts(): RunPorts {
         return out;
       } catch (e) {
         elog('warn', 'apply', `${job.id} port closed: ${(e as Error).message}`, undefined, ctx);
+        const retried = await retryAfterFrameSwap(site, tabId, profile, job, resume, ctx);
+        if (retried) return retried;
         const out = await outcomeAfterPortClosed(site, tabId, job.id, e);
         elog(out.status === 'error' ? 'error' : 'info', 'outcome', `${job.id} ${out.status} ${'note' in out ? out.note ?? '' : ''}`, undefined, ctx);
         return out;
