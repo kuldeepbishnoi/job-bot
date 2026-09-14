@@ -62,6 +62,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     const v = key ? profile.answers[key] : undefined;
     if (typeof v === 'boolean') return { kind: 'check', value: v };
     if (intent === 'answers.top_choice') return { kind: 'check', value: false };
+    // "I agree to the mutual arbitration agreement" is a required checkbox too. Ticking it to get
+    // past the step would commit the applicant to something only they can agree to.
+    if (isConsequential(field.label)) return { kind: 'unknown' };
     return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
   }
 
@@ -150,6 +153,38 @@ export function salaryFor(intent: Intent, answers: Readonly<Record<string, Answe
   }
 }
 
+// Currency tokens by ISO-ish code. `salaryInUnit` understands UNITS (lakh, month, thousand) but
+// cannot convert money: answering a ringgit box with a rupee figure states a salary ~18x wrong.
+const CURRENCIES: Readonly<Record<string, RegExp>> = {
+  INR: /\b(inr|rupees?|rs\.?|₹|lpa|lakhs?|lacs?|crores?)\b/i,
+  USD: /\b(usd|us\$|dollars?)\b|\$/i,
+  EUR: /\b(eur|euros?)\b|€/i,
+  GBP: /\b(gbp|pounds?|sterling)\b|£/i,
+  MYR: /\b(myr|ringgit|rm)\b/i,
+  SGD: /\b(sgd|singapore dollars?)\b/i,
+  AED: /\b(aed|dirhams?)\b/i,
+  CAD: /\b(cad|canadian dollars?)\b/i,
+  AUD: /\b(aud|australian dollars?)\b/i,
+  JPY: /\b(jpy|yen)\b|¥/i,
+};
+const COUNTRY_CURRENCY: Readonly<Record<string, string>> = {
+  india: 'INR', 'united states': 'USD', usa: 'USD', us: 'USD', canada: 'CAD', 'united kingdom': 'GBP',
+  uk: 'GBP', singapore: 'SGD', malaysia: 'MYR', australia: 'AUD', japan: 'JPY', germany: 'EUR',
+  france: 'EUR', spain: 'EUR', netherlands: 'EUR', ireland: 'EUR', uae: 'AED',
+};
+
+/** The currency a salary question names, or null when it names none. */
+export function labelCurrency(label: string): string | null {
+  return Object.entries(CURRENCIES).find(([, re]) => re.test(label))?.[0] ?? null;
+}
+
+/** The currency the profile's salary figures are in: `answers.currency`, else the country's. */
+export function profileCurrency(profile: Profile): string {
+  const explicit = profile.answers['currency'];
+  if (typeof explicit === 'string' && explicit.trim()) return explicit.trim().toUpperCase();
+  return COUNTRY_CURRENCY[profile.identity.country.trim().toLowerCase()] ?? 'INR';
+}
+
 /** The unit a salary question asks for, read off its label: lakhs per annum ("LPA", "in lakhs"),
  *  per month, thousands, else the annual figure as is. */
 export function salaryInUnit(annual: number, label: string): number {
@@ -205,6 +240,10 @@ function resolveDerived(intent: Intent, field: Field, profile: Profile, options:
     case 'answers.total_ctc': {
       const annual = salaryFor(intent, a);
       if (annual === undefined) return { kind: 'unknown' };
+      // The box asks in a currency our figures are not in. There is no honest conversion here
+      // (no rates, no date), so park it: the review file names the question and the user answers.
+      const asks = labelCurrency(field.label);
+      if (asks && asks !== profileCurrency(profile)) return { kind: 'unknown' };
       const v = salaryInUnit(annual, field.label);
       if (!choice) return { kind: 'text', value: String(v) };
       // Range options ("10-15 LPA", "10,00,000 - 15,00,000"): parse in the option's own unit.
@@ -367,9 +406,25 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
  *    3. "No" / "None" / "Not applicable" — the answer that opens no follow-up questions;
  *    4. last resort: the first real option (select) or "N/A" (free text).
  *  Callers mark the record "(guessed)" so a bad guess is visible after the fact. */
-const AGREEABLE = /comfortable|willing|okay|ok with|open to|agree|able to|can you|available|ready to|flexible|fine with|interested|would you/i;
+// "Would you be willing to …?" — a question an applicant answers Yes to. PHRASES, not bare words:
+// a bare /agree/ also matches "arbitration agreement", which is how guess mode came to accept
+// binding legal terms on the applicant's behalf.
+const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bare you (comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bwilling to\b|\bcomfortable (with|working|commuting)\b/i;
+
+// Questions whose "yes" surrenders a legal right or makes a commitment the applicant alone can
+// make. NEVER guessed — not even to keep a run moving, and not even when the box is required:
+// a wrong salary can be corrected in the interview, an accepted arbitration clause cannot.
+// An explicit profile answer (or an overrides entry) still decides; only the guess path is blocked.
+const CONSEQUENTIAL = /arbitrat|waiv|class action|binding|release of claims|indemnif|non-?compete|non-?solicit|nda\b|non-?disclosure|power of attorney|assign(ment)? of (invention|ip)|terms of service|legally bind|hold harmless|consent to (a )?(credit|drug)/i;
+
+/** True when a question's affirmative answer is a legal commitment we must not make for the user. */
+export function isConsequential(label: string): boolean {
+  return CONSEQUENTIAL.test(label);
+}
 
 export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
+  // Never guess a legal commitment — park it for the user, whatever the field's shape.
+  if (isConsequential(field.label)) return null;
   // A required lone checkbox gates submit → tick it; an optional one is an opt-in extra → leave it off.
   if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };

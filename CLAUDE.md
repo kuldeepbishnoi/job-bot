@@ -175,6 +175,14 @@ fixtures/    real captured data for offline tests
    in `platform/messaging.ts`) — never DOM nodes or class instances across the wire.
 5. Answers are **intent-based**, never keyed by exact question text (except `profile.overrides`):
    raw label → `Intent` (`matcher.ts`) → value (`resolver.ts`). Same rules answer Datadog, Amazon…
+6b. **Some answers are never invented.** `on_unknown: guess` covers the obvious (decline → own
+   country → No → a binary's other side). It must never (a) accept a legal commitment —
+   `engine/resolver.ts#isConsequential` parks arbitration / waiver / class-action / non-compete /
+   NDA questions, including a *required* checkbox, (b) state compensation or an employer the
+   profile does not hold, (c) answer a salary box in a currency the profile's figures are not in
+   (`labelCurrency` vs `profileCurrency`), (d) pick `options[0]` on a list longer than two, which
+   asserts the strongest claim on a ladder ("Native or bilingual", "10+ years"), or (e) round years
+   UP. A parked job names the profile key to add, and the question lands in `review.jsonl`.
 6. Answer values are **typed by question shape**: `boolean` (yes/no), `string` (single choice/free
    text), `string[]` (multi), `number` (a "how many years" ladder → `engine/years.ts` picks the
    bucket), or a canonical **token** (`answer-tokens.ts`: `DECLINE`,

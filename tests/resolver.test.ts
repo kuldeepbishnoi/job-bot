@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolve, matchOptions, guessAnswer, salaryFor, salaryInUnit, noticeDays, pickNoticeOption } from '@/engine/resolver';
 import { fitNumber, fitText } from '@/engine/fit-answer';
-import { cityNames } from '@/engine/resolver';
+import { cityNames, labelCurrency, profileCurrency } from '@/engine/resolver';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -296,5 +296,47 @@ describe('city aliases', () => {
     expect(resolve(f('Are you currently located in Chennai?'), p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
     const gurugram = parseProfile({ ...p, identity: { ...p.identity, city: 'Gurugram' } });
     expect(resolve(f('Are you based out of Gurgaon?'), gurugram, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+});
+
+describe('answers we must never invent', () => {
+  const p = parseProfile({
+    identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+91 9', country: 'India', city: 'Gurugram' },
+    resume: 'r.pdf', on_unknown: 'guess',
+    answers: { expected_salary: 7000000, current_salary: 5100000 },
+  });
+  const job: Job = { id: '1', title: '', team: '', department: '', url: '', locations: [], seniority: [] };
+  const sel = (label: string): Field => ({ id: label, label, kind: 'select', required: true, intent: undefined });
+  const box = (label: string): Field => ({ id: label, label, kind: 'checkbox', required: true, intent: undefined });
+
+  it('a legal commitment parks instead of being accepted on the applicant\'s behalf', () => {
+    // guess mode used to answer all of these affirmatively: /agree/ matched "agreement" and the
+    // yes-side of a two-option list was picked. An accepted arbitration clause cannot be undone.
+    expect(guessAnswer(sel('Please read the arbitration agreement below'), ['I agree', 'I do not agree'], p)).toBeNull();
+    expect(guessAnswer(sel('Agreement to Arbitrate'), ['Agree', 'Disagree'], p)).toBeNull();
+    expect(guessAnswer(sel('Do you agree to waive your right to a class action?'), ['Yes', 'No'], p)).toBeNull();
+    expect(guessAnswer(box('I accept the mutual arbitration agreement'), [], p)).toBeNull();
+    // A required checkbox is normally a submit gate we tick — but not this one.
+    expect(resolve(box('I accept the mutual arbitration agreement'), p, job)).toEqual({ kind: 'unknown' });
+    expect(resolve(box('I certify the information provided is true'), p, job)).toEqual({ kind: 'check', value: true });
+    // Ordinary willingness questions are unaffected.
+    expect(guessAnswer(sel('Are you comfortable commuting to the office?'), ['Yes', 'No'], p)).toEqual({ kind: 'choice', values: ['Yes'] });
+    expect(guessAnswer(sel('Would you be willing to work weekends?'), ['Yes', 'No'], p)).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
+  it('a salary box in another currency parks rather than sending a rupee figure', () => {
+    const f = (label: string): Field => ({ id: label, label, kind: 'text', required: true, intent: 'answers.expected_salary' });
+    expect(labelCurrency('Expected Monthly Fixed ( Base ) Salary in Malaysian ringgit ( RM )')).toBe('MYR');
+    expect(labelCurrency('Expected CTC (in LPA)')).toBe('INR');
+    expect(labelCurrency('Expected salary')).toBeNull();
+    expect(profileCurrency(p)).toBe('INR');
+    expect(resolve(f('Expected Monthly Fixed ( Base ) Salary in Malaysian ringgit ( RM )'), p, job)).toEqual({ kind: 'unknown' });
+    expect(resolve(f('Expected annual salary in USD'), p, job)).toEqual({ kind: 'unknown' });
+    expect(resolve(f('Expected CTC (in LPA)'), p, job)).toEqual({ kind: 'text', value: '70' });
+    expect(resolve(f('Expected salary'), p, job)).toEqual({ kind: 'text', value: '7000000' });
+    // Someone whose own figures are in dollars answers the dollar box and parks the rupee one.
+    const us = parseProfile({ ...p, identity: { ...p.identity, country: 'United States' }, answers: { expected_salary: 200000 } });
+    expect(profileCurrency(us)).toBe('USD');
+    expect(resolve(f('Expected annual salary in USD'), us, job)).toEqual({ kind: 'text', value: '200000' });
   });
 });

@@ -47,6 +47,9 @@ answers:
   drivers_license: true
   security_clearance: false
   language_proficiency: Professional   # option text: Native | Professional | Conversational…
+  # currency: INR                 # only if it differs from your identity.country's (INR for India).
+  #                               # A salary box naming a DIFFERENT currency parks: there is no
+  #                               # honest conversion without a rate, so you answer that one.
   # Salary: ANNUAL figures in your currency (INR). The bot converts to the unit the question names
   # ("LPA" / "in lakhs" → 30, "per month" → 250000, ranges → the matching option). Components
   # derive from each other when unset: fixed = current_salary, variable = 0, total = fixed+variable.
