@@ -1,0 +1,359 @@
+/* One stylesheet for every JobBot surface (dashboard + popup). Tokens first, then primitives.
+   Dark by default — it's an ops console that sits open next to a browser doing the work. */
+
+:root {
+  --bg: #0f1020;
+  --bg-2: #14152a;
+  --card: #1a1b2e;
+  --card-2: #21223a;
+  --line: #262844;
+  --fg: #eceffd;
+  --muted: #8b8fa8;
+  --accent: #7b6bff;
+  --accent-2: #5a4bd6;
+
+  --ok: #9be7a5;
+  --ok-bg: #14301c;
+  --warn: #f0c674;
+  --warn-bg: #2a2110;
+  --err: #ff9b9b;
+  --err-bg: #331717;
+  --info: #7cc4ff;
+  --info-bg: #10283d;
+
+  --r: 10px;
+  --r-sm: 6px;
+  --pad: 14px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; }
+h1 { font-size: 16px; }
+h2 { font-size: 14px; }
+h3 { font-size: 13px; }
+p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+code, .mono { font-family: var(--mono); }
+
+/* ---- primitives ------------------------------------------------------------------------- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: var(--pad);
+}
+.row { display: flex; align-items: center; gap: 8px; }
+.col { display: flex; flex-direction: column; gap: 8px; }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.right { margin-left: auto; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.tiny { font-size: 11px; }
+.nowrap { white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scroll-x { overflow-x: auto; }
+
+button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: #fff;
+}
+button.danger { color: var(--err); }
+button.ghost { background: transparent; }
+button.link {
+  background: none; border: 0; padding: 0; color: var(--accent); font-weight: 400;
+}
+button.link:hover { text-decoration: underline; }
+button.sm { padding: 3px 8px; font-size: 12px; }
+
+input, select, textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 9px;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+input[type="checkbox"], input[type="radio"] { width: auto; accent-color: var(--accent); }
+textarea { resize: vertical; min-height: 72px; font-family: var(--mono); font-size: 12px; }
+label { display: block; }
+fieldset { border: 0; margin: 0; padding: 0; }
+
+/* ---- status ---------------------------------------------------------------------------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.pill.ok { color: var(--ok); background: var(--ok-bg); border-color: #1f5130; }
+.pill.warn { color: var(--warn); background: var(--warn-bg); border-color: #4a3a1a; }
+.pill.err { color: var(--err); background: var(--err-bg); border-color: #5a2a2a; }
+.pill.info { color: var(--info); background: var(--info-bg); border-color: #1d4468; }
+.pill.idle { color: var(--muted); background: var(--bg-2); border-color: var(--line); }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.dot.pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.bar { height: 6px; border-radius: 999px; background: var(--bg-2); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+
+/* ---- tables ---------------------------------------------------------------------------- */
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--card); z-index: 1;
+}
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody tr:hover { background: var(--card-2); }
+tbody tr.selected { background: var(--card-2); box-shadow: inset 2px 0 0 var(--accent); }
+tr.clickable { cursor: pointer; }
+
+/* ---- layout ---------------------------------------------------------------------------- */
+.shell { display: grid; grid-template-columns: 186px 1fr; height: 100vh; }
+.rail {
+  background: var(--bg-2); border-right: 1px solid var(--line);
+  padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
+}
+.rail .brand { display: flex; align-items: center; gap: 8px; padding: 4px 8px 14px; }
+.rail a {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: var(--r-sm); color: var(--muted); font-weight: 500;
+}
+.rail a:hover { background: var(--card); color: var(--fg); text-decoration: none; }
+.rail a.on { background: var(--card); color: var(--fg); box-shadow: inset 2px 0 0 var(--accent); }
+.rail .badge {
+  margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  background: var(--warn-bg); color: var(--warn);
+}
+.main { overflow-y: auto; padding: 16px 20px 40px; }
+.page-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.grid { display: grid; gap: 12px; }
+.grid.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid.three { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+/* Detail drawer: a right-hand panel, so the list keeps its place. */
+.with-drawer { display: grid; grid-template-columns: 1fr minmax(360px, 46%); gap: 12px; align-items: start; }
+.drawer { position: sticky; top: 0; max-height: calc(100vh - 56px); overflow-y: auto; }
+
+.empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+.empty b { display: block; color: var(--fg); margin-bottom: 6px; font-size: 14px; }
+
+.banner {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: var(--r); margin-bottom: 12px;
+  border: 1px solid var(--line); background: var(--card);
+}
+.banner.err { color: var(--err); background: var(--err-bg); border-color: #5a2a2a; }
+.banner.warn { color: var(--warn); background: var(--warn-bg); border-color: #4a3a1a; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.tabs button {
+  background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  color: var(--muted); padding: 7px 11px;
+}
+.tabs button.on { color: var(--fg); border-bottom-color: var(--accent); }
+
+/* Log / capture bits shared by several pages. */
+.logline { display: grid; grid-template-columns: 78px 52px 90px 1fr; gap: 8px; padding: 2px 6px; font-family: var(--mono); font-size: 12px; border-bottom: 1px solid #1f2036; }
+.logline.error { color: var(--err); }
+.logline.warn { color: var(--warn); }
+.logline.debug { color: var(--muted); }
+.thumb { border: 1px solid var(--line); border-radius: var(--r-sm); max-width: 100%; display: block; }
+
+/* pages: apps/review/runs ------------------------------------------------------------------- */
+
+/* Filter bar: a grid so it reflows on a narrow window instead of overflowing the card. */
+.filters {
+  display: grid; gap: 8px; margin-bottom: 10px;
+  grid-template-columns: minmax(180px, 2fr) repeat(auto-fit, minmax(120px, 1fr));
+}
+.filters input[type="date"] { color-scheme: dark; }
+
+/* Label/value pairs in a detail header. */
+.kvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 14px; }
+.kv { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.kv > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chip {
+  padding: 1px 7px; border-radius: 999px; font-size: 11px;
+  background: var(--bg-2); border: 1px solid var(--line); color: var(--muted);
+}
+
+/* A row whose answer needs a human: tinted, not shouted. */
+table.fields td { font-size: 12px; }
+table.fields tr.hl { background: #241d12; }
+table.fields tr.hl:hover { background: #2d2416; }
+.err-text { color: var(--err); }
+.note { color: var(--warn); }
+
+.thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.thumbfig { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+
+.loglines { max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); }
+/* A line we only have as raw text (legacy records) has no columns to split into. */
+.logline.plain { display: block; white-space: pre-wrap; word-break: break-word; }
+.logline.info { color: inherit; }
+
+.pre {
+  font-family: var(--mono); font-size: 11px; line-height: 1.45;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+
+.funnel { display: flex; flex-direction: column; gap: 6px; }
+.funnel-row { display: grid; grid-template-columns: 76px 1fr 36px; gap: 8px; align-items: center; }
+.funnel-row b { text-align: right; }
+
+/* pages: overview/live/sites ---------------------------------------------------------------- */
+/* A chip is a fact + its evidence + (sometimes) the one click that fixes it. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px;
+  border: 1px solid var(--line); background: var(--bg-2); color: var(--fg);
+}
+.chip > b { font-size: 12px; line-height: 1; }
+.chip .muted { max-width: 26ch; }
+.chip.ok { border-color: #1f5130; }
+.chip.ok > b { color: var(--ok); }
+.chip.err { border-color: #5a2a2a; background: var(--err-bg); }
+.chip.err > b { color: var(--err); }
+.chip.idle > b { color: var(--muted); }
+.chip button.link { font-size: 11px; }
+
+.site-icon { font-size: 16px; line-height: 1; }
+.site-card, .run-card { gap: 10px; }
+.strip .chips { gap: 8px; }
+
+/* Step timeline: the pack's own step names, with the live one carrying its elapsed time. */
+.steps { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.step {
+  font-size: 11px; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); background: var(--bg-2);
+}
+.step.done { color: var(--ok); border-color: #1f5130; }
+.step.on { color: var(--fg); border-color: var(--accent); background: var(--card-2); }
+.step.on em { font-style: normal; color: var(--muted); }
+
+.logtail {
+  max-height: 240px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 4px 0;
+}
+.cap-thumb { max-height: 140px; width: auto; }
+
+/* Label/value pairs used by the site list and detail. */
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; align-items: baseline; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.issue { color: var(--err); font-size: 11px; }
+
+/* pages: profile/settings/logs --------------------------------------------------------------- */
+/* A form row: label, control, why it exists, and what the schema says is wrong with it. */
+.fieldrow { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.flabel { font-size: 12px; font-weight: 600; color: var(--fg); }
+.flabel .req { color: var(--warn); }
+.hint { font-size: 11px; color: var(--muted); line-height: 1.45; }
+.ferr { font-size: 11px; color: var(--err); }
+.ok-text { font-size: 12px; color: var(--ok); }
+.fieldrow.has-error input, .fieldrow.has-error select, .fieldrow.has-error textarea { border-color: var(--err); }
+.form-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card.mt { margin-top: 12px; }
+
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+
+/* Tri-state (Yes / No / Not set) and any other small exclusive choice. */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--bg-2); color: var(--muted); padding: 5px 12px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--card-2); color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
+
+.radios { display: flex; flex-direction: column; gap: 6px; }
+.radio { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer; }
+.radio.on { border-color: var(--accent); background: var(--card-2); }
+.radio em { display: block; font-style: normal; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Chip EDITOR (the read-only fact chips above keep their own look). */
+.chips.editor {
+  gap: 6px; padding: 4px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-2); align-items: center;
+}
+.chips.editor .chip { color: var(--fg); background: var(--card-2); padding: 2px 4px 2px 9px; }
+.chips.editor .chip.bad { border-color: var(--err); color: var(--err); }
+.chips.editor .chip .x { border: 0; background: none; color: var(--muted); padding: 0 5px; font-size: 13px; line-height: 1; }
+.chips.editor .chip .x:hover { color: var(--err); }
+.chips.editor .chip-entry { flex: 1; min-width: 120px; width: auto; border: 0; background: none; padding: 3px 4px; }
+.chips.editor .chip-entry:focus { border: 0; }
+
+/* Save bar: sticky, because the answers tab is longer than a screen. */
+.savebar {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--r);
+  background: var(--card); border: 1px solid var(--line);
+}
+.savebar.dirty { border-color: var(--warn); }
+.dirty-dot { color: var(--warn); }
+.tabs button .tab-bad { color: var(--err); margin-left: 5px; font-size: 9px; vertical-align: middle; }
+
+/* Answers editor: one card per question, its intent key printed under the label. */
+.answer-group + .answer-group { margin-top: 16px; }
+.group-title { color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-size: 11px; margin-bottom: 8px; }
+.answer-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.answer { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px; background: var(--bg-2); min-width: 0; }
+.answer-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.answer-head code { font-size: 10px; }
+.answer-body { margin-top: 6px; }
+.answer.flash { animation: flash 1.6s ease-out 1; }
+@keyframes flash { 0%, 40% { border-color: var(--accent); background: var(--card-2); } 100% { border-color: var(--line); } }
+
+/* Résumé drop target. */
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  padding: 18px; border: 1px dashed var(--line); border-radius: var(--r); background: var(--bg-2);
+}
+.dropzone.over { border-color: var(--accent); background: var(--card-2); }
+.dropzone input[type="file"] { width: auto; max-width: 100%; border: 0; background: none; padding: 0; font-size: 12px; }
+
+.danger-card { border-color: #5a2a2a; }
+.filterbar .row { gap: 8px; }
+.filterbar select, .filterbar .job-filter { width: auto; min-width: 120px; max-width: 220px; }
+
+/* Log explorer: the shared .logline grid, plus room for the level pill and an expandable payload. */
+.loglist { max-height: calc(100vh - 320px); overflow-y: auto; }
+.logs .logline { grid-template-columns: 72px 64px 100px 1fr; align-items: center; cursor: pointer; }
+.logs .logline:hover { background: var(--card-2); }
+.logs .logline.open { background: var(--card-2); }
+.logdata {
+  font-family: var(--mono); font-size: 11px; padding: 6px 10px 10px;
+  background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.logdata pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }

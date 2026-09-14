@@ -1,0 +1,4 @@
+/* Popup-only sizing. Everything else comes from ui/theme.css. */
+body { width: 320px; }
+.popup { padding: 12px; }
+.popup .card { border-radius: 8px; }
