@@ -56,10 +56,20 @@ export function isExternal(doc: Document): boolean {
 }
 
 /** The "apply to all similar roles at <company>" confirm button, when that modal is showing.
- *  Owner's rule: apply to all of them. Targets the applyBulk() action (not applyBulkCancel()). */
+ *  Targets the applyBulk() action (not applyBulkCancel()). NOTE: the other roles it applies to are
+ *  never title-checked, so the caller must only click this when no title filter is in effect. */
 export function bulkApplyAllButton(doc: Document): HTMLElement | null {
   const el = [...doc.querySelectorAll('[ng-click*="applyBulk"]')].find(
     (e) => !/cancel/i.test(e.getAttribute('ng-click') ?? '') && shown(e),
+  );
+  return (el as HTMLElement) ?? null;
+}
+
+/** The same modal's decline control (`applyBulkCancel()`) — used when a title filter IS set, since
+ *  "all similar roles at <company>" would otherwise apply to roles the filter never saw. */
+export function bulkCancelButton(doc: Document): HTMLElement | null {
+  const el = [...doc.querySelectorAll('[ng-click*="applyBulk"]')].find(
+    (e) => /cancel/i.test(e.getAttribute('ng-click') ?? '') && shown(e),
   );
   return (el as HTMLElement) ?? null;
 }

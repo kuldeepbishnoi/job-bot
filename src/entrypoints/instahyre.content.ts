@@ -1,7 +1,9 @@
 import { defineContentScript } from 'wxt/sandbox';
 import * as ih from '@/ats/instahyre';
 import { click, waitFor } from '@/ats/dom';
+import { titleWanted } from '@/engine/select-jobs';
 import type { Msg } from '@/platform/messaging';
+import type { Want } from '@/config/schema';
 
 // Runs in the user's already-logged-in Instahyre opportunities tab. Instahyre has no form/OTP.
 // Flow (verified live) has TWO lists, drained in order:
@@ -17,6 +19,12 @@ import type { Msg } from '@/platform/messaging';
 const MAX_APPLIES = 200; // safety cap so a runaway loop can't hammer the ATS
 const SETTLE_MS = 1400; // let AngularJS run its digest + load the next opportunity
 const GAP_MS = 800; // human-like pause between applies
+// FAIL CLOSED on a missing want. Until 2026-09-15 this loop had no title filter at all and applied
+// to every card with an Apply button — that sent real applications to Finance Manager, Customer
+// Support Executive and IP Sales Engineer roles under the user's name, unwithdrawable. So a want
+// that never arrives (a wiring mistake, an old cached message, a version skew) must apply to
+// NOTHING rather than to everything. An explicitly EMPTY titles_any is different: that is the
+// user's own "no title restriction", and titleWanted() already reads it that way.
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const report = (msg: Msg) => chrome.runtime.sendMessage(msg).catch(() => {});
@@ -30,7 +38,14 @@ export default defineContentScript({
         return true;
       }
       if (msg.t === 'instahyre-apply') {
-        runLoop().then(respond);
+        if (!msg.want) {
+          // Refuse rather than apply unfiltered — see the FAIL CLOSED note above.
+          log('refusing to run: no `want` reached the page, so every card would be applied to');
+          void report({ t: 'instahyre-done', applied: 0, skipped: 0 });
+          respond({ applied: 0, skipped: 0, error: 'no title filter reached the page — nothing was applied to' });
+          return true;
+        }
+        runLoop(msg.want).then(respond);
         return true;
       }
       return false;
@@ -40,13 +55,14 @@ export default defineContentScript({
 
 const log = (...a: unknown[]) => console.log('[jobbot:instahyre]', ...a);
 
-async function runLoop(): Promise<{ applied: number; skipped: number }> {
+async function runLoop(want: Want): Promise<{ applied: number; skipped: number }> {
   let applied = 0;
   let skipped = 0;
+  log('filter', { titles_any: want.titles_any, titles_none: want.titles_none });
 
   // Phase 1: drain the matching/Undecided queue — unless we were started already on the search list.
   if (!onSearchList()) {
-    const m = await drainMatching(MAX_APPLIES);
+    const m = await drainMatching(MAX_APPLIES, want);
     applied += m.applied;
     skipped += m.skipped;
     log('matching queue drained', m);
@@ -54,7 +70,7 @@ async function runLoop(): Promise<{ applied: number; skipped: number }> {
 
   // Phase 2: fall through to "Search other jobs" (the full board) with whatever budget remains.
   if (applied < MAX_APPLIES && (await enterSearchList())) {
-    const s = await drainSearch(MAX_APPLIES - applied);
+    const s = await drainSearch(MAX_APPLIES - applied, want);
     applied += s.applied;
     skipped += s.skipped;
     log('search list drained', s);
@@ -66,7 +82,7 @@ async function runLoop(): Promise<{ applied: number; skipped: number }> {
 }
 
 /** Phase 1: the matching queue — modal auto-advances (`swipeOpp`) after each apply. */
-async function drainMatching(budget: number): Promise<{ applied: number; skipped: number }> {
+async function drainMatching(budget: number, want: Want): Promise<{ applied: number; skipped: number }> {
   let applied = 0;
   let skipped = 0;
 
@@ -101,11 +117,25 @@ async function drainMatching(budget: number): Promise<{ applied: number; skipped
 
     const job = ih.currentJob(document);
     const before = job.id;
+
+    // The queue Instahyre calls "matching" is not a title filter — it surfaces Finance Manager and
+    // Customer Support Executive roles too. Apply want.titles_any/titles_none before the click,
+    // because after it there is no undo.
+    if (!titleWanted(job.title, want)) {
+      log('skipping (title not wanted)', job.title, '@', job.company);
+      skipped++;
+      const next = ih.nextButton(document);
+      if (!next) break;
+      click(next);
+      await waitFor(() => (ih.currentJob(document).id !== before ? true : null), SETTLE_MS).catch(() => false);
+      continue;
+    }
+
     click(btn);
     applied++;
     log('applied', job.title, '@', job.company);
     void report({ t: 'instahyre-applied', job });
-    await handleBulk(job.company);
+    await handleBulk(job.company, want);
 
     // Applying should auto-advance the modal to the next opportunity. Wait for the shown job to
     // change; if it hasn't after the settle window, nudge it with the next control.
@@ -125,7 +155,7 @@ async function drainMatching(budget: number): Promise<{ applied: number; skipped
 
 /** Phase 2: the paginated "Search other jobs" board — no auto-advance, so apply → close → next
  *  card, and page with "Next »". Dedupes by card identity so a handled card is never reopened. */
-async function drainSearch(budget: number): Promise<{ applied: number; skipped: number }> {
+async function drainSearch(budget: number, want: Want): Promise<{ applied: number; skipped: number }> {
   let applied = 0;
   let skipped = 0;
   const handled = new Set<string>();
@@ -142,6 +172,16 @@ async function drainSearch(budget: number): Promise<{ applied: number; skipped: 
     }
 
     handled.add(ih.cardId(card)); // mark before opening so a failed apply can't loop on it
+
+    // The card's own listing text carries "<Company> - <Title>", so an unwanted role can be
+    // skipped without even opening its modal. The modal's title is checked again below, because
+    // this text is a best-effort read of the card, not the authoritative job title.
+    if (!titleWanted(ih.cardId(card), want)) {
+      log('skipping card (title not wanted)', ih.cardId(card));
+      skipped++;
+      continue;
+    }
+
     click(card);
     await sleep(SETTLE_MS);
 
@@ -158,11 +198,19 @@ async function drainSearch(budget: number): Promise<{ applied: number; skipped: 
     }
 
     const job = ih.currentJob(document);
+    // Authoritative check against the OPEN modal's title — the card text above is only a hint.
+    if (!titleWanted(job.title, want)) {
+      log('skipping (title not wanted)', job.title, '@', job.company);
+      skipped++;
+      await closeModal();
+      continue;
+    }
+
     click(btn);
     applied++;
     log('applied', job.title, '@', job.company);
     void report({ t: 'instahyre-applied', job });
-    await handleBulk(job.company);
+    await handleBulk(job.company, want);
     await closeModal();
     await sleep(GAP_MS);
   }
@@ -170,14 +218,24 @@ async function drainSearch(budget: number): Promise<{ applied: number; skipped: 
   return { applied, skipped };
 }
 
-/** A company with several roles pops the "apply to all similar jobs" modal — owner wants all. */
-async function handleBulk(company: string): Promise<void> {
+/** A company with several roles pops the "apply to all similar jobs" modal. Those other roles are
+ *  never shown to us and never title-checked, so "all similar roles at Acme" can quietly include
+ *  the Finance Manager opening. Take it only when the user set NO title filter (the old behaviour,
+ *  which is then what they asked for); otherwise decline and keep just the role we vetted. */
+async function handleBulk(company: string, want: Want): Promise<void> {
+  const filtering = want.titles_any.length > 0 || want.titles_none.length > 0;
   const bulk = await waitFor(() => ih.bulkApplyAllButton(document), 1500).catch(() => null);
-  if (bulk) {
-    click(bulk);
-    log('applied to all similar roles at', company);
+  if (!bulk) return;
+  if (filtering) {
+    const cancel = ih.bulkCancelButton(document);
+    if (cancel) click(cancel);
+    log('declined "all similar roles" at', company, '— they are not title-checked and a filter is set');
     await sleep(SETTLE_MS);
+    return;
   }
+  click(bulk);
+  log('applied to all similar roles at', company);
+  await sleep(SETTLE_MS);
 }
 
 /** Close the open apply modal and let the list settle. */

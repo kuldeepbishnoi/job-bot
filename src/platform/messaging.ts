@@ -2,7 +2,7 @@
 // the Gmail frame yields the code; the popup starts runs and shows progress.
 import type { AppliedField, ApplyStatus, Capture, Job } from '../engine/types';
 import type { LogEvent } from '../engine/records';
-import type { Profile } from '../config/schema';
+import type { Profile, Want } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
 
 // `filled` carries what we actually put in the form back to the orchestrator, for the on-disk record.
@@ -50,10 +50,12 @@ export type Msg =
   | { t: 'stop' }
   // popup -> background: the user logged the next account in — continue the paused run
   | { t: 'resume' }
-  // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window)
-  | { t: 'runInstahyre' }
+  // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window).
+  // want = profile.want, so cards are filtered the same way every other pack filters jobs — Instahyre's
+  // own "matching" queue is not a title filter, and the full search board has none at all.
+  | { t: 'runInstahyre'; want?: Want }
   // background -> instahyre content script: run the in-page apply loop
-  | { t: 'instahyre-apply' }
+  | { t: 'instahyre-apply'; want?: Want }
   // instahyre content script -> background: one opportunity applied (records + wakes the SW)
   | { t: 'instahyre-applied'; job: { id: string; title: string; company: string } }
   // instahyre content script -> background: loop finished

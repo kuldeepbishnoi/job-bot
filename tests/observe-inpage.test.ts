@@ -59,6 +59,15 @@ describe('Instahyre run lifecycle', () => {
     expect(ended.endReason).toBe('opportunities exhausted — 1 applied, 2 skipped');
   });
 
+  it('sends the title filter to the page — #regression: it never did, and every card got applied to', async () => {
+    const want = { titles_any: ['SDE', 'Backend'], titles_none: ['Manager'], locations: [], seniority: [] };
+    await startInstahyre('manual', want);
+    const kick = chrome.calls.tabMessages.find((m) => m.msg.t === 'instahyre-apply');
+    expect(kick, 'the page must be kicked off').toBeTruthy();
+    // The whole bug: this payload was absent, so the content script had no filter to apply.
+    expect((kick!.msg as Extract<Msg, { t: 'instahyre-apply' }>).want).toEqual(want);
+  });
+
   it('keeps counting after a service-worker restart (the run id is in storage)', async () => {
     await startInstahyre();
     const runId = (await onlyRun()).runId;
