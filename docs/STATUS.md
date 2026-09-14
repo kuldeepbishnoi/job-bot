@@ -97,6 +97,15 @@ overwrites the same output name on every run without a warning.
 - Live checks still owed: Greenhouse hosted-page submit (OTP expected as on Datadog), Lever hCaptcha
   behaviour on submit, every Ashby selector.
 
+### Default board lists expanded (2026-09-15)
+The owner asked for the curated `include_defaults: true` lists to cover as many companies as
+possible. Re-validated against the live APIs (every entry actually answers with open jobs, not
+guessed from a name): **Greenhouse 41 → 133**, **Ashby 27 → 56**. **Lever 8 → 12** — smaller by
+Lever's own smaller public customer base (many well-known former Lever users have since moved to
+another ATS or gated their board), not by effort; several rounds of plausible candidates for Lever
+turned up nothing further. `include_defaults` still defaults to `false` everywhere — a bigger list
+makes the opt-in more valuable, not less deliberate.
+
 ## Not done / next
 1. **Live end-to-end verification** in a real browser on one Datadog job (the big one — no
    substitute for it). Still-unverified live assumptions: the 8-box OTP widget selectors

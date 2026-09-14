@@ -146,7 +146,7 @@ page capture — the first real run reads the Logs page and fixes selectors from
   opts in to the curated `DEFAULT_*_BOARDS` (`src/sources/*.ts`, every entry validated live) on top of
   `boards`; with neither set, `Site.discover` throws a named, actionable error ("no boards configured
   — add profile.X.boards, or set include_defaults: true") instead of silently doing nothing or
-  silently applying to ~40 companies. Discovery walks the boards 4 at a time; a broken board is
+  silently applying to ~130 companies. Discovery walks the boards 4 at a time; a broken board is
   logged + skipped, the run is refused only when *every* board fails. `Job.company` carries the
   employer; `Application.employer` copies it (`company` stays the site id).
 - **Greenhouse**: `boards-api.greenhouse.io/v1/boards/<token>/jobs` (`fixtures/greenhouse-board.json`)

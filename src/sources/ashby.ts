@@ -5,11 +5,17 @@ import type { Job } from '../engine/types';
 const API = 'https://api.ashbyhq.com/posting-api/job-board';
 const CONCURRENCY = 4;
 
-/** Curated Ashby boards that answered the API on 2026-09-14. Plain data — safe to import in a UI. */
+/** Curated Ashby boards that answered the public job-board API on 2026-09-14 — validated live,
+ *  not guessed. The user's own profile.ashby.boards adds to (or, with include_defaults:false,
+ *  replaces) this list. Plain data — safe to import in a UI. */
 export const DEFAULT_ASHBY_BOARDS: readonly string[] = [
-  'openai', 'harvey', 'elevenlabs', 'sierra', 'ramp', 'cohere', 'decagon', 'cursor', 'notion',
-  'perplexity', 'vanta', 'lovable', 'replit', 'ashby', 'docker', 'supabase', 'writer', 'abridge',
-  'render', 'hex', 'modal', 'cartesia', 'linear', 'warp', 'resend', 'posthog', 'railway',
+  '1password', 'abridge', 'alchemy', 'andela', 'anyscale', 'ashby', 'attio', 'baseten',
+  'cartesia', 'character', 'clickup', 'cohere', 'cursor', 'decagon', 'docker', 'drata',
+  'eightsleep', 'elevenlabs', 'harvey', 'hex', 'inngest', 'langchain', 'linear', 'lovable',
+  'magiceden', 'miro', 'modal', 'neon', 'notion', 'openai', 'opensea', 'perplexity',
+  'persona', 'pika', 'pinecone', 'posthog', 'railway', 'ramp', 'render', 'replit',
+  'resend', 'restate', 'rho', 'runway', 'secureframe', 'sierra', 'snyk', 'suno',
+  'supabase', 'temporal', 'vanta', 'warp', 'weaviate', 'whoop', 'writer', 'zapier',
 ];
 
 interface RawAshbyJob {

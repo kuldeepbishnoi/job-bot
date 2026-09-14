@@ -158,11 +158,11 @@ amazon:
 #
 # READ THIS BEFORE SETTING include_defaults: true.
 # It switches EACH pack on to ALSO run a curated list of real companies you did not name —
-# 41 Greenhouse boards (databricks, stripe, anthropic, datadog, mongodb, cloudflare, elastic,
-# toast, okta, brex, samsara, scaleai, gitlab, coinbase, affirm, lyft, pinterest, flexport,
-# airbnb, figma, robinhood, reddit, twilio, nuro, instacart, asana, gusto, vercel, duolingo,
-# chime, faire, postman, carta, mercury, twitch, discord, dropbox, webflow, cockroachlabs,
-# nextdoor, lattice), 8 for Lever and 27 for Ashby (full names in src/sources/*.ts DEFAULT_*_BOARDS).
+# 133 Greenhouse boards (databricks, stripe, anthropic, datadog, cloudflare, coinbase, airbnb,
+# figma, robinhood, reddit, twilio, asana, vercel, duolingo, discord, and 118 more), 12 for Lever
+# and 56 for Ashby (openai, notion, ramp, cursor, perplexity, linear, and 50 more) — every entry
+# validated against the live API, not guessed; the full, current lists are the exported
+# DEFAULT_*_BOARDS arrays in src/sources/{greenhouse-boards,lever,ashby}.ts.
 # With auto_submit: true that is real applications landing at every one of them the moment you
 # click the button, and an application cannot be withdrawn. It defaults to false for that reason.
 #
@@ -173,14 +173,14 @@ greenhouse:
     - discord                                   # board token
     - https://boards.greenhouse.io/figma        # or a URL on the board
     - https://job-boards.greenhouse.io/anthropic/jobs/4461450008
-  include_defaults: false     # true = ALSO apply to every company in DEFAULT_GREENHOUSE_BOARDS (41)
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_GREENHOUSE_BOARDS (133)
 lever:
   boards:
     - zoox
     - https://jobs.lever.co/nium
-  include_defaults: false     # true = ALSO apply to every company in DEFAULT_LEVER_BOARDS (8)
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_LEVER_BOARDS (12)
 ashby:
   boards:
     - notion
     - https://jobs.ashbyhq.com/linear
-  include_defaults: false     # true = ALSO apply to every company in DEFAULT_ASHBY_BOARDS (27)
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_ASHBY_BOARDS (56)

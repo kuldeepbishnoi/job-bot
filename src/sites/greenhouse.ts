@@ -3,7 +3,7 @@ import { boardsToWalk, discoverGreenhouseBoards } from '../sources/greenhouse-bo
 
 // Every Greenhouse company the user names at once, filled by the same ats/greenhouse.ts that
 // Datadog uses (hosted page instead of the embed). Runs exactly what's listed — the curated
-// ~40-company default list is opt-in (include_defaults: true) since this pack APPLIES, not just
+// ~130-company default list is opt-in (include_defaults: true) since this pack APPLIES, not just
 // discovers: a one-click "Apply for Greenhouse boards" must never fan out to companies the user
 // never named, especially with auto_submit on.
 export const greenhouse: Site = {
