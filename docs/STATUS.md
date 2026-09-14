@@ -56,6 +56,30 @@ Snapshot for the next agent/session. Update it as things land.
   dead-run watchdog clock. `node debug/outcomes.mjs --review` lists what still needs a profile answer.
 - Still unverified live: the first run with this build (read `--review` + `captures/` after it).
 
+## Cross-review round (2026-09-14/15) — what was found, what is still open
+Four open PRs were reviewed by three sessions plus independent subagents. Everything found in the
+LinkedIn pack and in the multi-account code it sits on is FIXED on `feat/linkedin-site-pack`
+(see the commit log from `0b743a1` to `f19e75c`): whole-word option matching, no clamping a salary
+into a box's range, no accepting arbitration/waiver clauses, no `options[0]` on a ladder, city
+aliases, per-site account limits, registry exclusion on every start path, storage quota bounds,
+stray-dialog recovery, and complete per-application records on disk.
+
+**Known-open, nobody assigned** (all Amazon-pack, all in code from PR #5):
+1. `ats/amazon.ts#resumeAttached` is never called and its expression is inverted
+   (`!x?.files?.length === false` parses as `(!(len)) === false`), so the résumé step never
+   verifies the upload — `entrypoints/amazon.content.ts` records the résumé as filled and can
+   re-attach it up to `MAX_FORMS` times, blowing the apply timeout while the record claims success.
+2. The daily scheduled run (`entrypoints/background.ts#runScheduled`) passes no credentials, so
+   auto-login never runs on the one path built for hands-off use: the run pauses for a human who
+   is not there.
+3. `app/stepper.ts#rotateAccount` can select the account already logged in when the popup's
+   "Account" field was never filled (`getAccount()` returns ''), burning a job and a login cycle
+   before rotating again.
+
+Also open, outside this repo's stack: the résumé tailor (PR #4) is negation-blind, so a JD saying
+"Kubernetes is not required" still counts as a Kubernetes hit and bolds it; and `npm run tailor`
+overwrites the same output name on every run without a warning.
+
 ## Code-review blockers fixed (PR #1 review round 1)
 - OTP message type aligned (`getCode`) — was `otp:get`, code was never returned.
 - Profile now loads in the popup and is passed to the SW (FS-access can't run in a service worker).
