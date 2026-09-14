@@ -228,10 +228,29 @@ export function attachResume(doc: Document, file: File): void {
   if (!input) throw new Error('no résumé upload input');
   setFile(input, file);
 }
+/**
+ * Did the file actually land on the input? This is the only part we can state as fact: `files` on
+ * an `<input type=file>` is DOM-standard, not an Amazon-specific guess.
+ *
+ * It deliberately does NOT require Amazon's own upload confirmation. An earlier version demanded a
+ * `.document-name` / `.resume-name` element and made that a blocking gate — but those selectors
+ * appear nowhere in any real capture (fixtures/amazon-apply.html has no file input and no mention
+ * of "resume" at all); they were guessed. Gating on a guessed selector means that if the guess is
+ * wrong, EVERY fresh-account apply parks instead of applying, which is worse than the missing check
+ * it replaced. Verify what we can prove, and let `uploadConfirmed()` below be the bonus signal.
+ */
 export function resumeAttached(doc: Document): boolean {
-  const shown = !!doc.querySelector('.document-name, .resume-name, [class*="document-block"] [class*="name"]');
-  const hasFile = (resumeInput(doc)?.files?.length ?? 0) > 0;
-  return shown && hasFile;
+  return (resumeInput(doc)?.files?.length ?? 0) > 0;
+}
+
+/**
+ * Amazon's own "we have your file" element, if we can find one. UNVERIFIED against a real capture —
+ * treat a `true` as "definitely done", never a `false` as "definitely not". Callers use it to stop
+ * waiting EARLY, never to decide that the upload failed.
+ */
+export function uploadConfirmed(doc: Document): boolean {
+  const el = doc.querySelector('.document-name, .resume-name, [class*="document-block"] [class*="name"]');
+  return !!el && labelText(el).trim().length > 0;
 }
 
 /** Contact information section: plain React text inputs named applicant[<field>]. */

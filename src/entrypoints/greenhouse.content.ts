@@ -6,19 +6,24 @@ import { click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg, OtpOutcome } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
+import { dlog } from '@/platform/debug-log';
 
 // Runs inside the Greenhouse application form — the cross-origin iframe a company embeds
 // (Datadog: /embed/job_app) OR the hosted job page (/<board>/jobs/<id>, the Greenhouse-boards
 // pack). Same React form either way, so one script does all the DOM work.
 //
-// #regression (2026-09-15): matches used to be the bare hosts (`job-boards.greenhouse.io/*`,
-// `boards.greenhouse.io/*`) with allFrames:true, so it injected into EVERY same-host frame in the
-// tab, not just the real form. `chrome.tabs.sendMessage` has no frameId (app/ports.ts), so the
-// FIRST frame to answer 'ping' wins 'apply' too — any other matching frame (a transient loader,
-// a listing widget) can win that race, start applyForm(), then get torn down mid-flight, killing
-// its execution context before it calls respond(). That is exactly "the message channel closed
-// before a response was received": every Datadog apply failed with it, 100% of the time, the day
-// this landed. Scoped back to the three URL shapes that are ever actually the real form.
+// #regression (2026-09-15): `matches` used to be the bare hosts with allFrames:true, so the script
+// injected into EVERY same-host frame in the tab, not just the real form. Scoped back to the three
+// URL shapes that are ever actually the form.
+//
+// That alone was NOT the whole story. Datadog has failed 100% of the time on every run since
+// 2026-09-03 (41 records, 0 successes), most of them "the message channel closed before a response
+// was received" ~7s after apply, with 0 fields filled. `chrome.tabs.sendMessage` carries no
+// frameId (app/ports.ts), so the FIRST frame to answer 'ping' also receives 'apply' — and a frame
+// that has no application form in it will happily answer 'pong', take the apply, then be torn down
+// (or simply never find a form), killing its execution context before it can respond. The ping is
+// now a real readiness check: a frame answers ONLY when the form is actually present in it, so the
+// frame that wins is the frame that can do the work.
 export default defineContentScript({
   matches: ['https://job-boards.greenhouse.io/embed/*', 'https://boards.greenhouse.io/embed/*', 'https://job-boards.greenhouse.io/*/jobs/*'],
   allFrames: true,
@@ -46,8 +51,19 @@ export default defineContentScript({
   },
 });
 
+/** One line describing what this frame actually is — for a ping refusal and for park/error notes. */
+function describeFrame(): string {
+  const forms = document.querySelectorAll('form').length;
+  const labels = document.querySelectorAll('label[for]').length;
+  return `url=${location.pathname} forms=${forms} labels=${labels} submit=${!!gh.submitButton(document)} otp=${gh.needsOtp(document)} confirmed=${gh.confirmed(document)}`;
+}
+
 async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcome> {
-  const log = (...args: unknown[]) => console.log('[jobbot]', ...args);
+  // dlog, NOT console.log. Until 2026-09-15 this was console.log, so NONE of this script's
+  // diagnostics reached the persisted log or the on-disk record — which is exactly why Datadog
+  // could fail 41 times across three separate days with every record reading "filled 0" and no
+  // explanation of what the page actually did. Amazon and LinkedIn already logged this way.
+  const log = (...args: unknown[]) => dlog('greenhouse', `[${msg.job.id}]`, ...args);
   try {
     log('apply start', { url: location.href, job: msg.job.title });
     await waitFor(() => gh.submitButton(document), 8000); // form rendered?
@@ -173,9 +189,9 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
     log('all fields processed, clicking submit');
     click(gh.submitButton(document)!);
-    return { ...(await afterSubmit()), filled: records() };
+    return { ...(await afterSubmit(msg.job.id)), filled: records() };
   } catch (e) {
-    console.error('[jobbot] apply error', e);
+    dlog('greenhouse', `[${msg.job.id}]`, 'apply error', (e as Error).message, '—', describeFrame());
     return { status: 'error', note: String((e as Error).message) };
   }
 }
@@ -193,13 +209,31 @@ async function doOtp(code: string, autoSubmit: boolean): Promise<OtpOutcome> {
 }
 
 /** After clicking submit#1: either the OTP step appears, or it's confirmed. */
-async function afterSubmit(): Promise<ApplyOutcome> {
+async function afterSubmit(jobId: string): Promise<ApplyOutcome> {
+  // Validation counts as an outcome, not as "nothing happened". A submit the form rejects leaves
+  // the page exactly where it was, so waiting the full 15s for an OTP step that is never coming
+  // just delays a failure whose cause was on screen the whole time.
   const outcome = await waitFor(() => {
     if (gh.needsOtp(document)) return 'needs_otp' as const;
     if (gh.confirmed(document)) return 'submitted' as const;
+    if (gh.validationErrors(document).length) return 'invalid' as const;
     return null;
   }, 15_000).catch(() => null);
-  return outcome ? { status: outcome } : { status: 'error', note: 'no OTP prompt or confirmation' };
+
+  if (outcome === 'needs_otp' || outcome === 'submitted') return { status: outcome };
+
+  // Say what the page actually showed — the old note ("no OTP prompt or confirmation") was the
+  // same string whether the form had rejected a field, the submit had not registered, or the page
+  // was simply slower than 15s, so 41 failures across three days told us nothing.
+  const errors = gh.validationErrors(document);
+  const where = describeFrame();
+  if (errors.length) {
+    dlog('greenhouse', `[${jobId}]`, 'form rejected the submit', errors.join(' | '), '—', where);
+    // The user can fix these (an answer in profile.yaml, usually) — park rather than fail.
+    return { status: 'parked', note: `the form rejected the submit: ${errors.join(' | ').slice(0, 300)}` };
+  }
+  dlog('greenhouse', `[${jobId}]`, 'no OTP prompt or confirmation after submit —', where);
+  return { status: 'error', note: `no OTP prompt or confirmation 15s after submit — ${where}` };
 }
 
 function waitForConfirm(): Promise<boolean> {

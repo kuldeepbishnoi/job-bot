@@ -35,4 +35,21 @@ describe('daily schedule', () => {
     await enableDaily('datadog', profile, resume);
     expect((await dailySchedule('datadog'))?.credentials).toBeUndefined();
   });
+
+  it('stores ONLY the armed site\'s logins — a schedule persists indefinitely, so the whole CSV must never sit there (#regression)', async () => {
+    installChromeRuntimeFake();
+    const profile = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
+    const resume: SerializedFile = { name: 'r.pdf', type: 'application/pdf', dataBase64: '' };
+    const everySite: Credentials = { bySite: { amazon: { 'a@x.com': 'amazon-pw' }, linkedin: { 'a@x.com': 'linkedin-pw' }, '*': { 'b@x.com': 'shared-pw' } } };
+
+    await enableDaily('amazon', profile, resume, everySite);
+    const stored = (await dailySchedule('amazon'))?.credentials;
+    expect(Object.keys(stored?.bySite ?? {})).toEqual(['amazon']); // never linkedin
+    expect(JSON.stringify(stored)).not.toContain('linkedin-pw');
+    expect(stored?.bySite['amazon']).toEqual({ 'b@x.com': 'shared-pw', 'a@x.com': 'amazon-pw' }); // '*' still applies
+
+    // A site with no rows of its own keeps nothing beyond the wildcard.
+    await enableDaily('datadog', profile, resume, { bySite: { amazon: { 'a@x.com': 'amazon-pw' } } });
+    expect((await dailySchedule('datadog'))?.credentials).toBeUndefined();
+  });
 });
