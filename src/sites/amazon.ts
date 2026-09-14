@@ -9,10 +9,9 @@ export const amazon: Site = {
   id: 'amazon',
   label: 'Amazon',
   ats: 'amazon',
-  discover: (profile) => {
-    if (!profile.amazon) throw new Error('profile.yaml needs amazon.search_url (paste your amazon.jobs search page URL)');
-    return discoverAmazonJobs(profile.amazon.search_url);
-  },
+  // profile.amazon.search_url defaults to every open software-development role worldwide
+  // (config/schema.ts#AmazonSchema) — this always has something to walk; narrow it in profile.yaml.
+  discover: (profile) => discoverAmazonJobs(profile.amazon.search_url),
   submittedUrl: submittedByNavigation,
   logoutUrl: 'https://account.amazon.jobs/logout',
   loginUrl: 'https://www.amazon.jobs/applicant/login',

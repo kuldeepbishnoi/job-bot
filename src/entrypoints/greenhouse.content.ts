@@ -10,8 +10,17 @@ import type { AppliedField, Answer, Field } from '@/engine/types';
 // Runs inside the Greenhouse application form — the cross-origin iframe a company embeds
 // (Datadog: /embed/job_app) OR the hosted job page (/<board>/jobs/<id>, the Greenhouse-boards
 // pack). Same React form either way, so one script does all the DOM work.
+//
+// #regression (2026-09-15): matches used to be the bare hosts (`job-boards.greenhouse.io/*`,
+// `boards.greenhouse.io/*`) with allFrames:true, so it injected into EVERY same-host frame in the
+// tab, not just the real form. `chrome.tabs.sendMessage` has no frameId (app/ports.ts), so the
+// FIRST frame to answer 'ping' wins 'apply' too — any other matching frame (a transient loader,
+// a listing widget) can win that race, start applyForm(), then get torn down mid-flight, killing
+// its execution context before it calls respond(). That is exactly "the message channel closed
+// before a response was received": every Datadog apply failed with it, 100% of the time, the day
+// this landed. Scoped back to the three URL shapes that are ever actually the real form.
 export default defineContentScript({
-  matches: ['https://job-boards.greenhouse.io/*', 'https://boards.greenhouse.io/*'],
+  matches: ['https://job-boards.greenhouse.io/embed/*', 'https://boards.greenhouse.io/embed/*', 'https://job-boards.greenhouse.io/*/jobs/*'],
   allFrames: true,
   main() {
     chrome.runtime.onMessage.addListener((msg: Msg, _s, respond) => {

@@ -103,8 +103,9 @@ export async function startLinkedin(
   // The dashboard starts a dry run (fill one job, park with the modal open) by passing overrides
   // instead of making the user edit profile.yaml. Everything else still comes from the profile.
   const profile: Profile = overrides?.autoSubmit === undefined ? base : { ...base, auto_submit: overrides.autoSubmit };
+  // profile.linkedin.search_urls defaults to a broad "Software Engineer" search
+  // (config/schema.ts#LinkedinSchema) — this always has something to walk; narrow it in profile.yaml.
   const cfg = profile.linkedin;
-  if (!cfg) throw new Error('profile.yaml has no `linkedin:` block (search_urls) — see profile.example.yaml');
   if (await getLinkedinRun()) throw new Error('a LinkedIn run is already in progress — press Stop first');
   // 0 means the user explicitly lifted the global cap, so it must not read as "budget 0".
   const globalCap = profile.max_per_run || Number.POSITIVE_INFINITY;
