@@ -118,3 +118,12 @@ describe('lever discovery (real postings fixture)', () => {
     expect(boardsToWalk({ boards: ['acme'], include_defaults: true })).toEqual([...DEFAULT_LEVER_BOARDS, 'acme']);
   });
 });
+
+describe('lever site refuses to run with nothing configured, rather than silently applying to the curated list', () => {
+  it('discover() throws a clear, actionable error when no boards are named and include_defaults is off (#regression)', async () => {
+    const { lever: leverSite } = await import('@/sites/lever');
+    const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
+    expect(p.lever).toEqual({ boards: [], include_defaults: false }); // this pack applies — never a silent fan-out
+    await expect(leverSite.discover(p)).rejects.toThrow(/no boards configured.*profile\.lever\.boards.*include_defaults/);
+  });
+});

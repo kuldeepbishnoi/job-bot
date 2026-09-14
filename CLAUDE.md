@@ -139,11 +139,16 @@ page capture — the first real run reads the Logs page and fixes selectors from
   fills through Review, parks, and halts the run with the modal open (one-job dry run).
 
 ### Greenhouse boards / Lever / Ashby ground truth (2026-09-14, from the live APIs + pages)
-- **One pack = many companies.** `profile.greenhouse|lever|ashby.boards` (slug or any board URL;
-  `parseBoardRef()` normalises) + `include_defaults` (curated `DEFAULT_*_BOARDS` in
-  `src/sources/*.ts`, every entry validated live). Discovery walks the boards 4 at a time; a broken
-  board is logged + skipped, the run is refused only when *every* board fails. `Job.company` carries
-  the employer; `Application.employer` copies it (`company` stays the site id).
+- **One pack = many companies, but never more than the user named.** `profile.greenhouse|lever|ashby.boards`
+  (slug or any board URL; `parseBoardRef()` normalises) + `include_defaults`, which **defaults to
+  false**: these packs *apply*, not just discover, so a bare "Apply for Greenhouse boards" click must
+  never fan out to companies nobody chose, especially with `auto_submit: true`. `include_defaults: true`
+  opts in to the curated `DEFAULT_*_BOARDS` (`src/sources/*.ts`, every entry validated live) on top of
+  `boards`; with neither set, `Site.discover` throws a named, actionable error ("no boards configured
+  — add profile.X.boards, or set include_defaults: true") instead of silently doing nothing or
+  silently applying to ~40 companies. Discovery walks the boards 4 at a time; a broken board is
+  logged + skipped, the run is refused only when *every* board fails. `Job.company` carries the
+  employer; `Application.employer` copies it (`company` stays the site id).
 - **Greenhouse**: `boards-api.greenhouse.io/v1/boards/<token>/jobs` (`fixtures/greenhouse-board.json`)
   → we always open the **hosted** page `job-boards.greenhouse.io/<token>/jobs/<id>`, never the
   company's own site. It server-renders the *same* React form the Datadog embed uses (`#application-form`,

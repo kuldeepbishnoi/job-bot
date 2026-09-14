@@ -53,11 +53,14 @@ export const LinkedinSchema = z.object({
 
 // Multi-company packs (Greenhouse boards, Lever, Ashby): a list of company job boards to walk.
 // Each entry is the board's slug ("discord") or any URL on that board — parseBoardRef() in the
-// matching src/sources/*.ts normalises both. include_defaults=true = the curated default list PLUS
-// yours; false = only yours. Everything here is meant to be edited from the dashboard.
+// matching src/sources/*.ts normalises both. These packs APPLY, not just discover — so the default
+// is "run exactly what you listed", never a silent fan-out: include_defaults defaults to FALSE.
+// A user who wants the curated list (~40/8/27 companies) opts in explicitly with
+// `include_defaults: true`; with it false and no boards, the site refuses to run rather than pick a
+// target the user never named. Everything here is meant to be edited from the dashboard.
 export const BoardListSchema = z.object({
   boards: z.array(z.string().min(1)).default([]),
-  include_defaults: z.boolean().default(true),
+  include_defaults: z.boolean().default(false),
 });
 
 export const ProfileSchema = z.object({

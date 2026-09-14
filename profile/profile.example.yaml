@@ -142,24 +142,28 @@ amazon:
   search_url: "https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant"
   ai_consent: false     # Amazon's one-time "may we use AI to recommend jobs / refer you" prompt (false = decline)
 
-# Multi-company packs — one button each in the popup/dashboard, every company in the list applied
-# to with the same résumé/answers. Each entry is the company's board slug OR any URL on its board;
-# include_defaults: true = the curated default list (src/sources/*.ts DEFAULT_*_BOARDS, ~40
-# Greenhouse / 8 Lever / 27 Ashby companies) PLUS yours; false = only yours. All optional — the
-# packs run with the defaults when these blocks are absent. Editable from the dashboard.
+# Multi-company packs — one button each in the popup/dashboard. These APPLY, not just list jobs,
+# so each one runs ONLY the boards named below — never a silent fan-out to companies you never
+# picked. Each entry is the company's board slug OR any URL on its board.
+#
+# include_defaults: true switches EACH pack on to also run its curated list of real companies —
+# ~40 for Greenhouse, 8 for Lever, 27 for Ashby (the full names are in src/sources/*.ts
+# DEFAULT_*_BOARDS). With auto_submit: true that is real applications landing at every one of
+# them the moment you click the button — leave it false (the default; also the default when a
+# pack's block is absent) until you've actually decided you want that.
 greenhouse:
   boards:
     - discord                                   # board token
     - https://boards.greenhouse.io/figma        # or a URL on the board
     - https://job-boards.greenhouse.io/anthropic/jobs/4461450008
-  include_defaults: true
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_GREENHOUSE_BOARDS (~40)
 lever:
   boards:
     - zoox
     - https://jobs.lever.co/nium
-  include_defaults: true
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_LEVER_BOARDS (8)
 ashby:
   boards:
     - notion
     - https://jobs.ashbyhq.com/linear
-  include_defaults: true
+  include_defaults: false     # true = ALSO apply to every company in DEFAULT_ASHBY_BOARDS (27)
