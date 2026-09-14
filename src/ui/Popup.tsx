@@ -1,6 +1,6 @@
 import type { JSX } from 'preact';
 import { useState } from 'preact/hooks';
-import { activeRuns, runs, applications, health, reviewCount, packs, profile, resumes, now } from './store';
+import { activeRuns, runs, applications, health, reviewCount, packs, profile, resumes, now, rawRunSites } from './store';
 import { RunPill, Ago, Bar, Pill, duration } from './components/common';
 import { startSite, stopRuns, resumeRun, openDashboard } from './actions';
 import { packById, type SitePack } from '@/sites/packs';
@@ -18,6 +18,9 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = activeRuns.value.find((r) => r.siteId === pack.id);
+  // A run can exist without a Run record (observability is best-effort). Stop must still be offered,
+  // or a run whose record failed to write can only be killed by reloading the extension.
+  const runningRaw = rawRunSites.value.includes(pack.id);
   const last = runs.value.filter((r) => r.siteId === pack.id).at(-1);
   const appliedToday = applications.value.filter(
     (a) => a.company === pack.id && a.status === 'applied' && a.date === today(),
@@ -67,6 +70,15 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
               </button>
             )}
           </div>
+        </div>
+      ) : runningRaw ? (
+        <div class="col" style={{ marginTop: 8, gap: 6 }}>
+          <div class="tiny" style={{ color: 'var(--warn)' }}>
+            Running, but this run wrote no progress record — the console cannot show its detail.
+          </div>
+          <button class="sm" onClick={() => void stopRuns()}>
+            Stop
+          </button>
         </div>
       ) : (
         <div class="col" style={{ marginTop: 8, gap: 6 }}>

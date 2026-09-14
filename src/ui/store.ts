@@ -26,6 +26,11 @@ export const storage = signal<{ captures: { count: number; bytes: number }; even
   events: 0,
 });
 export const account = signal<string>('');
+
+/** The raw in-page run keys the orchestrators own (`linkedin_run`). A Run record is written
+ *  alongside them, but observability is best-effort by design — if that write ever fails, the run
+ *  is still going and the user must still be able to stop it. Stop keys off THIS, not the record. */
+export const rawRunSites = signal<string[]>([]);
 export const loadError = signal<string | null>(null);
 
 /** Ticks once a second so "heartbeat 12s ago" ages without every card owning a timer. */
@@ -58,9 +63,14 @@ export const reviewCount = computed(
 );
 
 async function refreshStorageKeys(): Promise<void> {
-  const got = await chrome.storage.local.get(['applications', 'account']);
+  const got = await chrome.storage.local.get(['applications', 'account', 'linkedin_run', 'run_state']);
   applications.value = (got['applications'] as Application[] | undefined) ?? [];
   account.value = (got['account'] as string | undefined) ?? '';
+  const raw: string[] = [];
+  if (got['linkedin_run']) raw.push('linkedin');
+  const worker = got['run_state'] as { siteId?: string } | undefined;
+  if (worker?.siteId) raw.push(worker.siteId);
+  rawRunSites.value = raw;
 }
 
 async function refreshRuns(): Promise<void> {
@@ -97,7 +107,7 @@ export async function initStore(): Promise<void> {
 
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
-    if (ch['applications'] || ch['account']) void refreshStorageKeys();
+    if (ch['applications'] || ch['account'] || ch['linkedin_run'] || ch['run_state']) void refreshStorageKeys();
     if (ch['runs']) void refreshRuns();
     if (ch['profile_v1'] || ch['profile_meta']) void refreshProfile();
   });
