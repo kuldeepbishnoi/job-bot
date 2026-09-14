@@ -96,21 +96,27 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       // not question forms. Handle them by the rail's active title before the generic path.
       const railActive = az.progress(document).find((p) => p.state === 'active')?.title ?? '';
       if (/^resume/i.test(railActive) && az.resumeInput(document)) {
-        // Verify the upload actually landed before advancing — a fixed sleep here previously
-        // clicked Continue whether or not the file attached, which a fresh (multi-account) Amazon
-        // login hits on every first apply but an already-onboarded account never sees again.
+        // A fresh (multi-account) Amazon login hits this first-time section on its very first
+        // apply; an already-onboarded account never sees it again.
+        //
+        // Attach ONCE. `resumeAttached` only asserts what is provable — the file is on the input —
+        // because Amazon's own upload-confirmation markup is not in any capture we have. Then give
+        // the upload a moment, ending early if `uploadConfirmed()` (unverified, bonus) does fire.
+        // Crucially this never PARKS on those signals: a wrong guess must not mean zero
+        // applications, which is the failure the previous version of this block would have caused.
         log('resume section: attaching', msg.resume.name);
         az.attachResume(document, deserializeFile(msg.resume));
-        let attached = await waitFor(() => (az.resumeAttached(document) ? true : null), 15_000).catch(() => false);
-        if (!attached) {
-          log('resume attach not confirmed, retrying', az.describeState(document));
-          az.attachResume(document, deserializeFile(msg.resume));
-          attached = await waitFor(() => (az.resumeAttached(document) ? true : null), 15_000).catch(() => false);
-        }
-        if (!attached) return parked(`Résumé did not attach — ${az.describeState(document)}`);
+        const onInput = await waitFor(() => (az.resumeAttached(document) ? true : null), 5_000).catch(() => false);
+        if (!onInput) log('résumé did not land on the input — continuing anyway', az.describeState(document));
+        // Wait for Amazon to finish uploading/parsing: stop as soon as it confirms, else ride out
+        // the same fixed budget the original code used, then let its own Continue gate decide.
+        const confirmed = await waitFor(() => (az.uploadConfirmed(document) ? true : null), 8_000).catch(() => false);
+        log('resume upload', { onInput, confirmed: !!confirmed });
         filled.push({ id: 'resume', label: 'Résumé', value: msg.resume.name });
         const cont = await waitFor(() => az.continueButton(document.body), 20_000).catch(() => null);
-        if (!cont) return parked(`Résumé attached but no Continue button appeared — ${az.describeState(document)}`);
+        // No Continue after 20s means Amazon is not accepting the section — THAT is worth parking
+        // on, because it is the page's own gate rather than a selector we guessed.
+        if (!cont) return parked(`Résumé section did not offer Continue — ${az.describeState(document)}`);
         cont.click();
         await sleep(2500);
         continue;

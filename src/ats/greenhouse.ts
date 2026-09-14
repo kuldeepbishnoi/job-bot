@@ -247,3 +247,34 @@ export function confirmed(doc: Document): boolean {
     doc.body?.textContent ?? '',
   );
 }
+
+/**
+ * Fields the form itself is rejecting, as "<label>: <message>".
+ *
+ * Verified against the real captures: every input carries `aria-invalid="false"` and
+ * `aria-errormessage="<id>-error"` pointing at the element that holds the message (rendered only
+ * once there IS one). So an invalid field is `[aria-invalid="true"]` and its text is in the element
+ * its aria-errormessage names.
+ *
+ * Why this exists: a submit rejected by client-side validation leaves the page on the form — no OTP
+ * step, no confirmation — and `afterSubmit()` could only report "no OTP prompt or confirmation",
+ * which says nothing about the actual cause. Amazon and Lever have had this for a while; Greenhouse
+ * did not, which is why 41 Datadog failures across three days never explained themselves.
+ */
+export function validationErrors(doc: Document): string[] {
+  const out: string[] = [];
+  for (const el of Array.from(doc.querySelectorAll('[aria-invalid="true"]'))) {
+    const id = el.getAttribute('id') ?? '';
+    const label = id ? labelText(doc.querySelector(`label[for="${CSS.escape(id)}"]`) ?? el) : '';
+    const msgId = el.getAttribute('aria-errormessage');
+    const msg = msgId ? labelText(doc.getElementById(msgId) ?? doc.createElement('span')) : '';
+    const line = `${label || id || 'field'}${msg ? `: ${msg}` : ''}`.trim();
+    if (line) out.push(line);
+  }
+  // Greenhouse also renders a form-level banner for things no single field owns.
+  for (const el of Array.from(doc.querySelectorAll('[role="alert"]'))) {
+    const t = labelText(el);
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}

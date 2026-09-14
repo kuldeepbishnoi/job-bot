@@ -10,6 +10,7 @@ import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
 import type { Msg } from '@/platform/messaging';
 import * as observe from '@/app/observe';
 import { appendEvents } from '@/platform/data/events';
+import { dlog } from '@/platform/debug-log';
 
 // Main: wires concrete ports to the alarm-driven stepper.
 // The run is NOT a single long await (MV3 would kill the SW) — each job is one alarm wake.
@@ -157,6 +158,14 @@ async function runScheduled(siteId: string): Promise<void> {
     if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, [], 'daily');
     else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], sched.credentials, 'daily');
   } catch (e) {
+    // console.error goes to a service-worker console nobody has open at 9am, which would make a
+    // scheduled run that refuses to start a SILENT daily no-op — the user sees "armed" and no
+    // applications, with nothing to read. Put it where the console shows it, like any other run.
+    const why = String((e as Error).message);
     console.error('[jobbot] daily run failed to start', e);
+    dlog('daily', siteId, 'run failed to start:', why);
+    await observe
+      .runEnded(await observe.runStarted({ siteId, kind: 'worker', trigger: 'daily', account: '', autoSubmit: false, onUnknown: 'skip', queued: 0, resumeName: sched.resume.name }), 'dead', `daily run could not start: ${why}`)
+      .catch(() => {});
   }
 }

@@ -1,6 +1,6 @@
 import type { Profile } from '../config/schema';
 import type { SerializedFile } from './serialized-file';
-import type { Credentials } from './credentials';
+import { credentialsFor, type Credentials } from './credentials';
 
 // Hands-off daily runs. The popup (which has the File System Access gesture) loads the profile +
 // résumé once and stores them here; a chrome.alarm then re-runs the site every 24h from the
@@ -40,7 +40,13 @@ export function siteIdFromAlarm(name: string): string | null {
 }
 
 export async function enableDaily(siteId: string, profile: Profile, resume: SerializedFile, credentials?: Credentials): Promise<void> {
-  const sched: DailySchedule = { siteId, profile, resume, ...(credentials ? { credentials } : {}) };
+  // Scope to THIS site before anything is written. A daily schedule persists until the toggle is
+  // turned off, so storing the whole CSV would leave every site's plaintext passwords sitting in
+  // chrome.storage indefinitely — four armed packs, four full copies — when only the armed site
+  // can ever use them. credentialsFor() is the same filter startRun() applies to run_state; doing
+  // it here rather than at the call site means no caller can forget it.
+  const scoped = credentialsFor(credentials, siteId);
+  const sched: DailySchedule = { siteId, profile, resume, ...(scoped ? { credentials: scoped } : {}) };
   await chrome.storage.local.set({ [KEY_PREFIX + siteId]: sched });
   await chrome.alarms.create(alarmName(siteId), { when: nextFire(DAILY_HOUR, Date.now()), periodInMinutes: 24 * 60 });
 }

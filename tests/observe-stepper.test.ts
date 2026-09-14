@@ -254,9 +254,28 @@ describe('a pack walking hundreds of boards', () => {
 describe('multi-account safety guard', () => {
   const multi = { ...profile, accounts: ['a@x.com', 'b@x.com'] };
 
-  it('refuses to start when several accounts are configured but none is marked current (#regression: an unknown identity let rotation reuse the already-logged-in account and repeat the same limit failure forever, since getAccount() === "" matched no real candidate)', async () => {
+  it('refuses to start when the Account field is empty (#regression: an unknown identity let rotation reuse the already-logged-in account and repeat the same limit failure forever)', async () => {
     const { ports } = fakePorts([job('j1')]);
-    await expect(startRun('amazon', multi, resume, ports)).rejects.toThrow(/no current account is set/);
+    await expect(startRun('amazon', multi, resume, ports)).rejects.toThrow(/Account field is empty/);
+  });
+
+  it('refuses a value that is not one of this site\'s accounts — emptiness was never the real test', async () => {
+    await setAccount('someone.else@x.com'); // e.g. left over from a LinkedIn or Instahyre run
+    const { ports } = fakePorts([job('j1')]);
+    await expect(startRun('amazon', multi, resume, ports)).rejects.toThrow(/not one of them/);
+  });
+
+  it('accepts a case mismatch — parseCredentialsCsv lowercases emails, setAccount does not', async () => {
+    await setAccount('A@X.com'); // same person as 'a@x.com'
+    const { ports, recorded } = fakePorts([job('j1')]);
+    await startRun('amazon', multi, resume, ports);
+    expect(recorded).toHaveLength(1);
+  });
+
+  it('never gates a site that cannot rotate — Datadog and the board packs have no login at all', async () => {
+    const { ports, recorded } = fakePorts([job('j1')]);
+    await startRun('datadog', multi, resume, ports); // no Account set, 2 accounts configured
+    expect(recorded).toHaveLength(1);
   });
 
   it('runs normally once the current account is set', async () => {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   activeForm, formKey, extract, optionsFor, isAnswered, fill, continueButton, submitButton, reviewMode, formsLoaded,
   validationErrors, isDuplicate, isApplyPage, submittedByNavigation, aiConsentStep, answerAiConsent, progress,
-  resumeInput, attachResume, resumeAttached,
+  resumeInput, attachResume, resumeAttached, uploadConfirmed,
 } from '@/ats/amazon';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
@@ -305,25 +305,28 @@ describe('amazon adapter — résumé section (first-time profile, fresh account
     expect(resumeAttached(doc)).toBe(false);
   });
 
-  it('is false when the file input holds a file but Amazon has not yet rendered its own confirmation (upload still in flight) — #regression: the bot must not click Continue on this alone', () => {
+  it('is true as soon as the file is on the input — the ONLY part of this we can prove', () => {
     const doc = parse(resumeHtml);
     attachResume(doc, resumeFile);
-    expect(resumeInput(doc)!.files).toHaveLength(1); // the input DOES hold the file
-    expect(resumeAttached(doc)).toBe(false); // but Amazon hasn't shown it back yet — not confirmed
-  });
-
-  it('is true once both the file is attached AND Amazon shows its own confirmation element (#regression: this is what the content script now waits for before clicking Continue)', () => {
-    const doc = parse(resumeHtml);
-    attachResume(doc, resumeFile);
-    doc.querySelector('.application-questions')!.insertAdjacentHTML('beforeend', '<div class="document-name">cv.pdf</div>');
+    expect(resumeInput(doc)!.files).toHaveLength(1);
     expect(resumeAttached(doc)).toBe(true);
   });
 
-  it('is false if Amazon shows a name element but the underlying input was reset (e.g. a re-render dropped the file)', () => {
+  it('does NOT require Amazon\'s own confirmation markup — those selectors are guessed, and gating on a guess would park every fresh-account apply (#regression)', () => {
     const doc = parse(resumeHtml);
+    attachResume(doc, resumeFile);
+    expect(uploadConfirmed(doc)).toBe(false); // no confirmation element in this DOM…
+    expect(resumeAttached(doc)).toBe(true); // …and that must not block the apply
+  });
+
+  it('uploadConfirmed is a bonus early-exit signal only: true means done, false never means failed', () => {
+    const doc = parse(resumeHtml);
+    expect(uploadConfirmed(doc)).toBe(false);
     doc.querySelector('.application-questions')!.insertAdjacentHTML('beforeend', '<div class="document-name">cv.pdf</div>');
-    // no attachResume() call — input.files stays empty
-    expect(resumeAttached(doc)).toBe(false);
+    expect(uploadConfirmed(doc)).toBe(true);
+    // An empty element is not a confirmation.
+    const blank = parse(resumeHtml.replace('</div>', '<div class="document-name">  </div></div>'));
+    expect(uploadConfirmed(blank)).toBe(false);
   });
 });
 

@@ -67,15 +67,26 @@ export async function startRun(
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
-  // Rotation identifies "the account we just tried" by getAccount() — if that was never set,
-  // it's '', which matches none of the real candidates. nextAccountWithRoom then can't tell the
-  // logged-in account apart from an untried one, and can pick the SAME account that just hit a
-  // limit: a pointless logout→login cycle that lands back on the account still at its cap, then
-  // repeats the same limit failure next job. Refuse up front rather than silently corrupt every
-  // per-account count for the run — the fix is one click on the popup/dashboard's Account field.
+  // Rotation identifies "the account we just tried" by getAccount(). If that does not actually
+  // name one of this site's candidates, nextAccountWithRoom cannot tell the logged-in account from
+  // an untried one and can pick the SAME account that just hit a limit — a pointless logout→login
+  // that lands back on the capped account and repeats the failure. The per-account daily count is
+  // stamped from the same value, so a wrong one also blows past the ATS's real cap.
+  //
+  // Only sites that can actually rotate are gated: rotateAccount needs somewhere to log in, so a
+  // pack with no loginUrl (Datadog, the board packs) must never be blocked by an account field it
+  // has no concept of. Compared case-insensitively, because parseCredentialsCsv lowercases emails
+  // while setAccount and the schema do not — a case mismatch is not a different person.
+  const rotatable = !!site.loginUrl;
   const candidates = accountsFor(credentials, site.id).length ? accountsFor(credentials, site.id) : profile.accounts;
-  if (candidates.length > 1 && !(await getAccount())) {
-    throw new Error(`this site has ${candidates.length} accounts configured but no current account is set — enter which one is logged in (Account field) before starting`);
+  if (rotatable && candidates.length > 1) {
+    const current = (await getAccount()).trim().toLowerCase();
+    const known = candidates.map((a) => a.trim().toLowerCase());
+    if (!current || !known.includes(current)) {
+      throw new Error(
+        `${site.label} has ${candidates.length} accounts configured but the Account field ${current ? `says "${current}", which is not one of them` : 'is empty'} — set it to whichever account is logged in before starting (${candidates.join(', ')})`,
+      );
+    }
   }
 
   // The shared registry is what stops N accounts re-applying to the same job. An extension page
