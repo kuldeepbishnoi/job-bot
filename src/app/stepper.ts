@@ -63,6 +63,17 @@ export async function startRun(
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
+  // Rotation identifies "the account we just tried" by getAccount() — if that was never set,
+  // it's '', which matches none of the real candidates. nextAccountWithRoom then can't tell the
+  // logged-in account apart from an untried one, and can pick the SAME account that just hit a
+  // limit: a pointless logout→login cycle that lands back on the account still at its cap, then
+  // repeats the same limit failure next job. Refuse up front rather than silently corrupt every
+  // per-account count for the run — the fix is one click on the popup/dashboard's Account field.
+  const candidates = accountsFor(credentials, site.id).length ? accountsFor(credentials, site.id) : profile.accounts;
+  if (candidates.length > 1 && !(await getAccount())) {
+    throw new Error(`this site has ${candidates.length} accounts configured but no current account is set — enter which one is logged in (Account field) before starting`);
+  }
+
   // The shared registry is what stops N accounts re-applying to the same job. An extension page
   // passes it in; the daily alarm has no page, so read it here rather than run without it. The
   // worker CAN read it: writeRecord already writes that folder from this same context, and the

@@ -5,6 +5,7 @@ import type { FieldSpec, SitePack } from '@/sites/packs';
 import { packById } from '@/sites/packs';
 import { ProfileSchema } from '@/config/schema';
 import { saveProfile, resolveRunInputs } from '@/platform/data/profile-store';
+import { loadCredentials } from '@/platform/fs-config';
 import { dailySchedule, disableDaily, enableDaily, DAILY_HOUR } from '@/platform/schedule';
 import { packRequirements, type Requirement } from '../facts';
 import { packs, profile, profileSource, resumes, runs } from '../store';
@@ -292,7 +293,12 @@ function DailyToggle({ pack }: { pack: SitePack }): JSX.Element {
       if (state === 'on') await disableDaily(pack.id);
       else {
         const { profile: pr, resume } = await resolveRunInputs({ allowFolder: true });
-        await enableDaily(pack.id, pr, resume);
+        // Same reason profile/resume are snapshotted here: the alarm fires in the service worker,
+        // which can't read the profile folder. Without this, a scheduled run on a multi-account
+        // site with no cached password can never log the next account in when it hits a limit —
+        // it just pauses forever waiting for a click that a hands-off run has nobody to make.
+        const credentials = await loadCredentials().catch(() => undefined);
+        await enableDaily(pack.id, pr, resume, credentials);
       }
       read();
     } catch (e) {

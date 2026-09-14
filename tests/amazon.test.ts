@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   activeForm, formKey, extract, optionsFor, isAnswered, fill, continueButton, submitButton, reviewMode, formsLoaded,
   validationErrors, isDuplicate, isApplyPage, submittedByNavigation, aiConsentStep, answerAiConsent, progress,
+  resumeInput, attachResume, resumeAttached,
 } from '@/ats/amazon';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
@@ -291,5 +292,37 @@ describe('amazon adapter — page states', () => {
     answerAiConsent(doc, false);
     expect(doc.querySelector<HTMLInputElement>('#decline-confirm')!.checked).toBe(true);
     expect(aiConsentStep(parse('<div></div>'))).toBeNull();
+  });
+});
+
+describe('amazon adapter — résumé section (first-time profile, fresh accounts)', () => {
+  const resumeHtml = `<div class="application-questions"><div id="resume_file_local_input_wrapper"><input id="resume_file_local_input" type="file"></div></div>`;
+  const resumeFile = new File(['%PDF-1.4'], 'cv.pdf', { type: 'application/pdf' });
+
+  it('is false before a file is attached, even if a stray name element exists', () => {
+    const doc = parse(resumeHtml);
+    expect(resumeInput(doc)).not.toBeNull();
+    expect(resumeAttached(doc)).toBe(false);
+  });
+
+  it('is false when the file input holds a file but Amazon has not yet rendered its own confirmation (upload still in flight) — #regression: the bot must not click Continue on this alone', () => {
+    const doc = parse(resumeHtml);
+    attachResume(doc, resumeFile);
+    expect(resumeInput(doc)!.files).toHaveLength(1); // the input DOES hold the file
+    expect(resumeAttached(doc)).toBe(false); // but Amazon hasn't shown it back yet — not confirmed
+  });
+
+  it('is true once both the file is attached AND Amazon shows its own confirmation element (#regression: this is what the content script now waits for before clicking Continue)', () => {
+    const doc = parse(resumeHtml);
+    attachResume(doc, resumeFile);
+    doc.querySelector('.application-questions')!.insertAdjacentHTML('beforeend', '<div class="document-name">cv.pdf</div>');
+    expect(resumeAttached(doc)).toBe(true);
+  });
+
+  it('is false if Amazon shows a name element but the underlying input was reset (e.g. a re-render dropped the file)', () => {
+    const doc = parse(resumeHtml);
+    doc.querySelector('.application-questions')!.insertAdjacentHTML('beforeend', '<div class="document-name">cv.pdf</div>');
+    // no attachResume() call — input.files stays empty
+    expect(resumeAttached(doc)).toBe(false);
   });
 });
