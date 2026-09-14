@@ -47,6 +47,27 @@ describe('greenhouse boards discovery', () => {
     await expect(discoverGreenhouseBoards(['nope'], fetchImpl, () => {})).rejects.toThrow(/every Greenhouse board failed/);
   });
 
+  // #regression (2026-09-15): every other test here spreads DEFAULT_GREENHOUSE_BOARDS into its own
+  // expectation, so the suite asserted the list equals itself and could not catch a bad entry by
+  // construction. A 200 from the board API only proves SOME company owns that slug: `archer` was
+  // Archer Veterinary Clinic (a DVM student externship), `wise` was an insurance field-sales org
+  // with 19 "Supplemental Sales Agent" posts, `remote` was General Assembly. These name real
+  // companies explicitly, so a future sweep cannot quietly re-add a look-alike.
+  it('contains the companies it claims to, and none of the look-alikes that were pruned', () => {
+    for (const real of ['databricks', 'stripe', 'anthropic', 'datadog', 'cloudflare', 'figma', 'discord', 'reddit', 'coinbase', 'airbnb']) {
+      expect(DEFAULT_GREENHOUSE_BOARDS, real).toContain(real);
+    }
+    for (const lookalike of ['archer', 'wise', 'remote', 'ghost', 'galileo', 'handshake', 'current']) {
+      expect(DEFAULT_GREENHOUSE_BOARDS, `${lookalike} is a different company than the name implies`).not.toContain(lookalike);
+    }
+  });
+
+  it('has no duplicates and no empty entries', () => {
+    expect(new Set(DEFAULT_GREENHOUSE_BOARDS).size).toBe(DEFAULT_GREENHOUSE_BOARDS.length);
+    expect(DEFAULT_GREENHOUSE_BOARDS.every((b) => b.trim().length > 0)).toBe(true);
+    expect(DEFAULT_GREENHOUSE_BOARDS.every((b) => parseBoardRef(b) === b)).toBe(true); // already canonical
+  });
+
   it('boardsToWalk = defaults + own (deduped), or own only', () => {
     expect(boardsToWalk({ boards: ['discord', 'https://boards.greenhouse.io/acme'], include_defaults: true })).toEqual([...DEFAULT_GREENHOUSE_BOARDS, 'acme']);
     expect(boardsToWalk({ boards: ['acme'], include_defaults: false })).toEqual(['acme']);

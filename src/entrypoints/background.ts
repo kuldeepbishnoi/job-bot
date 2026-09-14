@@ -1,7 +1,7 @@
 import { defineBackground } from 'wxt/sandbox';
 import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, STEP_ALARM, WATCHDOG_ALARM } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
-import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
+import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import {
   startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning, onLinkedinAlive,
   linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
@@ -36,7 +36,8 @@ export default defineBackground(() => {
       return true;
     }
     if (msg.t === 'stop') {
-      Promise.all([stopRun(chromePorts()), stopLinkedin()]).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      // Every pack, including the in-page ones — Stop has to reach whatever is doing the work.
+      Promise.all([stopRun(chromePorts()), stopLinkedin(), stopInstahyre()]).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
       return true;
     }
     // LinkedIn Easy Apply: in-page like Instahyre, but with a form — the profile travels with the
@@ -103,7 +104,7 @@ export default defineBackground(() => {
       return; // fire-and-forget
     }
     if (msg.t === 'instahyre-done') {
-      void finishInstahyre(msg.applied, msg.skipped);
+      void finishInstahyre(msg.applied, msg.skipped, msg.stopped);
       return;
     }
     // A frame that can't reach the event store itself (content scripts see the PAGE's IndexedDB).

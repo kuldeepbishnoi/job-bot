@@ -104,7 +104,7 @@ bolds it; and `npm run tailor` overwrites the same output name on every run with
 ### Default board lists expanded (2026-09-15)
 The owner asked for the curated `include_defaults: true` lists to cover as many companies as
 possible. Re-validated against the live APIs (every entry actually answers with open jobs, not
-guessed from a name): **Greenhouse 41 → 133**, **Ashby 27 → 56**. **Lever 8 → 12** — smaller by
+guessed from a name): **Greenhouse 41 → 126**, **Ashby 27 → 55**. **Lever 8 → 12** — smaller by
 Lever's own smaller public customer base (many well-known former Lever users have since moved to
 another ATS or gated their board), not by effort; several rounds of plausible candidates for Lever
 turned up nothing further. `include_defaults` still defaults to `false` everywhere — a bigger list

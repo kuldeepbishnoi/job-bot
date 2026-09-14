@@ -14,8 +14,8 @@ export const DEFAULT_ASHBY_BOARDS: readonly string[] = [
   'eightsleep', 'elevenlabs', 'harvey', 'hex', 'inngest', 'langchain', 'linear', 'lovable',
   'magiceden', 'miro', 'modal', 'neon', 'notion', 'openai', 'opensea', 'perplexity',
   'persona', 'pika', 'pinecone', 'posthog', 'railway', 'ramp', 'render', 'replit',
-  'resend', 'restate', 'rho', 'runway', 'secureframe', 'sierra', 'snyk', 'suno',
-  'supabase', 'temporal', 'vanta', 'warp', 'weaviate', 'whoop', 'writer', 'zapier',
+  'resend', 'restate', 'rho', 'runway', 'secureframe', 'sierra', 'suno', 'supabase',
+  'temporal', 'vanta', 'warp', 'weaviate', 'whoop', 'writer', 'zapier',
 ];
 
 interface RawAshbyJob {

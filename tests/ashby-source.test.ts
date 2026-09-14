@@ -35,6 +35,16 @@ describe('ashby discovery', () => {
     await expect(discoverAshby(['nope'], fetchImpl, () => {})).rejects.toThrow(/every Ashby board failed/);
   });
 
+  // Same lesson as the Greenhouse list: a 200 is not identification. Ashby `snyk` answered 200 with
+  // a single posting literally titled "Test Job 2" — a test board, not the company.
+  it('names real companies and excludes the test board that was pruned', () => {
+    for (const real of ['openai', 'notion', 'linear', 'ramp', 'cursor', 'perplexity']) {
+      expect(DEFAULT_ASHBY_BOARDS, real).toContain(real);
+    }
+    expect(DEFAULT_ASHBY_BOARDS).not.toContain('snyk');
+    expect(new Set(DEFAULT_ASHBY_BOARDS).size).toBe(DEFAULT_ASHBY_BOARDS.length);
+  });
+
   it('boardsToWalk honours include_defaults', () => {
     expect(boardsToWalk({ boards: ['acme'], include_defaults: true })).toEqual([...DEFAULT_ASHBY_BOARDS, 'acme']);
   });

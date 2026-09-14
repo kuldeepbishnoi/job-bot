@@ -65,6 +65,25 @@ export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual', wan
   await sendToTab(tabId, { t: 'instahyre-apply', want });
 }
 
+/** Popup/console -> background: end an Instahyre run.
+ *
+ *  The loop lives in the PAGE, so this has to reach the page — clearing background state does not
+ *  stop it. Until 2026-09-15 there was no Instahyre stop path at all: the button cleared the worker
+ *  and LinkedIn runs and the Instahyre loop carried on applying, which on this pack means real
+ *  applications after the user asked it to stop. Best-effort on the message (the tab may be closed
+ *  or already done), but the Run is ended either way so the console never shows a run nobody can stop.
+ */
+export async function stopInstahyre(): Promise<void> {
+  const runId = await currentRunId();
+  const [tab] = await chrome.tabs.query({ url: `${OPPS_URL}*` });
+  if (tab?.id !== undefined) await sendToTab(tab.id, { t: 'instahyre-stop' }).catch(() => {});
+  if (!runId) return; // nothing running — Stop is a no-op, not an error
+  const p = await getProgress();
+  await observe.runEnded(runId, 'stopped', 'stopped by you');
+  await setRunId(null);
+  await saveProgress({ done: p?.done ?? 0, total: p?.done ?? 0, current: 'Instahyre', phase: 'done', at: Date.now() });
+}
+
 /** Persist one applied opportunity + nudge the popup's live counter. */
 export async function recordInstahyreApplied(job: { id: string; title: string; company: string }): Promise<void> {
   const app: Application = {
@@ -86,8 +105,16 @@ export async function recordInstahyreApplied(job: { id: string; title: string; c
 }
 
 /** Loop finished — flip progress to done and tell the popup. */
-export async function finishInstahyre(applied: number, skipped = 0): Promise<void> {
+export async function finishInstahyre(applied: number, skipped = 0, stopped = false): Promise<void> {
   const runId = await currentRunId();
+  if (stopped) {
+    // stopInstahyre() already ended the Run; the page is just reporting its final tally.
+    await observe.runEnded(runId, 'stopped', `stopped by you — ${applied} applied, ${skipped} skipped`);
+    await setRunId(null);
+    await saveProgress({ done: applied, total: applied, current: 'Instahyre', phase: 'done', at: Date.now() });
+    void send({ t: 'runDone' }).catch(() => {});
+    return;
+  }
   await observe.runEnded(runId, 'done', `opportunities exhausted — ${applied} applied, ${skipped} skipped`);
   await setRunId(null);
   await saveProgress({ done: applied, total: applied, current: 'Instahyre', phase: 'done', at: Date.now() });
