@@ -230,8 +230,20 @@ function typeChar(el: HTMLInputElement, ch: string): void {
   el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true }));
 }
 
+/**
+ * A real success page/route always carries "/confirmation" in the URL Greenhouse's own app
+ * navigates to (see `confirmationPath` in the page's embedded JSON, e.g.
+ * "/anthropic/jobs/<id>/confirmation" or, for the Datadog embed, "/embed/job_app/confirmation?for=…").
+ * Check that FIRST: the bare word "confirmation" also shows up as ordinary prose (an arbitration
+ * clause) and inside that same embedded JSON (`confirmation_message`, `confirmationPath` as
+ * literal text) on every real job page, embed or hosted — `document.body.textContent` includes
+ * `<script>` contents, so a text-only check false-positives on job #1 of any hosted-page run
+ * before the OTP step even renders. The text fallback below is scoped to phrases nobody's JD or
+ * page chrome would contain in the wild.
+ */
 export function confirmed(doc: Document): boolean {
-  return /application (has been )?submitted|thanks for applying|confirmation/i.test(
+  if (/\/confirmation(?:[/?]|$)/.test(doc.location?.pathname ?? '')) return true;
+  return /application (has been )?submitted|thanks for applying|thank you for applying/i.test(
     doc.body?.textContent ?? '',
   );
 }

@@ -28,11 +28,14 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.phone_country', any: ['phone country code', 'country code'] },
   { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code', 'screen', 'interview', 'call you', 'call with', 'available for a phone', 'attend a phone'] },
   { intent: 'identity.email', any: ['email address', 'email'], not: ['consent', 'receive', 'agree', 'subscribe'] },
+  { intent: 'identity.full_name', any: ['full name', 'full legal name'], not: ['first name', 'last name', 'company', 'employer', 'referr'] },
   { intent: 'identity.first_name', any: ['first name', 'given name'] },
   { intent: 'identity.last_name', any: ['last name', 'surname', 'family name'] },
   { intent: 'identity.linkedin', all: ['linkedin'] },
   { intent: 'identity.website', any: ['website', 'portfolio', 'personal site'] },
-  { intent: 'answers.needs_sponsorship', any: ['sponsorship', 'require sponsorship', 'need sponsorship', 'visa sponsorship'] },
+  // 'work visa' alone also matches "Do you currently HOLD a valid work visa?" (a status question,
+  // opposite polarity from "will you NEED sponsorship") — require the requirement phrasing.
+  { intent: 'answers.needs_sponsorship', any: ['sponsorship', 'require sponsorship', 'need sponsorship', 'visa sponsorship', 'to sponsor', 'immigration case', 'require a work visa', 'need a work visa'] },
   { intent: 'answers.work_authorization', any: ['legally authorised', 'legally authorized', 'right to work', 'authorized to work', 'authorised to work', 'eligible to work'] },
   // LinkedIn Easy Apply screening questions — before the generic location / years rules.
   { intent: 'answers.top_choice', any: ['top choice'] },
@@ -41,6 +44,8 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.remote_ok', any: ['remote setting', 'working remotely', 'hybrid setting', 'work from home', 'comfortable working remote', 'remote work', 'remotely'] },
   // Salary: the specific components first ("current fixed salary" must not become current_salary).
   { intent: 'answers.expected_salary', any: ['expected salary', 'expected ctc', 'salary expectation', 'desired salary', 'expected compensation', 'expected annual', 'salary you are looking', 'expected pay', 'expected package', 'salary expectations', 'expectation in', 'expected fixed', 'expected variable', 'expected total', 'expected gross'] },
+  // Longer phrasings (Lever: "Expected Monthly Fixed (Base) Salary in …") — anything with "expected" is never a current_* answer.
+  { intent: 'answers.expected_salary', all: ['expected'], any: ['salary', 'ctc', 'compensation', 'pay', 'package'] },
   { intent: 'answers.current_variable_salary', any: ['variable salary', 'variable pay', 'variable component', 'current variable', 'variable ctc'], not: ['expected'] },
   { intent: 'answers.current_fixed_salary', any: ['fixed salary', 'fixed ctc', 'fixed pay', 'fixed component', 'current fixed', 'base salary', 'fixed compensation'], not: ['expected'] },
   { intent: 'answers.total_ctc', any: ['total ctc', 'fixed variable', 'total compensation', 'total salary', 'overall ctc', 'current total', 'gross salary', 'gross ctc', 'annual package', 'current package'], not: ['expected'] },

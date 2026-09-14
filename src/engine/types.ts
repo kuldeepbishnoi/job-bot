@@ -9,6 +9,9 @@ export interface Job {
   readonly url: string;
   readonly locations: readonly string[]; // parsed from the listing, e.g. ["New York", "San Francisco"]
   readonly seniority: readonly string[]; // e.g. ["Individual Contributor"]
+  /** The employer, for multi-company sites (Greenhouse boards / Lever / Ashby): the board slug or
+   *  company name. Single-company sites (Datadog, Amazon) leave it unset — the site id says it. */
+  readonly company?: string;
 }
 
 /** A single input rendered in an application form. */
@@ -27,6 +30,7 @@ export interface Field {
 export type Intent =
   | 'identity.first_name'
   | 'identity.last_name'
+  | 'identity.full_name' // one "Full name" box (Lever, Ashby) → "First Last"
   | 'identity.preferred_name'
   | 'identity.email'
   | 'identity.phone'
@@ -145,7 +149,7 @@ export interface Capture {
 }
 
 export interface Application {
-  readonly company: string;
+  readonly company: string; // the SITE PACK id (datadog, linkedin, greenhouse…) — never the hiring company; see `employer`
   readonly jobId: string;
   readonly title: string;
   readonly url: string;
@@ -161,4 +165,5 @@ export interface Application {
   readonly description?: string; // the job description (trimmed) as shown when we applied
   readonly at?: string; // ISO timestamp, stamped by the repository when persisted
   readonly account?: string; // which login made it (multi-account setups) — stamped by the repository
+  readonly employer?: string; // the actual company on a multi-company site (Job.company); `company` stays the site id
 }

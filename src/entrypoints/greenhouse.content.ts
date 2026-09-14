@@ -7,9 +7,11 @@ import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg, OtpOutcome } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
 
-// Runs inside the Greenhouse application iframe. Does all the DOM work.
+// Runs inside the Greenhouse application form — the cross-origin iframe a company embeds
+// (Datadog: /embed/job_app) OR the hosted job page (/<board>/jobs/<id>, the Greenhouse-boards
+// pack). Same React form either way, so one script does all the DOM work.
 export default defineContentScript({
-  matches: ['https://job-boards.greenhouse.io/embed/*', 'https://boards.greenhouse.io/embed/*'],
+  matches: ['https://job-boards.greenhouse.io/*', 'https://boards.greenhouse.io/*'],
   allFrames: true,
   main() {
     chrome.runtime.onMessage.addListener((msg: Msg, _s, respond) => {
