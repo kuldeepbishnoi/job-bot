@@ -3,7 +3,7 @@ import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, STEP_ALARM
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import {
-  startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated,
+  startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning,
   linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
 } from '@/app/linkedin-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
@@ -35,7 +35,7 @@ export default defineBackground(() => {
     // LinkedIn Easy Apply: in-page like Instahyre, but with a form — the profile travels with the
     // message; paging + recovery live in app/linkedin-run.ts.
     if (msg.t === 'runLinkedin') {
-      startLinkedin(msg.profile, msg.resume).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      startLinkedin(msg.profile, msg.resume, msg.overrides).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
       return true;
     }
     if (msg.t === 'linkedin-result') {
@@ -55,6 +55,10 @@ export default defineBackground(() => {
         }
       })();
       return true;
+    }
+    if (msg.t === 'linkedin-warning') {
+      void onLinkedinWarning(msg);
+      return;
     }
     if (msg.t === 'linkedin-handled') {
       void onLinkedinHandled(msg.runId, msg.ids);

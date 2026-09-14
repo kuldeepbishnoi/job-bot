@@ -59,7 +59,9 @@ export type Msg =
   | { t: 'instahyre-done'; applied: number; skipped: number }
   // popup -> background: LinkedIn Easy Apply, in-page in the user's logged-in tab. The profile
   // answers the modal's questions; the résumé is attached only when no card is pre-selected.
-  | { t: 'runLinkedin'; profile: Profile; resume: SerializedFile }
+  // `overrides` lets the dashboard start a one-job dry run (autoSubmit:false, maxPerRun:1) without
+  // editing profile.yaml; absent = exactly what the profile says.
+  | { t: 'runLinkedin'; profile: Profile; resume: SerializedFile; overrides?: { autoSubmit?: boolean; maxPerRun?: number } }
   // background -> linkedin content script: apply through every card on the CURRENT results page.
   // `exclude` = job ids already applied/handled (never reopened); `budget` = applies left this run.
   | { t: 'linkedin-apply'; runId: string; profile: Profile; resume: SerializedFile; exclude: string[]; budget: number }
@@ -74,6 +76,9 @@ export type Msg =
   // linkedin content script -> background: screenshot the visible tab now (needs the optional
   // <all_urls> grant; answers { dataUrl: null } without it)
   | { t: 'linkedin-capture' }
+  // linkedin content script -> background: something the USER must fix (another auto-apply
+  // extension is driving the same page, LinkedIn is throttling us…) — kept on the run for the UI.
+  | { t: 'linkedin-warning'; runId: string; code: 'conflicting-extension' | 'not-logged-in' | 'pace'; detail: string }
   // linkedin content script -> background: cards skipped without an attempt (filtered / applied badge)
   | { t: 'linkedin-handled'; runId: string; ids: string[] }
   // linkedin content script -> background: this page is done; the background pages on or ends the run

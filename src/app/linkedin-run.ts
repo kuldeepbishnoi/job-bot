@@ -50,6 +50,9 @@ export interface LinkedinRun {
   readonly lastProgressAt: number; // last result / page-done — NOT reset by reloads or kicks (the dead-run clock)
   readonly lastKickAt: number;
   readonly budget: number; // applies allowed this run (profile caps)
+  /** Things the USER must fix, raised by the page (another auto-apply extension, signed out…).
+   *  Kept on the run so the dashboard can show them while it is still running. */
+  readonly warnings?: readonly { code: string; detail: string; at: number }[];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -86,11 +89,14 @@ async function appliedOnLinkedin(): Promise<string[]> {
   return (await allRecords()).filter((a) => a.company === 'linkedin' && a.status === 'applied').map((a) => a.jobId);
 }
 
-export async function startLinkedin(profile: Profile, resume: SerializedFile): Promise<void> {
+export async function startLinkedin(base: Profile, resume: SerializedFile, overrides?: { autoSubmit?: boolean; maxPerRun?: number }): Promise<void> {
+  // The dashboard starts a dry run (fill one job, park with the modal open) by passing overrides
+  // instead of making the user edit profile.yaml. Everything else still comes from the profile.
+  const profile: Profile = overrides?.autoSubmit === undefined ? base : { ...base, auto_submit: overrides.autoSubmit };
   const cfg = profile.linkedin;
   if (!cfg) throw new Error('profile.yaml has no `linkedin:` block (search_urls) — see profile.example.yaml');
   if (await getLinkedinRun()) throw new Error('a LinkedIn run is already in progress — press Stop first');
-  const budget = Math.min(cfg.max_per_run, profile.max_per_run ?? cfg.max_per_run); // finite: it's persisted as JSON
+  const budget = Math.max(1, Math.min(overrides?.maxPerRun ?? Number.POSITIVE_INFINITY, cfg.max_per_run, profile.max_per_run ?? cfg.max_per_run)); // finite: it's persisted as JSON
   const urls = cfg.search_urls.map((u) => searchUrl(u, 0));
   const tab = await chrome.tabs.create({ url: urls[0], active: true }); // LinkedIn throttles background tabs
   if (tab.id === undefined) throw new Error('could not open the LinkedIn tab');
@@ -117,7 +123,7 @@ export async function startLinkedin(profile: Profile, resume: SerializedFile): P
   await serialized(() => save(run));
   await saveProgress({ done: 0, total: budget, current: 'LinkedIn: opening search…', phase: 'running', at: now });
   await chrome.alarms.create(LINKEDIN_WATCHDOG_ALARM, { periodInMinutes: 1 });
-  log('run started', { runId: run.runId, urls, budget, autoSubmit: profile.auto_submit });
+  log('run started', { runId: run.runId, urls, budget, autoSubmit: profile.auto_submit, overrides });
   try {
     await kick(run.runId);
   } catch (e) {
@@ -201,6 +207,19 @@ export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' 
     const current = `${msg.status === 'applied' ? '✓' : '⚠'} ${msg.job.title} · ${msg.job.company}`;
     await saveProgress({ done: applied, total: run.budget, current, phase: 'running', at: Date.now() });
     void send({ t: 'progress', done: applied, total: run.budget, current }).catch(() => {});
+  });
+}
+
+/** A warning the page raised (another auto-apply extension, signed out). Kept on the run for the
+ *  dashboard and written to the log; never changes the run's course by itself. */
+export function onLinkedinWarning(msg: Extract<Msg, { t: 'linkedin-warning' }>): Promise<void> {
+  log('warning', msg.code, msg.detail);
+  return serialized(async () => {
+    const run = await getLinkedinRun();
+    if (!run || run.runId !== msg.runId) return;
+    const warnings = [...(run.warnings ?? []).filter((w) => w.code !== msg.code), { code: msg.code, detail: msg.detail, at: Date.now() }];
+    await save({ ...run, warnings });
+    await saveProgress({ done: run.applied, total: run.budget, current: `⚠ ${msg.detail}`, phase: 'running', at: Date.now() });
   });
 }
 

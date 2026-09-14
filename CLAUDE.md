@@ -120,6 +120,11 @@ page capture — the first real run reads the Logs page and fixes selectors from
   the watchdog's dead-run clock (`lastProgressAt`) is no longer reset by its own reloads.
 - **Other LinkedIn bots must be OFF**: AutoApplyMax (`*.linkedin.com/jobs/*`) and LinkedIn
   AutoApplier (`www.linkedin.com/*`) inject into the same pages and click the same controls.
+  `ats/linkedin.ts#conflictingExtensions` detects them by the UI they inject (`aam-*` / `eam-*`
+  badges, `data-eam-extension`) and `#loggedOut` detects the guest wall; both are reported as
+  `linkedin-warning` and kept on `linkedin_run.warnings` for the UI to show.
+- **Dry run from the UI**: `runLinkedin` takes `overrides: { autoSubmit?, maxPerRun? }` so a
+  "fill one job and park" run needs no profile.yaml edit.
 - Pipeline: `app/linkedin-run.ts` (background) persists the run (`linkedin_run`), pages
   `start=0,25,…` of each `profile.linkedin.search_urls` entry with `f_AL=true` forced, re-kicks the
   content script after any reload (`tabs.onUpdated`), watchdog alarm reloads a silent page;

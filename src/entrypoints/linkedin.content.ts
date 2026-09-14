@@ -102,6 +102,20 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
   let note: string | undefined;
   try {
     log('page start', li.describeState(document));
+    const conflicts = li.conflictingExtensions(document);
+    if (conflicts.length) {
+      const detail = `${conflicts.join(' and ')} ${conflicts.length > 1 ? 'are' : 'is'} also running on this page — disable ${conflicts.length > 1 ? 'them' : 'it'} at chrome://extensions, or both bots click the same buttons`;
+      log('WARNING conflicting extension:', detail);
+      void report({ t: 'linkedin-warning', runId: msg.runId, code: 'conflicting-extension', detail });
+    }
+    if (li.loggedOut(document)) {
+      const detail = 'LinkedIn is showing the signed-out page — log in in this tab, then start the run again';
+      log('WARNING not logged in');
+      void report({ t: 'linkedin-warning', runId: msg.runId, code: 'not-logged-in', detail });
+      reason = 'error';
+      note = detail;
+      return;
+    }
     if (!li.isResultsPage(location.href)) {
       reason = 'lost';
       note = `not a results page: ${location.href.slice(0, 120)}`;

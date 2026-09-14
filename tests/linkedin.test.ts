@@ -5,7 +5,7 @@ import {
   modal, safetyContinueButton, progress, actionButton, followCompanyCheckbox, uncheckFollowCompany, validationErrors,
   extract, optionsFor, isNumeric, currentAnswer, isAnswered, fill, isTypeaheadField, resumeSelected, attachResume,
   applicationSent, dismissButton, discardButton, limitReached, rateLimited, describeState, describeQuestions,
-  openDialogs, strayDialog, snapshotHtml, resumeName,
+  openDialogs, strayDialog, snapshotHtml, resumeName, conflictingExtensions, loggedOut,
 } from '@/ats/linkedin';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer, pickPhoneCountry } from '@/engine/resolver';
@@ -449,6 +449,17 @@ describe('linkedin adapter — dialogs after submit / on failure', () => {
   it('names the pre-selected résumé for the record', () => {
     expect(resumeName(modal(load(MODAL(RESUME_STEP, NEXT)))!)).toBe('kuldeep.pdf');
     expect(resumeName(modal(load(MODAL(QUESTIONS, NEXT)))!)).toBe('');
+  });
+
+  it('names another auto-apply extension driving the same page, and the signed-out wall', () => {
+    expect(conflictingExtensions(load(LIST))).toEqual([]);
+    expect(conflictingExtensions(load(LIST + '<div id="aam-match-score-badge">78%</div>'))).toEqual(['AutoApplyMax']);
+    expect(conflictingExtensions(load(LIST + '<div id="eam-autofill-badge"></div>'))).toEqual(['AutoApplyMax']);
+    const both = conflictingExtensions(load(LIST + '<div id="aam-match-panel"></div><div class="autoapplier-panel"></div>'));
+    expect(both).toContain('AutoApplyMax');
+    expect(both).toContain('LinkedIn AutoApplier');
+    expect(loggedOut(load(LIST + '<img class="global-nav__me-photo" src="x">'))).toBe(false);
+    expect(loggedOut(load('<div class="authwall"><form class="login__form"><a href="/login">Sign in</a></form></div>'))).toBe(true);
   });
 
   it('describeState is self-describing', () => {

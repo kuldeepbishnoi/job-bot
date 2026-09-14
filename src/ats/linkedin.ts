@@ -676,6 +676,26 @@ export function strayDialog(doc: Document): HTMLElement | null {
   return openDialogs(doc).find((d) => !m || (d !== m && !d.contains(m) && !m.contains(d))) ?? null;
 }
 
+/** Other auto-apply extensions injected into THIS page. They click the same controls we do, so a
+ *  run with one enabled produces interleaved clicks, double applications and unexplainable logs.
+ *  Detected by the UI each one injects into LinkedIn job pages (ids/classes from their unpacked
+ *  sources, 2026-09): AutoApplyMax `aam-*` / `eam-*` badges and panels + its `data-eam-extension`
+ *  marker; LinkedIn AutoApplier's floating panel. Names are reported, never acted on. */
+export function conflictingExtensions(doc: Document): string[] {
+  const found = new Set<string>();
+  const hit = (sel: string): boolean => qa(doc, sel).some((e) => !!e);
+  if (doc.documentElement.hasAttribute('data-eam-extension') || hit('[id^="aam-"], [id^="eam-"], [class*="aam-match"], [class*="eam-autofill"], #aam-match-score-badge, #eam-ai-badge')) found.add('AutoApplyMax');
+  if (hit('[id*="autoapplier" i], [class*="autoapplier" i], [data-autoapplier]')) found.add('LinkedIn AutoApplier');
+  if (hit('[class*="easy-apply-bot" i], [id*="jobcopilot" i], [id*="simplify" i], [class*="simplify-jobs" i]')) found.add('another auto-apply extension');
+  return [...found];
+}
+
+/** True when the page is not signed in (LinkedIn shows the guest/join wall — nothing can apply). */
+export function loggedOut(doc: Document): boolean {
+  if (qa(doc, 'img.global-nav__me-photo, .global-nav__me, [data-control-name="identity_welcome_message"]').some((e) => shown(e))) return false;
+  return qa(doc, 'a[href*="/login"], .authwall, .join-form, [data-tracking-control-name*="guest"], form.login__form').some((e) => shown(e));
+}
+
 // ---------- page data for the record ----------
 
 /** The job's location line from the details pane (falls back to the card's text). */
