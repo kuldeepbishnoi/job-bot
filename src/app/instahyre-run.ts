@@ -1,10 +1,25 @@
 import { record } from '../platform/store';
-import { saveProgress, getProgress } from '../platform/store';
+import { saveProgress, getProgress, getAccount } from '../platform/store';
 import { send, sendToTab } from '../platform/messaging';
 import type { Application } from '../engine/types';
+import * as observe from './observe';
 
 const OPPS_URL = 'https://www.instahyre.com/candidate/opportunities';
+const RUN_KEY = 'instahyre_run'; // the Run id, in storage: the SW dies between the page's messages
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function setRunId(runId: string | null): Promise<void> {
+  if (runId) await chrome.storage.local.set({ [RUN_KEY]: runId });
+  else await chrome.storage.local.remove(RUN_KEY);
+}
+
+/** The Run this in-page loop reports into, re-adopted after a service-worker restart. */
+async function currentRunId(): Promise<string | null> {
+  const got = await chrome.storage.local.get(RUN_KEY);
+  const runId = (got[RUN_KEY] as string | undefined) ?? null;
+  if (runId && observe.activeRunId() !== runId) await observe.adoptRun(runId);
+  return runId;
+}
 
 /** Find the user's logged-in Instahyre opportunities tab, or open one, and focus it.
  *  Instahyre applies in-page in the real session — never the hidden worker window. */
@@ -32,9 +47,19 @@ async function waitReady(tabId: number, tries = 40): Promise<void> {
 
 /** Kick off the in-page apply loop. The content script drives it and reports back via runtime
  *  messages (handled in background.ts); this just finds the tab and starts it. */
-export async function startInstahyre(): Promise<void> {
+export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual'): Promise<void> {
   const tabId = await ensureOppsTab();
   await waitReady(tabId);
+  const runId = await observe.runStarted({
+    siteId: 'instahyre',
+    kind: 'in-page',
+    trigger,
+    account: await getAccount(),
+    autoSubmit: true, // Instahyre "applying" IS the click — there is no form to park
+    onUnknown: 'skip',
+    tabId,
+  });
+  await setRunId(runId);
   await saveProgress({ done: 0, total: 0, current: 'Instahyre', phase: 'running', at: Date.now() });
   await sendToTab(tabId, { t: 'instahyre-apply' });
 }
@@ -50,6 +75,9 @@ export async function recordInstahyreApplied(job: { id: string; title: string; c
     status: 'applied',
   };
   await record(app);
+  const runId = await currentRunId();
+  await observe.runStep(runId, { jobId: job.id, title: `${job.title} · ${job.company}`, step: 'apply', since: Date.now() });
+  await observe.runOutcome(runId, 'applied');
   const p = await getProgress();
   const done = (p?.done ?? 0) + 1;
   await saveProgress({ done, total: done, current: `${job.title} · ${job.company}`, phase: 'running', at: Date.now() });
@@ -57,7 +85,10 @@ export async function recordInstahyreApplied(job: { id: string; title: string; c
 }
 
 /** Loop finished — flip progress to done and tell the popup. */
-export async function finishInstahyre(applied: number): Promise<void> {
+export async function finishInstahyre(applied: number, skipped = 0): Promise<void> {
+  const runId = await currentRunId();
+  await observe.runEnded(runId, 'done', `opportunities exhausted — ${applied} applied, ${skipped} skipped`);
+  await setRunId(null);
   await saveProgress({ done: applied, total: applied, current: 'Instahyre', phase: 'done', at: Date.now() });
   void send({ t: 'runDone' }).catch(() => {});
 }

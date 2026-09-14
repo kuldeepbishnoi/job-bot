@@ -1,5 +1,7 @@
 import type { Profile } from '../config/schema';
 import type { Application } from '../engine/types';
+import type { Run } from '../engine/records';
+import * as observe from './observe';
 import { dlog, takePendingLines } from '../platform/debug-log';
 import { appendLogLines, persistApplication, readRegistry } from '../platform/fs-config';
 import { send, sendToTab, type LinkedinJob, type Msg } from '../platform/messaging';
@@ -91,7 +93,13 @@ async function recordedOnLinkedin(): Promise<string[]> {
   return (await allRecords()).filter((a) => a.company === 'linkedin').map((a) => a.jobId);
 }
 
-export async function startLinkedin(base: Profile, resume: SerializedFile, overrides?: { autoSubmit?: boolean; maxPerRun?: number }, exclude: readonly string[] = []): Promise<void> {
+export async function startLinkedin(
+  base: Profile,
+  resume: SerializedFile,
+  overrides?: { autoSubmit?: boolean; maxPerRun?: number },
+  exclude: readonly string[] = [],
+  trigger: Run['trigger'] = 'manual',
+): Promise<void> {
   // The dashboard starts a dry run (fill one job, park with the modal open) by passing overrides
   // instead of making the user edit profile.yaml. Everything else still comes from the profile.
   const profile: Profile = overrides?.autoSubmit === undefined ? base : { ...base, auto_submit: overrides.autoSubmit };
@@ -129,13 +137,27 @@ export async function startLinkedin(base: Profile, resume: SerializedFile, overr
     budget,
   };
   await serialized(() => save(run));
+  // The Run record reuses the run's own id, so results/events/captures all point at one thing.
+  // `config.budget` is the console's progress total — an in-page pack has no queue to count.
+  await observe.runStarted({
+    runId: run.runId,
+    siteId: 'linkedin',
+    kind: 'in-page',
+    trigger,
+    account: await getAccount(),
+    autoSubmit: profile.auto_submit,
+    onUnknown: profile.on_unknown,
+    resumeName: resume.name,
+    tabId: tab.id,
+    config: { budget: String(budget), urls: `1/${urls.length}`, search: urls[0] ?? '' },
+  });
   await saveProgress({ done: 0, total: budget, current: 'LinkedIn: opening search…', phase: 'running', at: now });
   await chrome.alarms.create(LINKEDIN_WATCHDOG_ALARM, { periodInMinutes: 1 });
   log('run started', { runId: run.runId, urls, budget, autoSubmit: profile.auto_submit, overrides, excluded: run.excluded.length });
   try {
     await kick(run.runId);
   } catch (e) {
-    await finishRun(run.runId, `could not start: ${(e as Error).message}`); // never leave a dead run "in progress"
+    await finishRun(run.runId, `could not start: ${(e as Error).message}`, 'dead'); // never leave a dead run "in progress"
     throw e;
   }
 }
@@ -151,6 +173,7 @@ async function kick(runId: string): Promise<void> {
     return r;
   });
   if (!run) return;
+  await adopt(runId); // a new SW generation: ambient log lines belong to this run too
   await waitReady(run.tabId);
   const status = await sendToTab<{ running?: boolean }>(run.tabId, { t: 'linkedin-status' }).catch(() => ({ running: false }));
   if (status?.running) {
@@ -165,7 +188,13 @@ async function kick(runId: string): Promise<void> {
   const exclude = [...new Set([...fresh.handled, ...(fresh.excluded ?? []), ...(await recordedOnLinkedin())])];
   const budget = Math.max(0, fresh.budget - fresh.applied);
   log('kick page', { url: fresh.urls[fresh.urlIdx], start: fresh.start, budget, exclude: exclude.length });
+  await observe.runStep(runId, { jobId: '', title: fresh.urls[fresh.urlIdx] ?? '', step: 'search', since: Date.now() });
   await sendToTab(fresh.tabId, { t: 'linkedin-apply', runId, profile: fresh.profile, resume: fresh.resume, exclude, budget });
+}
+
+/** Re-attach the observability seam to this run (the SW is killed between pages). */
+async function adopt(runId: string): Promise<void> {
+  if (observe.activeRunId() !== runId) await observe.adoptRun(runId);
 }
 
 async function waitReady(tabId: number, tries = 60): Promise<void> {
@@ -199,8 +228,14 @@ export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' 
     ...(msg.description ? { description: msg.description } : {}),
     ...(msg.capture ? { capture: msg.capture } : {}),
   };
+  await adopt(msg.runId);
   // A storage failure (quota) must not cost the on-disk record, the capture or the run's counters.
   await record(app).catch((e: Error) => log('storage record failed (the on-disk record still lands)', e.message));
+  // The screenshot is stripped from storage and only reaches disk with the folder grant — put the
+  // blob in IndexedDB too, labelled by outcome, so the console can show what we saw.
+  if (msg.capture?.screenshot) {
+    await observe.capture({ siteId: 'linkedin', jobId: msg.job.id, label: msg.capture.label ?? msg.status, dataUrl: msg.capture.screenshot, runId: msg.runId });
+  }
   // The complete record — with the capture files — goes to the profile folder NOW (not when the
   // popup next opens). `at`/`account` match what the store stamped, so the flush key is the same.
   const stamped: Application = { ...app, at, account: await getAccount() };
@@ -216,6 +251,9 @@ export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' 
     const applied = run.applied + (msg.status === 'applied' ? 1 : 0);
     const skipped = run.skipped + (msg.status === 'applied' ? 0 : 1);
     await save({ ...run, applied, skipped, handled: [...new Set([...run.handled, msg.job.id])], lastActivityAt: Date.now(), lastProgressAt: Date.now() });
+    // Same fact, in the console's own terms: a heartbeat with what we just did + the tally.
+    await observe.runStep(run.runId, { jobId: msg.job.id, title: `${msg.job.title} · ${msg.job.company}`, step: 'apply', since: Date.now() });
+    await observe.runOutcome(run.runId, msg.status);
     const current = `${msg.status === 'applied' ? '✓' : '⚠'} ${msg.job.title} · ${msg.job.company}`;
     await saveProgress({ done: applied, total: run.budget, current, phase: 'running', at: Date.now() });
     void send({ t: 'progress', done: applied, total: run.budget, current }).catch(() => {});
@@ -237,6 +275,7 @@ export function onLinkedinAlive(msg: Extract<Msg, { t: 'linkedin-alive' }>): Pro
  *  dashboard and written to the log; never changes the run's course by itself. */
 export function onLinkedinWarning(msg: Extract<Msg, { t: 'linkedin-warning' }>): Promise<void> {
   log('warning', msg.code, msg.detail);
+  void observe.event('warn', 'linkedin', msg.detail, { code: msg.code }, { runId: msg.runId, siteId: 'linkedin' });
   return serialized(async () => {
     const run = await getLinkedinRun();
     if (!run || run.runId !== msg.runId) return;
@@ -253,6 +292,7 @@ export function onLinkedinHandled(runId: string, ids: readonly string[]): Promis
     const run = await getLinkedinRun();
     if (!run || run.runId !== runId || !ids.length) return;
     await save({ ...run, handled: [...new Set([...run.handled, ...ids])], lastActivityAt: Date.now() });
+    await observe.runStep(runId); // skipping cards is still a sign of life
   });
 }
 
@@ -277,10 +317,12 @@ async function pageDone(msg: Extract<Msg, { t: 'linkedin-page-done' }>): Promise
   if (!run || run.runId !== msg.runId) return null;
   log('page done', { reason: msg.reason, applied: msg.applied, skipped: msg.skipped, cards: msg.cards, newCards: msg.newCards, pages: msg.pages, note: msg.note, url: run.urls[run.urlIdx], start: run.start });
   const touched: LinkedinRun = { ...run, lastActivityAt: Date.now(), lastProgressAt: Date.now() };
+  await observe.runStep(run.runId);
   await appendLogLines(await takePendingLines()).catch(() => {});
   if (msg.reason === 'lost') return recoverPlan(touched, msg.note ?? 'lost');
   if (msg.reason !== 'exhausted') {
-    await finish(touched, endNote(msg));
+    const { phase, reason } = endOf(msg);
+    await finish(touched, reason, phase);
     return null;
   }
   // End of this URL = LinkedIn showed no cards at all, we hit its 1000-result ceiling, or
@@ -307,7 +349,7 @@ async function pageDone(msg: Extract<Msg, { t: 'linkedin-page-done' }>): Promise
  *  persisted search page and resume. Bounded, so a page that keeps throwing us off ends the run. */
 async function recoverPlan(run: LinkedinRun, why: string): Promise<{ runId: string; tabId: number; url: string } | null> {
   if (run.recoveries >= MAX_RECOVERIES) {
-    await finish(run, `left the results page ${run.recoveries} times (${why}) — gave up`);
+    await finish(run, `left the results page ${run.recoveries} times (${why}) — gave up`, 'dead');
     return null;
   }
   const next = { ...run, recoveries: run.recoveries + 1 };
@@ -316,21 +358,26 @@ async function recoverPlan(run: LinkedinRun, why: string): Promise<{ runId: stri
   return { runId: next.runId, tabId: next.tabId, url: searchUrl(next.urls[next.urlIdx]!, next.start) };
 }
 
-function endNote(msg: Extract<Msg, { t: 'linkedin-page-done' }>): string {
+type EndPhase = 'done' | 'stopped' | 'dead';
+
+/** The page's end reason as the console's phase + a sentence. 'stopped' = a deliberate end (Stop,
+ *  or auto_submit off parking the modal); 'dead' = it broke; everything else finished its work. */
+function endOf(msg: Extract<Msg, { t: 'linkedin-page-done' }>): { phase: EndPhase; reason: string } {
   switch (msg.reason) {
-    case 'budget': return `run cap reached (${msg.applied} applied this page)`;
-    case 'limit': return "LinkedIn's daily Easy Apply limit reached — continue tomorrow";
-    case 'halt': return msg.note ?? 'auto_submit is off — the filled application is waiting for your Submit click';
-    case 'stopped': return 'stopped by you';
-    case 'error': return `page error: ${msg.note ?? 'unknown'}`;
-    default: return msg.note ?? 'done';
+    case 'budget': return { phase: 'done', reason: `run cap reached (${msg.applied} applied this page)` };
+    case 'limit': return { phase: 'done', reason: "LinkedIn's daily Easy Apply limit reached — continue tomorrow" };
+    case 'halt': return { phase: 'stopped', reason: msg.note ?? 'auto_submit is off — the filled application is waiting for your Submit click' };
+    case 'stopped': return { phase: 'stopped', reason: 'stopped by you' };
+    case 'error': return { phase: 'dead', reason: `page error: ${msg.note ?? 'unknown'}` };
+    default: return { phase: 'done', reason: msg.note ?? 'done' };
   }
 }
 
 /** End the run (call only from inside a serialized fn, with the current run). */
-async function finish(run: LinkedinRun, note: string): Promise<void> {
+async function finish(run: LinkedinRun, note: string, phase: EndPhase = 'done'): Promise<void> {
   log('run finished', { applied: run.applied, skipped: run.skipped, note });
   await chrome.storage.local.remove(KEY);
+  await observe.runEnded(run.runId, phase, note); // always a reason, never a bare "done"
   await appendLogLines(await takePendingLines()).catch(() => {});
   await chrome.alarms.clear(LINKEDIN_WATCHDOG_ALARM);
   await saveProgress({ done: run.applied, total: run.applied, current: `LinkedIn: ${note}`, phase: 'done', at: Date.now() });
@@ -338,10 +385,10 @@ async function finish(run: LinkedinRun, note: string): Promise<void> {
 }
 
 /** End the run by id from outside the chain (a failed kick); a no-op if it already ended. */
-function finishRun(runId: string, note: string): Promise<void> {
+function finishRun(runId: string, note: string, phase: EndPhase = 'dead'): Promise<void> {
   return serialized(async () => {
     const run = await getLinkedinRun();
-    if (run && run.runId === runId) await finish(run, note);
+    if (run && run.runId === runId) await finish(run, note, phase);
   });
 }
 
@@ -351,7 +398,7 @@ export function stopLinkedin(): Promise<boolean> {
     const run = await getLinkedinRun();
     if (!run) return false;
     await sendToTab(run.tabId, { t: 'linkedin-stop' }).catch(() => {});
-    await finish(run, 'stopped by you');
+    await finish(run, 'stopped by you', 'stopped');
     return true;
   });
 }
@@ -396,17 +443,18 @@ export function linkedinWatchdog(): Promise<void> {
     const idle = Date.now() - Math.max(run.lastActivityAt, run.lastKickAt);
     const dead = Date.now() - (run.lastProgressAt ?? run.startedAt);
     if (dead > DEAD_MS) {
-      await finish(run, `no progress for ${Math.round(dead / 60_000)} min — gave up`);
+      await finish(run, `no progress for ${Math.round(dead / 60_000)} min — gave up`, 'dead');
       return;
     }
     if (idle > STALL_MS) {
       const tab = await chrome.tabs.get(run.tabId).catch(() => null);
       if (!tab) {
-        await finish(run, 'the LinkedIn tab was closed');
+        await finish(run, 'the LinkedIn tab was closed', 'dead');
         return;
       }
       log('watchdog: page silent, reloading', { idleMs: idle, url: tab.url });
       await save({ ...run, lastActivityAt: Date.now() }); // one reload per STALL_MS
+      await observe.runStep(run.runId); // the reload is ours, not the page's — still a sign of life
       await chrome.tabs.update(run.tabId, { url: searchUrl(run.urls[run.urlIdx]!, run.start) }).catch(() => {});
     }
   });

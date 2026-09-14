@@ -25,6 +25,11 @@ const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
 export default defineConfig({
   srcDir: 'src',
+  // The UI (popup + console) is Preact + TSX; esbuild's automatic runtime keeps it to one bundled
+  // dependency and no JSX pragma in every file. Background + content scripts stay plain TS.
+  vite: () => ({
+    esbuild: { jsx: 'automatic', jsxImportSource: 'preact' },
+  }),
   manifest: {
     name: 'JobBot',
     description: 'Auto-apply to jobs across Greenhouse, Lever and Ashby boards, Datadog, Amazon, Instahyre and LinkedIn.',

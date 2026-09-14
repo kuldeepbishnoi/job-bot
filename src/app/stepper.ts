@@ -8,7 +8,10 @@ import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
 import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
 import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
+import { readRegistry } from '../platform/fs-config';
 import { accountsAtLimitToday } from '../platform/store';
+import type { Run } from '../engine/records';
+import * as observe from './observe';
 
 // MV3 service workers get killed after ~30s idle (and can't run for hours). So we DON'T loop the
 // whole queue in one await. Instead: persist the queue, process ONE job, then schedule an alarm
@@ -37,8 +40,12 @@ export async function runInProgress(now = Date.now()): Promise<boolean> {
   const p = await getProgress();
   if (p && p.phase === 'running' && now - p.at < STALE_RUN_MS) return true;
   await clearRunState();
+  // The run never reached finish() — say so instead of letting it sit "running" in the console.
+  await observe.runEnded(state.runId ?? null, 'dead', p ? deadReason(now - p.at) : 'the run never reported progress — presumed dead');
   return false;
 }
+
+const deadReason = (ageMs: number): string => `no progress for ${Math.max(1, Math.round(ageMs / 60_000))} min — presumed dead`;
 
 /** Popup -> background: build the queue and process the first job now. */
 export async function startRun(
@@ -48,16 +55,41 @@ export async function startRun(
   ports: RunPorts,
   exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
   credentials?: RunState['credentials'],
+  trigger: Run['trigger'] = 'manual',
 ): Promise<void> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
-  const already = new Set([...(await ports.appliedIds()), ...exclude]);
+  // The shared registry is what stops N accounts re-applying to the same job. An extension page
+  // passes it in; the daily alarm has no page, so read it here rather than run without it. The
+  // worker CAN read it: writeRecord already writes that folder from this same context, and the
+  // gesture-only APIs are the picker and requestPermission, neither of which this touches.
+  const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
+  const already = new Set([...(await ports.appliedIds()), ...registry]);
   const all = selectJobs(await ports.discover(site, profile), profile.want).filter((j) => !already.has(j.id));
   const queue = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
+  // One Run record per run, before any job: the console's whole view of this run hangs off it.
+  const runId = await observe.runStarted({
+    siteId,
+    kind: 'worker',
+    trigger,
+    account: await getAccount(),
+    autoSubmit: profile.auto_submit,
+    onUnknown: profile.on_unknown,
+    queued: queue.length,
+    resumeName: resume.name,
+    config: {
+      selected: `${queue.length} of ${all.length} discovered`,
+      excluded: String(already.size),
+      ...(profile.max_per_run ? { max_per_run: String(profile.max_per_run) } : {}),
+      ...(profile.per_account_limit ? { per_account_limit: String(profile.per_account_limit) } : {}),
+    },
+  });
   // Only this site's logins go into storage — an Amazon run has no business holding the Datadog
   // passwords, and run_state is an unencrypted LevelDB file until the run ends.
-  await saveRunState({ siteId, profile, resume, queue, cursor: 0, credentials: credentialsFor(credentials, siteId) });
+  // The runId lives there too, not in module scope: the SW dies between jobs and the next wake
+  // must keep writing to the SAME Run.
+  await saveRunState({ siteId, profile, resume, queue, cursor: 0, credentials: credentialsFor(credentials, siteId), ...(runId ? { runId } : {}) });
 
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only
   // AFTER a step completes, so a step that dies leaves no alarm — the watchdog re-drives it.
@@ -74,12 +106,28 @@ export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void>
   }
   if (state.paused) return; // waiting on the user — not a stall
   const p = await getProgress();
+  // Re-driving forever hides a broken run. Past STALE_RUN_MS with no progress at all, give up
+  // loudly — the console shows 'dead' with the age, instead of a run that never ends.
+  if (p && now - p.at > STALE_RUN_MS) {
+    await giveUp(ports, state, deadReason(now - p.at));
+    return;
+  }
   const stalled = !p || p.phase !== 'running' || now - p.at > STALL_MS;
   const armed = (await chrome.alarms.get(STEP_ALARM)) !== undefined;
   if (stalled && !armed) {
     console.warn('[jobbot] watchdog: run stalled at', state.cursor, '/', state.queue.length, '— re-driving');
+    await observe.event('warn', 'run', `watchdog: stalled at ${state.cursor}/${state.queue.length} — re-driving`, undefined, { runId: state.runId ?? undefined, siteId: state.siteId });
     await step(ports);
   }
+}
+
+/** The watchdog's last resort: tear the run down and mark the Run dead with the evidence. */
+async function giveUp(ports: RunPorts, state: RunState, reason: string): Promise<void> {
+  await chrome.alarms.clear(STEP_ALARM);
+  await chrome.alarms.clear(WATCHDOG_ALARM);
+  await clearRunState();
+  await ports.cleanup().catch(() => {});
+  await observe.runEnded(state.runId ?? null, 'dead', reason);
 }
 
 /** Process exactly one job, advance the cursor, and schedule the next wake (or finish).
@@ -93,9 +141,13 @@ export async function step(ports: RunPorts): Promise<void> {
     const state = await getRunState();
     if (!state) return;
     if (state.paused) return; // waiting for the user to log the next account in (popup → resume)
+    // A new SW generation: re-attach to the Run this queue belongs to before writing anything.
+    const runId = state.runId ?? null;
+    if (runId && observe.activeRunId() !== runId) await observe.adoptRun(runId);
 
     const site = siteById(state.siteId);
-    if (!site || state.cursor >= state.queue.length) return finish(ports);
+    if (!site) return finish(ports, `unknown site ${state.siteId}`);
+    if (state.cursor >= state.queue.length) return finish(ports, `queue exhausted (${state.cursor}/${state.queue.length})`);
 
     // Per-account daily limit (Amazon: 10) → rotate to the next account that still has room.
     const limit = state.profile.per_account_limit;
@@ -103,8 +155,10 @@ export async function step(ports: RunPorts): Promise<void> {
 
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
+    await observe.runStep(runId, { jobId: job.id, title: job.title, step: 'apply', since: Date.now() });
     const result = await applyOne(site, job, state.profile, state.resume, ports);
     await ports.record(result);
+    await observe.runOutcome(runId, result.status);
     // The ATS's own cap ("application limit reached") — rotate now; retry this job on the next account.
     if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return rotateAccount(site, state, ports, result.note ?? 'limit reached');
 
@@ -148,6 +202,7 @@ async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reaso
     const res = await ports.login(tabId, next, password).catch((e: Error) => ({ ok: false as const, note: `login threw: ${e.message}` }));
     if (res.ok) {
       await setAccount(next);
+      await observe.runResumed(state.runId ?? null, `auto-login: switched to ${next}`);
       await saveProgress({ done: state.cursor, total: state.queue.length, current: `switched to ${next}`, phase: 'running', at: Date.now() });
       await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
       setTimeout(() => void step(ports), PACE_MS);
@@ -156,6 +211,7 @@ async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reaso
     reason = `${reason}; auto-login as ${next} failed: ${res.note ?? 'unknown'}`;
   }
   await saveRunState({ ...state, paused: { reason, nextAccount: next } });
+  await observe.runPaused(state.runId ?? null, reason, next); // the console shows what the user must do
   await chrome.alarms.clear(STEP_ALARM);
   await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
 }
@@ -166,6 +222,7 @@ export async function resumeRun(ports: RunPorts): Promise<void> {
   if (!state?.paused) return;
   await setAccount(state.paused.nextAccount);
   await saveRunState({ ...state, paused: undefined });
+  await observe.runResumed(state.runId ?? null, `resumed as ${state.paused.nextAccount}`);
   await saveProgress({ done: state.cursor, total: state.queue.length, current: `resumed as ${state.paused.nextAccount}`, phase: 'running', at: Date.now() });
   await step(ports);
 }
@@ -173,16 +230,19 @@ export async function resumeRun(ports: RunPorts): Promise<void> {
 /** Popup -> background: abandon the run. Whatever job is mid-flight in the worker tab is left as-is
  *  (Amazon auto-saves progress server-side, so a half-filled apply can be resumed by hand). */
 export async function stopRun(ports: RunPorts): Promise<void> {
-  await finish(ports);
+  if (!(await getRunState())) return void (await ports.cleanup()); // no worker run — just tidy the window
+  await finish(ports, 'stopped by you', 'stopped');
 }
 
-async function finish(ports: RunPorts, note?: string): Promise<void> {
+/** Every exit goes through here, and every exit names its reason — a run that ends silently is
+ *  exactly what the old UI did that hid failures. */
+async function finish(ports: RunPorts, reason: string, phase: 'done' | 'stopped' = 'done'): Promise<void> {
+  const state = await getRunState();
   await chrome.alarms.clear(STEP_ALARM);
   await chrome.alarms.clear(WATCHDOG_ALARM);
   await clearRunState();
   await ports.cleanup();
-  if (note) {
-    const p = await getProgress();
-    await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: note, phase: 'done', at: Date.now() });
-  }
+  await observe.runEnded(state?.runId ?? null, phase, reason); // only ever this run's id — another pack's may be active
+  const p = await getProgress();
+  await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: reason, phase: 'done', at: Date.now() });
 }

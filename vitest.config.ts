@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   test: {
     environment: 'happy-dom',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
   },
+  esbuild: { jsx: 'automatic', jsxImportSource: 'preact' },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
