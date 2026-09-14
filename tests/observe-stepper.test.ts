@@ -272,3 +272,28 @@ describe('multi-account safety guard', () => {
     expect(recorded).toHaveLength(1);
   });
 });
+
+describe('Stop actually stops', () => {
+  it('a step in flight when Stop lands does not resurrect the queue', async () => {
+    let release: (v: ApplyOutcome) => void = () => {};
+    let entered: () => void = () => {};
+    const applyEntered = new Promise<void>((r) => (entered = r));
+    const { ports, recorded } = fakePorts([job('j1'), job('j2')], () => {
+      entered();
+      return new Promise<ApplyOutcome>((r) => (release = r));
+    });
+
+    const started = startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+    await applyEntered; // the run is genuinely parked inside job 1's apply
+
+    await stopRun(ports); // the user presses Stop while job 1 is still being applied
+    release({ status: 'submitted' }); // ...and that apply finishes afterwards
+    await started;
+
+    // The application still lands: it may genuinely have been submitted, whatever the user clicked.
+    expect(recorded).toHaveLength(1);
+    // But the queue is gone and nothing is scheduled — the run does not carry on to job 2.
+    expect(await getRunState()).toBeNull();
+    expect((await listRuns()).at(-1)?.phase).toBe('stopped');
+  });
+});

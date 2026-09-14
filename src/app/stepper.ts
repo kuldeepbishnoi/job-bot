@@ -4,6 +4,7 @@ import { siteById } from '../sites';
 import type { Profile } from '../config/schema';
 import type { Site } from '../sites';
 import type { RunState } from '../platform/store';
+import type { Application, Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs } from '../engine/select-jobs';
 import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
@@ -27,6 +28,9 @@ const STALL_MS = 6 * 60 * 1000;
 // A persisted queue this long is ~1.4 MB of the 10 MB chrome.storage budget. Beyond it we would be
 // trading the records and the log for jobs this run was never going to reach anyway.
 export const QUEUE_CAP = 5000;
+// A single job may hold the run this long. Longer than the apply cap (4 min) so a normal slow apply
+// is never cut short, short enough that one wedged job costs minutes, not a whole run.
+export const JOB_DEADLINE_MS = 7 * 60 * 1000;
 
 // A run whose service worker died mid-step never reaches finish(); its run_state would otherwise
 // sit there forever. Progress is stamped on every step, so "no progress for this long" = dead.
@@ -121,6 +125,27 @@ export async function startRun(
   await step(ports); // do the first one immediately (SW is alive during the click)
 }
 
+
+/** Resolve with `onTimeout()` if `p` has not settled in time. The work is not cancellable — we
+ *  simply stop waiting on it — so whatever it eventually does must be harmless: the abandoned
+ *  apply's own record write is skipped by the run-generation check in `step`. */
+async function withDeadline<T>(p: Promise<T>, ms: number, onTimeout: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((r) => (timer = setTimeout(() => r('late'), ms)));
+  try {
+    const winner = await Promise.race([p, late]);
+    return winner === 'late' ? await onTimeout() : (winner as T);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The record for a job we abandoned — it must still appear, with the reason, not vanish. */
+async function mkFailed(site: Site, job: Job, ports: RunPorts, note: string): Promise<Application> {
+  await observe.event('warn', 'apply', `${job.id} ${note}`, undefined, { jobId: job.id, siteId: site.id });
+  return { company: site.id, jobId: job.id, title: job.title, url: job.url, date: ports.today(), status: 'failed', note };
+}
+
 /** Watchdog tick: a run exists but hasn't progressed for STALL_MS → drive the current job again. */
 export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void> {
   const state = await getRunState();
@@ -180,13 +205,30 @@ export async function step(ports: RunPorts): Promise<void> {
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
     await observe.runStep(runId, { jobId: job.id, title: job.title, step: 'apply', since: Date.now() });
-    const result = await applyOne(site, job, state.profile, state.resume, ports);
+    // One job can never hold the run forever. ports.apply caps the content script, but openJob, the
+    // OTP poll and a frame retry sit outside it, and a step that hangs blocks every later job: the
+    // watchdog cannot help, because it politely returns while `stepping` is true.
+    const result = await withDeadline(
+      applyOne(site, job, state.profile, state.resume, ports),
+      JOB_DEADLINE_MS,
+      () => mkFailed(site, job, ports, `gave up after ${Math.round(JOB_DEADLINE_MS / 60_000)} min on this job — moving to the next`),
+    );
     await ports.record(result);
     await observe.runOutcome(runId, result.status);
-    // The ATS's own cap ("application limit reached") — rotate now; retry this job on the next account.
-    if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return rotateAccount(site, state, ports, result.note ?? 'limit reached');
 
-    await saveRunState({ ...state, cursor: state.cursor + 1 });
+    // Stop clears the run state, but THIS step was already in flight and would otherwise re-save it
+    // below — resurrecting the queue and its alarms. That is why Stop appeared to do nothing. The
+    // record above still lands: an application that was submitted happened, whatever the user clicked.
+    const live = await getRunState();
+    if (!live || (live.runId ?? null) !== runId) {
+      await observe.event('info', 'run', 'stopped mid-job — not continuing', { jobId: job.id });
+      return;
+    }
+
+    // The ATS's own cap ("application limit reached") — rotate now; retry this job on the next account.
+    if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return rotateAccount(site, live, ports, result.note ?? 'limit reached');
+
+    await saveRunState({ ...live, cursor: live.cursor + 1 });
     await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
     setTimeout(() => void step(ports), PACE_MS);
   } finally {
