@@ -55,9 +55,14 @@ export const LinkedinSchema = z.object({
 // Each entry is the board's slug ("discord") or any URL on that board — parseBoardRef() in the
 // matching src/sources/*.ts normalises both. include_defaults=true = the curated default list PLUS
 // yours; false = only yours. Everything here is meant to be edited from the dashboard.
+//
+// include_defaults defaults to FALSE deliberately. With `auto_submit: true` — which is a normal
+// setting here — turning it on means one click applies to dozens of companies the user never
+// named (41 in DEFAULT_GREENHOUSE_BOARDS alone), and an application cannot be withdrawn. Opting
+// in has to be a decision, not the consequence of leaving a key out of profile.yaml.
 export const BoardListSchema = z.object({
   boards: z.array(z.string().min(1)).default([]),
-  include_defaults: z.boolean().default(true),
+  include_defaults: z.boolean().default(false),
 });
 
 export const ProfileSchema = z.object({

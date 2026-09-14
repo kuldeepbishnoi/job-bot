@@ -52,9 +52,20 @@ describe('greenhouse boards discovery', () => {
     expect(boardsToWalk({ boards: ['acme'], include_defaults: false })).toEqual(['acme']);
   });
 
-  it('profile.greenhouse defaults to the curated list so the pack runs without config', () => {
+  // An application cannot be withdrawn, and auto_submit is commonly on. So a profile that never
+  // mentions the pack must apply to NOBODY — reaching the curated list has to be a decision.
+  it('a profile with no greenhouse block walks no boards at all', () => {
     const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf' });
-    expect(p.greenhouse).toEqual({ boards: [], include_defaults: true });
+    expect(p.greenhouse).toEqual({ boards: [], include_defaults: false });
+    expect(boardsToWalk(p.greenhouse)).toEqual([]);
+  });
+
+  it('the curated list is opt-in, and then it is the whole list', () => {
+    const p = parseProfile({
+      identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' },
+      resume: 'r.pdf',
+      greenhouse: { include_defaults: true },
+    });
     expect(boardsToWalk(p.greenhouse)).toEqual([...DEFAULT_GREENHOUSE_BOARDS]);
   });
 });
