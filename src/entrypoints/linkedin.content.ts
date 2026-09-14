@@ -148,7 +148,7 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
       newCards++;
       currentJob = id;
       jobLog = [];
-      const outcome = await applyToCard(card, msg.profile, msg.resume);
+      const outcome = await applyToCard(card, msg.profile, msg.resume, msg.runId);
       if (outcome.kind === 'skip') {
         log('skip', outcome.note);
         skippedIds.push(id);
@@ -258,7 +258,7 @@ async function clearStrayDialogs(where: string): Promise<void> {
   if (li.strayDialog(document)) log('WARNING: a dialog is still up after 5 tries', li.describeState(document));
 }
 
-async function applyToCard(card: HTMLElement, profile: Profile, resume: Resume): Promise<CardOutcome> {
+async function applyToCard(card: HTMLElement, profile: Profile, resume: Resume, runId: string): Promise<CardOutcome> {
   await clearStrayDialogs('before card');
   const info = li.cardInfo(card);
   log('card', info);
@@ -308,6 +308,7 @@ async function applyToCard(card: HTMLElement, profile: Profile, resume: Resume):
     if (li.limitReached(document)) return { kind: 'result', status: 'failed', note: "LinkedIn's daily Easy Apply limit reached", fields: [], end: 'limit' };
     if (li.rateLimited(document)) {
       log('pace warning from LinkedIn instead of the modal — backing off 2.5 min');
+      void report({ t: 'linkedin-warning', runId, code: 'pace', detail: `LinkedIn briefly paused Easy Apply (applying too fast) — backing off ${PACE_BACKOFF_MS / 60_000} min, then continuing` });
       await sleep(PACE_BACKOFF_MS);
       return { kind: 'result', status: 'parked', note: 'LinkedIn paused Easy Apply (pace) — backed off, not attempted', fields: [] };
     }
@@ -321,11 +322,11 @@ async function applyToCard(card: HTMLElement, profile: Profile, resume: Resume):
       return { kind: 'result', status: 'failed', note: `Easy Apply modal never opened — ${li.describeState(document)}`, fields: [], capture };
     }
   }
-  return driveModal(profile, resume);
+  return driveModal(profile, resume, runId);
 }
 
 /** Fill → Next … → Submit inside the open modal. Always leaves the page modal-free. */
-async function driveModal(profile: Profile, resume: Resume): Promise<CardOutcome> {
+async function driveModal(profile: Profile, resume: Resume, runId: string): Promise<CardOutcome> {
   const filled: AppliedField[] = [];
   let resumeUsed = '';
   const fail = async (note: string, status: ApplyStatus = 'failed', end?: LinkedinPageEnd): Promise<CardOutcome> => {
@@ -352,6 +353,7 @@ async function driveModal(profile: Profile, resume: Resume): Promise<CardOutcome
     if (li.limitReached(document)) return fail("LinkedIn's daily Easy Apply limit reached", 'failed', 'limit');
     if (li.rateLimited(document)) {
       log('pace warning from LinkedIn — backing off 2.5 min');
+      void report({ t: 'linkedin-warning', runId, code: 'pace', detail: `LinkedIn briefly paused Easy Apply (applying too fast) — backing off ${PACE_BACKOFF_MS / 60_000} min, then continuing` });
       await discard();
       await sleep(PACE_BACKOFF_MS);
       return { kind: 'result', status: 'parked', note: 'LinkedIn paused Easy Apply (pace); retried later', fields: filled, resume: resumeUsed };
