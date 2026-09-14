@@ -51,6 +51,15 @@ export const LinkedinSchema = z.object({
   max_per_run: z.number().int().positive().default(100),
 });
 
+// Multi-company packs (Greenhouse boards, Lever, Ashby): a list of company job boards to walk.
+// Each entry is the board's slug ("discord") or any URL on that board — parseBoardRef() in the
+// matching src/sources/*.ts normalises both. include_defaults=true = the curated default list PLUS
+// yours; false = only yours. Everything here is meant to be edited from the dashboard.
+export const BoardListSchema = z.object({
+  boards: z.array(z.string().min(1)).default([]),
+  include_defaults: z.boolean().default(true),
+});
+
 export const ProfileSchema = z.object({
   identity: IdentitySchema,
   resume: z.string().min(1),
@@ -76,12 +85,17 @@ export const ProfileSchema = z.object({
   // Present only when the user runs that site (validated then; absent = the site is off-limits).
   amazon: AmazonSchema.optional(),
   linkedin: LinkedinSchema.optional(),
+  // Always present (defaults exist), so these packs run out of the box.
+  greenhouse: BoardListSchema.default({}),
+  lever: BoardListSchema.default({}),
+  ashby: BoardListSchema.default({}),
 });
 
 export type Identity = z.infer<typeof IdentitySchema>;
 export type Want = z.infer<typeof WantSchema>;
 export type AmazonConfig = z.infer<typeof AmazonSchema>;
 export type LinkedinConfig = z.infer<typeof LinkedinSchema>;
+export type BoardList = z.infer<typeof BoardListSchema>;
 export type Profile = z.infer<typeof ProfileSchema>;
 
 export function parseProfile(raw: unknown): Profile {
