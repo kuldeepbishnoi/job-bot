@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'preact/hooks';
 import type { ReviewLine } from '@/platform/data/disk-records';
 import { diskAvailable, groupReview, readReviewLines, requestDiskAccess } from '@/platform/data/disk-records';
 import { applications, profile } from '../store';
+import type { Application } from '@/engine/types';
 import { href, route, setQuery } from '../router';
 import { Card, Empty, Pill, StatusPill } from '../components/common';
 import { AppDetail } from '../components/AppDetail';
@@ -19,6 +20,8 @@ import {
   type CauseGroup,
   type QuestionGroup,
   type RichApp,
+  offTargetApplications,
+  roleOf,
 } from '../app-view';
 
 // The inbox. Two things wait for a human and they are not the same thing:
@@ -96,6 +99,75 @@ function useDiskReview(): DiskReview {
 
   useEffect(load, [load]);
   return { ...state, reload: load };
+}
+
+
+/** Applications already SENT that the profile's own title filter would reject. The Instahyre pack
+ *  never received `want`, so 540 of these went out. The wiring is fixed; these are the ones that
+ *  already exist, and only the user can withdraw them — so the job has to be reachable from here. */
+function OffTarget(): JSX.Element | null {
+  const want = profile.value?.want;
+  const [open, setOpen] = useState(false);
+  if (!want) return null;
+  const off = offTargetApplications(applications.value, want);
+  if (off.length === 0) return null;
+
+  const bySite = new Map<string, Application[]>();
+  for (const a of off) bySite.set(a.company, [...(bySite.get(a.company) ?? []), a]);
+
+  return (
+    <Card
+      title={
+        <div class="row wrap">
+          <h2 class="grow">Applied, but outside what you asked for</h2>
+          <Pill tone="err">{off.length}</Pill>
+        </div>
+      }
+      right={
+        <button class="sm ghost" onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show them'}
+        </button>
+      }
+    >
+      <p class="muted small">
+        These were submitted to roles your title filter excludes — {[...bySite].map(([c, list]) => `${list.length} on ${c}`).join(', ')}. The
+        bug that caused it is fixed, but an application cannot be withdrawn by this extension. Open each one to withdraw it yourself.
+      </p>
+      {open && (
+        <div class="scroll-x" style={{ maxHeight: 420, overflowY: 'auto', marginTop: 10 }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Role</th>
+                <th>Site</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {off.slice(0, 400).map((a) => (
+                <tr key={`${a.jobId}@${a.at ?? a.date}`}>
+                  <td class="nowrap muted">{a.date}</td>
+                  <td>{roleOf(a)}</td>
+                  <td class="muted">{a.company}</td>
+                  <td class="nowrap">
+                    {a.url && a.url !== 'u' ? (
+                      <a href={a.url} target="_blank" rel="noreferrer">
+                        open ↗
+                      </a>
+                    ) : (
+                      <span class="muted tiny">no link recorded</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {off.length > 400 && <p class="muted tiny">Showing the first 400 of {off.length}.</p>}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 /* ---- one question -------------------------------------------------------------------------- */
@@ -353,6 +425,8 @@ export function Review(): JSX.Element {
       </div>
 
       <WarningsBanner />
+
+      <OffTarget />
 
       <Card title="Questions to answer" right={source}>
         <p class="muted small">

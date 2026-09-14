@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Run } from '@/engine/records';
+import type { Application } from '@/engine/types';
 import { EMPTY_COUNTS } from '@/engine/records';
 import {
   CAUSE_RULES,
@@ -21,6 +22,7 @@ import {
   siteIdOf,
   type RichApp,
   type RichField,
+  offTargetApplications,
 } from '@/ui/app-view';
 
 // These rules decide what a human sees in the Review inbox, so they are tested against the exact
@@ -245,5 +247,32 @@ describe('runs ↔ applications', () => {
     const lines = text.trim().split('\n');
     expect(lines.length).toBe(3);
     expect(lines.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual(['run', 'application', 'event']);
+  });
+});
+
+describe('applications that should never have been sent', () => {
+  const want = { titles_any: ['software engineer', 'sde', 'backend'], titles_none: ['manager', 'director'], locations: [], seniority: [] };
+  const app = (title: string, status = 'applied'): Application =>
+    ({ company: 'instahyre', jobId: title, title, url: 'u', date: '2026-09-14', status } as Application);
+
+  it('finds the roles the profile filter would have excluded', () => {
+    const out = offTargetApplications(
+      [app('Software Engineer'), app('Customer Support Executive'), app('Product Manager'), app('SDE II (Backend) · Navi')],
+      want,
+    );
+    expect(out.map((a) => a.title)).toEqual(['Customer Support Executive', 'Product Manager']);
+  });
+
+  it('reads the role from "Role · Employer", not the employer', () => {
+    // "Manager" in the EMPLOYER name must not condemn a legitimate engineering role.
+    expect(offTargetApplications([app('Backend Engineer · Manager Tech Pvt Ltd')], want)).toEqual([]);
+  });
+
+  it('only counts applications actually sent', () => {
+    expect(offTargetApplications([app('Product Manager', 'parked'), app('Product Manager', 'failed')], want)).toEqual([]);
+  });
+
+  it('says nothing is off-target when the user set no filter', () => {
+    expect(offTargetApplications([app('Product Manager')], { titles_any: [], titles_none: [], locations: [], seniority: [] })).toEqual([]);
   });
 });

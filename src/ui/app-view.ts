@@ -2,6 +2,8 @@
 // review grouping, run↔application joining, export. No chrome, no DOM, no signals — so every rule
 // here is unit-tested (tests/app-view.test.ts) instead of being eyeballed in a rendered table.
 
+import { titleWanted } from '@/engine/select-jobs';
+import type { Want } from '@/config/schema';
 import type { Application, AppliedField } from '@/engine/types';
 import type { LogEvent, Run } from '@/engine/records';
 
@@ -739,4 +741,24 @@ export function warningViews(warnings: readonly RunWarning[]): WarningView[] {
   return [...by.values()]
     .map(warningView)
     .sort((a, b) => Number(b.blocking) - Number(a.blocking) || b.at - a.at); // blockers first, then newest
+}
+
+/** Applications whose title would NOT pass the profile's own title filter today.
+ *
+ *  Not hypothetical: the Instahyre pack never received `want`, so 540 real applications went out to
+ *  roles the user never asked for (Product Manager, Customer Support Executive, Director of
+ *  Engineering). The wiring is fixed, but those applications exist and only the user can withdraw
+ *  them — so the console has to show WHICH ones rather than leave them buried in 730 records.
+ *
+ *  Uses the engine's own `titleWanted`, so this says exactly what the filter would say. The title
+ *  is stored as "Role · Employer" for in-page packs; only the part before the separator is the role.
+ */
+export function offTargetApplications(apps: readonly Application[], want: Want): Application[] {
+  if (!want.titles_any.length && !want.titles_none.length) return []; // no filter = nothing is off-target
+  return apps.filter((a) => a.status === 'applied' && !titleWanted(roleOf(a), want));
+}
+
+/** The role half of a record's title ("SDE II (Backend) · Navi" → "SDE II (Backend)"). */
+export function roleOf(a: Application): string {
+  return (a.title ?? '').split(' · ')[0]!.trim();
 }
