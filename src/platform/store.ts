@@ -110,10 +110,12 @@ export async function record(app: Application): Promise<void> {
   }
 }
 
-/** Applications made today by one account (per-account daily limits, e.g. Amazon's 10). */
-export async function appliedTodayCount(account: string): Promise<number> {
+/** Applications made today by one account, for ONE site when given (per-account daily limits are
+ *  per site: Amazon's 10/day is Amazon's). Counting every site together made an Amazon run rotate
+ *  accounts because the LinkedIn applications of the same morning had used up the number. */
+export async function appliedTodayCount(account: string, company?: string): Promise<number> {
   const today = new Date().toISOString().slice(0, 10);
-  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
+  return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account && (!company || a.company === company)).length;
 }
 
 /** Accounts whose run hit THIS site's own limit page today (recorded as a failed note). Limits are

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { accountsAtLimitToday, record } from '@/platform/store';
+import { accountsAtLimitToday, appliedTodayCount, record } from '@/platform/store';
 import type { Application } from '@/engine/types';
 
 // A tiny chrome.storage.local stand-in: the repository is the only thing under test here.
@@ -41,5 +41,21 @@ describe('accountsAtLimitToday is per site', () => {
     await record({ ...app('amazon', 'b@x.com', 'form timed out'), date: today });
     await record({ ...app('amazon', 'c@x.com', 'limit reached'), date: '2020-01-01' });
     expect(await accountsAtLimitToday('amazon')).toEqual(new Set());
+  });
+});
+
+describe('appliedTodayCount is per site', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(mem)) delete mem[k];
+    mem['account'] = 'a@x.com';
+  });
+
+  it('counts one site at a time, so another site\'s applications cannot trigger a rotation', async () => {
+    for (let i = 0; i < 8; i++) await record({ company: 'linkedin', jobId: `li-${i}`, title: 't', url: 'u', date: today, status: 'applied' });
+    for (let i = 0; i < 3; i++) await record({ company: 'amazon', jobId: `az-${i}`, title: 't', url: 'u', date: today, status: 'applied' });
+    // per_account_limit is Amazon's 10/day. Counting every site together said 11 and rotated.
+    expect(await appliedTodayCount('a@x.com', 'amazon')).toBe(3);
+    expect(await appliedTodayCount('a@x.com', 'linkedin')).toBe(8);
+    expect(await appliedTodayCount('a@x.com')).toBe(11); // unfiltered: every site
   });
 });

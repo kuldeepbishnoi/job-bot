@@ -99,7 +99,7 @@ export async function step(ports: RunPorts): Promise<void> {
 
     // Per-account daily limit (Amazon: 10) → rotate to the next account that still has room.
     const limit = state.profile.per_account_limit;
-    if (limit && (await appliedTodayCount(await getAccount())) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached`);
+    if (limit && (await appliedTodayCount(await getAccount(), site.id)) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached on ${site.id}`);
 
     const job = state.queue[state.cursor]!;
     ports.progress(state.cursor, state.queue.length, job.title);
@@ -124,7 +124,7 @@ async function nextAccountWithRoom(site: Site, state: RunState, current: string)
   const capped = await accountsAtLimitToday(site.id);
   for (const a of candidates) {
     if (a === current || capped.has(a)) continue;
-    if ((await appliedTodayCount(a)) < limit) return a;
+    if ((await appliedTodayCount(a, site.id)) < limit) return a;
   }
   return null;
 }
