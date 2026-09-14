@@ -141,3 +141,25 @@ amazon:
   # NOTE: `want` above still applies on top (titles, locations, seniority) — see its comment.
   search_url: "https://www.amazon.jobs/en/search?category[]=software-development&country[]=CAN&industry_experience=four_to_six_years&sort=relevant"
   ai_consent: false     # Amazon's one-time "may we use AI to recommend jobs / refer you" prompt (false = decline)
+
+# Multi-company packs — one button each in the popup/dashboard, every company in the list applied
+# to with the same résumé/answers. Each entry is the company's board slug OR any URL on its board;
+# include_defaults: true = the curated default list (src/sources/*.ts DEFAULT_*_BOARDS, ~40
+# Greenhouse / 8 Lever / 27 Ashby companies) PLUS yours; false = only yours. All optional — the
+# packs run with the defaults when these blocks are absent. Editable from the dashboard.
+greenhouse:
+  boards:
+    - discord                                   # board token
+    - https://boards.greenhouse.io/figma        # or a URL on the board
+    - https://job-boards.greenhouse.io/anthropic/jobs/4461450008
+  include_defaults: true
+lever:
+  boards:
+    - zoox
+    - https://jobs.lever.co/nium
+  include_defaults: true
+ashby:
+  boards:
+    - notion
+    - https://jobs.ashbyhq.com/linear
+  include_defaults: true

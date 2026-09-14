@@ -4,8 +4,9 @@ Read this first. It's the contract for working in this repo. Keep it accurate wh
 
 ## What this is
 A Chrome MV3 extension (WXT + TypeScript) that auto-applies to jobs from the user's **real
-browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs), **Instahyre** and **LinkedIn**
-(Easy Apply) followed. The extension approach is deliberate: the real
+browser**. **Datadog** is the first "site pack"; **Amazon** (amazon.jobs), **Instahyre**, **LinkedIn**
+(Easy Apply) and the three **multi-company board packs** — **Greenhouse boards** (every Greenhouse
+company via the public Job Board API), **Lever** and **Ashby** — followed. The extension approach is deliberate: the real
 browser mints the reCAPTCHA token, carries the session/fingerprint, and uploads the resume
 natively — so we never fight the anti-bot stack. **Do not** rewrite this as a raw-HTTP API bot.
 
@@ -137,6 +138,41 @@ page capture — the first real run reads the Logs page and fixes selectors from
   Every attempt (applied / parked / failed) is recorded with the typed values; `auto_submit:false`
   fills through Review, parks, and halts the run with the modal open (one-job dry run).
 
+### Greenhouse boards / Lever / Ashby ground truth (2026-09-14, from the live APIs + pages)
+- **One pack = many companies.** `profile.greenhouse|lever|ashby.boards` (slug or any board URL;
+  `parseBoardRef()` normalises) + `include_defaults` (curated `DEFAULT_*_BOARDS` in
+  `src/sources/*.ts`, every entry validated live). Discovery walks the boards 4 at a time; a broken
+  board is logged + skipped, the run is refused only when *every* board fails. `Job.company` carries
+  the employer; `Application.employer` copies it (`company` stays the site id).
+- **Greenhouse**: `boards-api.greenhouse.io/v1/boards/<token>/jobs` (`fixtures/greenhouse-board.json`)
+  → we always open the **hosted** page `job-boards.greenhouse.io/<token>/jobs/<id>`, never the
+  company's own site. It server-renders the *same* React form the Datadog embed uses (`#application-form`,
+  `first_name`… react-select, EEO ids `gender`/`hispanic_ethnicity`/`veteran_status`/`disability_status`)
+  — `fixtures/greenhouse-hosted-form.html` is a real capture and `ats/greenhouse.ts` fills it unchanged;
+  the content script now matches all of `job-boards.greenhouse.io/*` + `boards.greenhouse.io/*`.
+  Free-text `location.name` shapes: `"A; B | C"`, `"A • B"`, `"A or B (Remote)"` (`parseLocationName`).
+- **Lever**: `api.lever.co/v0/postings/<site>?mode=json` (`fixtures/lever-postings.json`) → apply page
+  `jobs.lever.co/<site>/<id>/apply` (`fixtures/lever-apply.html`, real). Server-rendered **plain HTML**
+  (no React): `form#application-form`, `.application-question` blocks, `.application-label` (✱ =
+  required), controls addressed by **`name`** (`name`, `email`, `phone`, `location` typeahead +
+  hidden `selectedLocation`, `org`, `urls[LinkedIn]`, `resume` file, custom `cards[<uuid>][field0]`
+  radio/checkbox/select/textarea, `eeo[*]`, optional `consent[marketing]`). `#btn-submit` runs
+  **hCaptcha** (invisible; a visible challenge → park) then posts; success **navigates to
+  `/thanks`** → closed port + `Site.submittedUrl` (like Amazon). "Full name" is one box →
+  `identity.full_name`; `org` → `answers.current_company`.
+- **Ashby**: `api.ashbyhq.com/posting-api/job-board/<org>` (`fixtures/ashby-board.json`) → apply page
+  `jobs.ashbyhq.com/<org>/<id>/application` (React). The page loads its **question schema** from the
+  same-origin GraphQL `api/non-user-graphql?op=ApiJobPosting` (`fixtures/ashby-form-schema.json`,
+  real: `path`, `title`, `type` String/Email/Phone/Location/File/LongText/Boolean/ValueSelect/
+  MultiValueSelect, `isRequired`, `selectableValues`) — the content script fetches it as the oracle.
+  DOM (from Ashby's bundle, stable published class names): each field in `[data-field-path=<path>]`,
+  `.ashby-application-form-input-text input`, `-textarea textarea`, `-yesno [data-option=yes|no]`
+  (buttons), `-dropdown-select select` (**native**), `-radio-group-option` / `-checkbox-group-option`
+  (input + label), `-input-file input[type=file]`, `-autocomplete` (+ `-popup-result`),
+  `-submit-button`, then `-success-container` / `-failure-container` / `-blocked-application-container`
+  in place (no navigation). **Not yet a live page capture** — first real run: read the Logs page,
+  fix selectors in `ats/ashby.ts`.
+
 ## Architecture — Clean Architecture, applied
 Dependency direction points **inward**: outer layers depend on inner, never the reverse
 (the Dependency Rule, Clean Architecture ch. 22). Inner = pure policy; outer = details.
@@ -225,9 +261,17 @@ fixtures/    real captured data for offline tests
 - **Adding any new site: run the `site-pack` skill first** (`.claude/skills/site-pack/SKILL.md`). It is the
   recon → snapshot → observability → adapter → dry-run order that the Amazon pack learned the hard way.
   `debug/snapshot.js` (paste in DevTools) captures the real DOM of any apply step as JSON.
-- **New Greenhouse company**: add `src/sources/<co>.ts` (discovery) + `src/sites/<co>.ts`
+- **Any Greenhouse / Lever / Ashby company**: no code — add its slug or URL to
+  `profile.greenhouse|lever|ashby.boards` (or the dashboard). Only build a dedicated pack when a
+  company needs its own discovery (Datadog's Typesense) or its own ATS.
+- **New single-company Greenhouse pack** (own discovery): add `src/sources/<co>.ts` + `src/sites/<co>.ts`
   (`{ id, label, ats:'greenhouse', discover }`) + one line in `src/sites/index.ts`. The popup button
   and pipeline light up automatically.
+- **New hosted-ATS pack (the Lever/Ashby shape)**: `src/sources/<ats>.ts` (public JSON board +
+  `parseBoardRef` + `DEFAULT_<ATS>_BOARDS`), `src/ats/<ats>.ts` (pure DOM: `extract`, `optionsFor`,
+  `fill`, `submitButton`, `confirmed`…), `src/entrypoints/<ats>.content.ts` (ping/apply contract),
+  `src/sites/<ats>.ts` with a new `Site.ats` value, `BoardListSchema` key in `config/schema.ts`,
+  host + content-script matches in `wxt.config.ts`. Submit-by-navigation → `Site.submittedUrl`.
 - **Site with its own ATS (Amazon)**: `src/sources/amazon-jobs.ts` + `src/ats/amazon.ts` (pure DOM,
   tested against the generated fixture) + `src/entrypoints/amazon.content.ts` (same ping/apply
   contract as Greenhouse) + `src/sites/amazon.ts` with `ats:'amazon'`. It rides the normal

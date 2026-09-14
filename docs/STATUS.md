@@ -64,6 +64,15 @@ Snapshot for the next agent/session. Update it as things land.
 - Frame-readiness **ping** before `apply` (Greenhouse form is a late iframe).
 - react-select: control via `closest('.select__control')` (correct field), multi-menu not toggled shut.
 
+## Board packs (2026-09-14, branch feat/ats-boards-packs)
+- **Greenhouse boards**, **Lever**, **Ashby** site packs: public-API discovery over a config-driven
+  board list (`profile.greenhouse|lever|ashby.boards` + `include_defaults`, curated defaults validated
+  live: 41 / 8 / 27 companies), same worker-tab stepper. Greenhouse reuses `ats/greenhouse.ts` on the
+  hosted page (real fixture); Lever has a real apply-page fixture; Ashby's adapter is built from the
+  real form schema + the bundle's published class names — **live-unverified** until the first run.
+- Live checks still owed: Greenhouse hosted-page submit (OTP expected as on Datadog), Lever hCaptcha
+  behaviour on submit, every Ashby selector.
+
 ## Not done / next
 1. **Live end-to-end verification** in a real browser on one Datadog job (the big one — no
    substitute for it). Still-unverified live assumptions: the 8-box OTP widget selectors
