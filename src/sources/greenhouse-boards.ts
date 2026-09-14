@@ -9,14 +9,27 @@ const API = 'https://boards-api.greenhouse.io/v1/boards';
 const HOSTED = 'https://job-boards.greenhouse.io';
 const CONCURRENCY = 4; // politeness: a handful of boards at a time, never all at once
 
-/** Curated boards that answered the API on 2026-09-14 (all with open jobs). The user's own
- *  profile.greenhouse.boards adds to (or replaces) this list. Plain data — safe to import in a UI. */
+/** Curated boards that answered the public Job Board API on 2026-09-14 (all with open jobs at
+ *  the time — validated live, not guessed). The user's own profile.greenhouse.boards adds to (or,
+ *  with include_defaults:false, replaces) this list. Plain data — safe to import in a UI. */
 export const DEFAULT_GREENHOUSE_BOARDS: readonly string[] = [
-  'databricks', 'stripe', 'anthropic', 'datadog', 'mongodb', 'cloudflare', 'elastic', 'toast', 'okta',
-  'brex', 'samsara', 'scaleai', 'gitlab', 'coinbase', 'affirm', 'lyft', 'pinterest', 'flexport',
-  'airbnb', 'figma', 'robinhood', 'reddit', 'twilio', 'nuro', 'instacart', 'asana', 'gusto', 'vercel',
-  'duolingo', 'chime', 'faire', 'postman', 'carta', 'mercury', 'twitch', 'discord', 'dropbox',
-  'webflow', 'cockroachlabs', 'nextdoor', 'lattice',
+  'adyen', 'affirm', 'airbnb', 'airtable', 'algolia', 'alloy', 'amplitude', 'anthropic',
+  'applovin', 'archer', 'asana', 'astranis', 'attentive', 'axios', 'bitgo', 'bitwarden',
+  'braze', 'brex', 'buzzfeed', 'calendly', 'calm', 'cameo', 'carta', 'chime',
+  'classpass', 'cloudflare', 'cockroachlabs', 'coinbase', 'consensys', 'contentful', 'coursera', 'current',
+  'customerio', 'dashlane', 'databricks', 'datadog', 'discord', 'doximity', 'dremio', 'dropbox',
+  'duolingo', 'elastic', 'epicgames', 'faire', 'fastly', 'figma', 'figure', 'fireblocks',
+  'fivetran', 'flexport', 'galileo', 'gemini', 'ghost', 'gitlab', 'glossier', 'gocardless',
+  'greenhouse', 'gusto', 'handshake', 'hightouch', 'honeycomb', 'hootsuite', 'instacart', 'intercom',
+  'iterable', 'justworks', 'kayak', 'klaviyo', 'labelbox', 'lastpass', 'lattice', 'launchdarkly',
+  'lucidmotors', 'lyft', 'masterclass', 'mercury', 'mindbody', 'mixpanel', 'mongodb', 'monzo',
+  'n26', 'nansen', 'netlify', 'netskope', 'newrelic', 'nextdoor', 'nuro', 'okta',
+  'opentable', 'oscar', 'oura', 'pagerduty', 'peloton', 'pendo', 'pinterest', 'planetscale',
+  'postman', 'reddit', 'remote', 'riotgames', 'robinhood', 'roblox', 'rocketlab', 'salesloft',
+  'samsara', 'scaleai', 'scopely', 'sendbird', 'sigmacomputing', 'singlestore', 'sofi', 'sproutsocial',
+  'squarespace', 'starburst', 'stockx', 'stripe', 'sumologic', 'tanium', 'toast', 'tripadvisor',
+  'truelayer', 'turing', 'twilio', 'twitch', 'udemy', 'upstart', 'upwork', 'vercel',
+  'waymo', 'webflow', 'wise', 'ziprecruiter', 'zscaler',
 ];
 
 interface RawJob {

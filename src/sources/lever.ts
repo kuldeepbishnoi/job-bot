@@ -5,8 +5,14 @@ import type { Job } from '../engine/types';
 const API = 'https://api.lever.co/v0/postings';
 const CONCURRENCY = 4;
 
-/** Curated Lever sites that answered the API on 2026-09-14. Plain data — safe to import in a UI. */
-export const DEFAULT_LEVER_BOARDS: readonly string[] = ['palantir', 'binance', 'zoox', 'hive', 'matchgroup', 'spotify', 'nium', 'anchorage'];
+/** Curated Lever sites that answered the public postings API on 2026-09-14 — validated live, not
+ *  guessed. Lever's own public customer base skews smaller than Greenhouse's or Ashby's (many
+ *  well-known companies that once used Lever have since moved to another ATS or gated their
+ *  board), so this list is shorter by nature, not by effort. Plain data — safe to import in a UI. */
+export const DEFAULT_LEVER_BOARDS: readonly string[] = [
+  'anchorage', 'angellist', 'binance', 'gopuff', 'hive', 'matchgroup', 'nium', 'outreach',
+  'palantir', 'spotify', 'toptal', 'zoox',
+];
 
 interface RawPosting {
   id: string;
