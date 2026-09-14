@@ -5,8 +5,17 @@
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
-  "include": ["src", "entrypoints", "tests", "*.ts"]
+  "include": [
+    "src",
+    "entrypoints",
+    "tests",
+    "*.ts"
+  ]
 }
