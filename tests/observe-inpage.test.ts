@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { installChromeRuntimeFake, type ChromeRuntimeFake } from './helpers/chrome-extras';
-import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
+import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import { startLinkedin, onLinkedinResult, onLinkedinWarning, onLinkedinPageDone, stopLinkedin, linkedinWatchdog, getLinkedinRun } from '@/app/linkedin-run';
 import { listRuns } from '@/platform/data/runs';
 import { clearEvents, queryEvents } from '@/platform/data/events';
@@ -66,6 +66,33 @@ describe('Instahyre run lifecycle', () => {
     expect(kick, 'the page must be kicked off').toBeTruthy();
     // The whole bug: this payload was absent, so the content script had no filter to apply.
     expect((kick!.msg as Extract<Msg, { t: 'instahyre-apply' }>).want).toEqual(want);
+  });
+
+  it('Stop reaches the PAGE — #regression: there was no Instahyre stop path at all, so the in-page loop kept applying after the user pressed it', async () => {
+    await startInstahyre('manual', { titles_any: [], titles_none: [], locations: [], seniority: [] });
+    await recordInstahyreApplied({ id: 'opp-1', title: 'SDE', company: 'Acme' });
+
+    await stopInstahyre();
+
+    // The loop lives in the page, so the message is the only thing that can actually end it.
+    expect(chrome.calls.tabMessages.some((m) => m.msg.t === 'instahyre-stop')).toBe(true);
+    const run = await onlyRun();
+    expect(run.phase).toBe('stopped');
+    expect(run.endReason).toBe('stopped by you');
+    expect(chrome._data.get('instahyre_run')).toBeUndefined(); // nothing left to re-adopt
+  });
+
+  it('a stopped run stays stopped when the page reports its final tally', async () => {
+    await startInstahyre('manual', { titles_any: [], titles_none: [], locations: [], seniority: [] });
+    await stopInstahyre();
+    await finishInstahyre(3, 1, true); // the page finishing AFTER a stop must not read as "done"
+    const run = await onlyRun();
+    expect(run.phase).toBe('stopped');
+    expect(run.endReason).toMatch(/stopped by you/);
+  });
+
+  it('Stop with no Instahyre run is a no-op, not an error', async () => {
+    await expect(stopInstahyre()).resolves.toBeUndefined();
   });
 
   it('keeps counting after a service-worker restart (the run id is in storage)', async () => {

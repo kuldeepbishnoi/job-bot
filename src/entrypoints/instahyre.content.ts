@@ -26,6 +26,12 @@ const GAP_MS = 800; // human-like pause between applies
 // NOTHING rather than to everything. An explicitly EMPTY titles_any is different: that is the
 // user's own "no title restriction", and titleWanted() already reads it that way.
 
+// Stop has to reach THIS page. The apply loop runs here, not in the background, so clearing
+// background run state cannot end it — until 2026-09-15 nothing told the page at all and Stop was
+// a no-op while the loop kept applying, up to MAX_APPLIES. Checked before every apply and between
+// every card, so the most it can overshoot is the click already in flight.
+let stopped = false;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const report = (msg: Msg) => chrome.runtime.sendMessage(msg).catch(() => {});
 
@@ -37,7 +43,14 @@ export default defineContentScript({
         respond({ pong: true });
         return true;
       }
+      if (msg.t === 'instahyre-stop') {
+        stopped = true;
+        log('stop requested — finishing the click in flight, then ending');
+        respond({ ok: true });
+        return true;
+      }
       if (msg.t === 'instahyre-apply') {
+        stopped = false; // a fresh run clears a previous stop
         if (!msg.want) {
           // Refuse rather than apply unfiltered — see the FAIL CLOSED note above.
           log('refusing to run: no `want` reached the page, so every card would be applied to');
@@ -69,15 +82,15 @@ async function runLoop(want: Want): Promise<{ applied: number; skipped: number }
   }
 
   // Phase 2: fall through to "Search other jobs" (the full board) with whatever budget remains.
-  if (applied < MAX_APPLIES && (await enterSearchList())) {
+  if (!stopped && applied < MAX_APPLIES && (await enterSearchList())) {
     const s = await drainSearch(MAX_APPLIES - applied, want);
     applied += s.applied;
     skipped += s.skipped;
     log('search list drained', s);
   }
 
-  log('done', { applied, skipped });
-  void report({ t: 'instahyre-done', applied, skipped });
+  log('done', { applied, skipped, stopped });
+  void report({ t: 'instahyre-done', applied, skipped, stopped });
   return { applied, skipped };
 }
 
@@ -95,6 +108,7 @@ async function drainMatching(budget: number, want: Want): Promise<{ applied: num
   }
 
   while (applied < budget) {
+    if (stopped) break;
     // External jobs can't be completed inside Instahyre — advance past them.
     if (ih.isExternal(document)) {
       const next = ih.nextButton(document);
@@ -161,6 +175,7 @@ async function drainSearch(budget: number, want: Want): Promise<{ applied: numbe
   const handled = new Set<string>();
 
   while (applied < budget) {
+    if (stopped) break;
     const card = ih.openModalLinks(document).find((el) => !handled.has(ih.cardId(el)));
     if (!card) {
       // Page exhausted — advance to the next page, or we're truly done.

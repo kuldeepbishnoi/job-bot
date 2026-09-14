@@ -146,7 +146,7 @@ page capture — the first real run reads the Logs page and fixes selectors from
   opts in to the curated `DEFAULT_*_BOARDS` (`src/sources/*.ts`, every entry validated live) on top of
   `boards`; with neither set, `Site.discover` throws a named, actionable error ("no boards configured
   — add profile.X.boards, or set include_defaults: true") instead of silently doing nothing or
-  silently applying to ~130 companies. Discovery walks the boards 4 at a time; a broken board is
+  silently applying to ~126 companies. Discovery walks the boards 4 at a time; a broken board is
   logged + skipped, the run is refused only when *every* board fails. `Job.company` carries the
   employer; `Application.employer` copies it (`company` stays the site id).
 - **Greenhouse**: `boards-api.greenhouse.io/v1/boards/<token>/jobs` (`fixtures/greenhouse-board.json`)
@@ -234,6 +234,29 @@ fixtures/    real captured data for offline tests
    email names no job, so parallelism would mismatch codes). This is also politeness/rate-limiting
    (System Design Interview ch. 4 & 9): don't hammer the ATS.
 9. `auto_submit:false` is the safe default — fill + enter code, then park for the user's click.
+10. **Stop must reach whatever is doing the work, and nothing may write run state after a cancel.**
+    There are three Stop paths (worker stepper, LinkedIn, Instahyre) and each got this wrong in its
+    own way on 2026-09-15: the stepper cleared `run_state` while the in-flight step re-saved it and
+    re-armed the alarms, resurrecting the queue; Instahyre's loop runs *in the page*, so clearing
+    background state never touched it and Stop applied to nothing while the page kept applying.
+    A cancel that only edits background state is not a cancel. After being cancelled, a step may
+    still record what it already did — an application that was submitted happened — but it must not
+    re-arm, re-queue, or re-save the run.
+11. **Never act on an unverified assumption — but work out which branch is the unverified one.**
+    Both of these are the same rule and they point opposite ways, so decide deliberately:
+    - Instahyre applied to every card because `want` never reached the page. A *missing* filter now
+      applies to NOTHING, because acting is what causes harm: real applications the user never chose.
+    - Amazon's résumé step was gated on selectors nobody had ever seen in a capture. Parking on them
+      meant zero applications on exactly the path the gate was added to fix. Assert only what is
+      provable (`input.files` is DOM-standard), treat a guessed selector as an early-exit *bonus*
+      signal that can never decide failure, and let the ATS's own gate (a Continue button that never
+      appears) be what parks the job.
+    Ask: if my assumption is wrong, does the bot do something the user did not ask for, or does it
+    do nothing at all? Fail closed on the first, fail forward on the second.
+12. **A 200 is not identification.** `boards-api.greenhouse.io/v1/boards/<slug>` answering 200 proves
+    only that *some* company owns that slug — `archer` is a veterinary clinic, `wise` is an insurance
+    agency, `remote` is General Assembly. Anything presented to the user as a curated list of
+    companies must be verified by the board's own `company_name`, never by status code.
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)

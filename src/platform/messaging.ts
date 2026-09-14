@@ -56,10 +56,14 @@ export type Msg =
   | { t: 'runInstahyre'; want?: Want }
   // background -> instahyre content script: run the in-page apply loop
   | { t: 'instahyre-apply'; want?: Want }
+  // background -> instahyre content script: STOP the in-page loop. The loop runs in the page, so
+  // clearing background state cannot end it — the page has to be told, or Stop does nothing and it
+  // keeps applying.
+  | { t: 'instahyre-stop' }
   // instahyre content script -> background: one opportunity applied (records + wakes the SW)
   | { t: 'instahyre-applied'; job: { id: string; title: string; company: string } }
   // instahyre content script -> background: loop finished
-  | { t: 'instahyre-done'; applied: number; skipped: number }
+  | { t: 'instahyre-done'; applied: number; skipped: number; stopped?: boolean }
   // popup -> background: LinkedIn Easy Apply, in-page in the user's logged-in tab. The profile
   // answers the modal's questions; the résumé is attached only when no card is pre-selected.
   // `overrides` lets the dashboard start a one-job dry run (autoSubmit:false, maxPerRun:1) without
