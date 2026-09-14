@@ -594,7 +594,15 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
   try {
     let shownValue = describeAnswer(answer);
     if (li.isTypeaheadField(m, field)) {
-      shownValue = await li.fillTypeahead(m, field, answer.kind === 'choice' ? (answer.values[0] ?? '') : answer.kind === 'text' ? answer.value : '');
+      const t = await li.fillTypeahead(m, field, answer.kind === 'choice' ? (answer.values[0] ?? '') : answer.kind === 'text' ? answer.value : '');
+      // Typed text that was never chosen from the list is not an answer — LinkedIn drops it, and
+      // the application reaches Review saying "No answer provided". Refuse to pretend otherwise.
+      if (!t.committed) {
+        if (field.required) throw new NeedsProfileAnswer(`"${field.label}" needs a choice from LinkedIn's own suggestions — ${t.note ?? 'nothing was selected'}`);
+        upsert(filled, { ...base, value: t.value, source: 'unanswered', error: t.note ?? 'not committed' });
+        return false;
+      }
+      shownValue = t.value;
     } else {
       li.fill(m, field, answer);
       if (!li.isAnswered(m, field) && !(answer.kind === 'check' && !answer.value)) {

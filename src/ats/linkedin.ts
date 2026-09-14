@@ -600,7 +600,17 @@ export function isTypeaheadField(m: Element, field: Field): boolean {
 }
 
 /** City-style typeahead: type, wait for the listbox, pick the best match (else the first). */
-export async function fillTypeahead(m: Element, field: Field, value: string, waitMs = 6000): Promise<string> {
+/** A LinkedIn typeahead only counts an answer once a SUGGESTION is chosen. Text left in the box is
+ *  discarded on the way to Review — that is why a Jobgether application reached Review reading
+ *  "What is your current location? No answer provided" even though the box had been filled. So this
+ *  reports whether it actually committed; the caller must not treat typed text as an answer. */
+export interface TypeaheadResult {
+  readonly value: string;
+  readonly committed: boolean;
+  readonly note?: string;
+}
+
+export async function fillTypeahead(m: Element, field: Field, value: string, waitMs = 6000): Promise<TypeaheadResult> {
   const block = blockFor(m, field);
   const input = block ? (controlOf(block) as HTMLInputElement | null) : null;
   if (!input) throw new Error('typeahead input missing');
@@ -623,20 +633,37 @@ export async function fillTypeahead(m: Element, field: Field, value: string, wai
     if (options.length) break;
     await new Promise((r) => setTimeout(r, 150));
   }
+  // Nothing offered for the full string. LinkedIn's city typeahead wants a prefix it can match
+  // ("Gurugram" against "Gurugram, Haryana, India"), so try the first word before giving up.
   if (!options.length) {
-    // No suggestions rendered: accept whatever LinkedIn does with ArrowDown + Enter.
+    const short = value.split(/[,(]/)[0]!.trim().split(/\s+/)[0] ?? '';
+    if (short && short.toLowerCase() !== value.toLowerCase()) {
+      setReactValue(input, short);
+      const retryEnd = Date.now() + 4000;
+      while (Date.now() < retryEnd) {
+        options = listsNow().flatMap((l) => [...l.querySelectorAll<HTMLElement>('[role="option"], .basic-typeahead__selectable, [data-test-single-typeahead-entity-form-search-result]')]).filter((o) => shown(o));
+        if (options.length) break;
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+  }
+  if (!options.length) {
+    // Last resort: let the keyboard commit whatever LinkedIn has. It usually commits NOTHING, so
+    // report the typed text as UNCOMMITTED rather than pretending the question is answered.
     for (const key of ['ArrowDown', 'Enter']) {
       input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
       input.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
     }
-    return input.value;
+    await new Promise((r) => setTimeout(r, 400));
+    const committed = input.value.trim().length > 0 && listsNow().every((l) => !shown(l));
+    return { value: input.value, committed, note: committed ? undefined : `no suggestion matched "${value}" — LinkedIn discards text that was never chosen from the list` };
   }
   const want = value.toLowerCase().trim();
   // No blind options[0]: an unrelated suggestion typed into "City" is wrong data, not a fallback.
   const pick = options.find((o) => text(o).toLowerCase() === want) ?? options.find((o) => text(o).toLowerCase().startsWith(want)) ?? options.find((o) => text(o).toLowerCase().includes(want));
   if (!pick) throw new Error(`typeahead offered nothing matching "${value}" (${options.slice(0, 4).map((o) => text(o)).join(' | ')})`);
   click(pick);
-  return text(pick);
+  return { value: text(pick), committed: true };
 }
 
 // ---------- after Submit / on failure ----------
