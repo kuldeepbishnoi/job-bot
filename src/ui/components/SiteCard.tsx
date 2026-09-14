@@ -7,7 +7,7 @@ import type { DailySchedule } from '@/platform/schedule';
 import { dailySchedule, DAILY_HOUR } from '@/platform/schedule';
 import { packRequirements, type Requirement } from '../facts';
 import { startSite, stopRuns, resumeRun } from '../actions';
-import { profile, resumes, runs, activeRuns, health, now } from '../store';
+import { profile, profileSource, resumes, runs, activeRuns, health, now } from '../store';
 import { href } from '../router';
 import { Ago, Bar, Pill, RunPill, duration } from './common';
 import { Requirements } from './Requirements';
@@ -124,7 +124,7 @@ export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
   const [note, setNote] = useState('');
 
   const recheck = (): void => {
-    void packRequirements(pack, p, hasResume(p, res)).then(setReqs);
+    void packRequirements(pack, p, hasResume(p, res), profileSource.value).then(setReqs);
   };
   useEffect(recheck, [pack.id, p, res]);
   useEffect(() => {

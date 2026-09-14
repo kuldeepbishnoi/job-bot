@@ -3,7 +3,7 @@
 // one a run uses is decided in ONE place, `resolveRunInputs`.
 import { parse, stringify } from 'yaml';
 import { parseProfile, type Profile } from '../../config/schema';
-import { loadProfileAndResume } from '../fs-config';
+import { loadProfileAndResume, readProfileYaml } from '../fs-config';
 import type { SerializedFile } from '../serialized-file';
 import { changes } from './idb';
 import { getResume, resumeAsSerialized } from './resumes';
@@ -23,6 +23,23 @@ export async function loadStoredProfile(): Promise<{ profile: Profile; meta: Pro
   if (raw === undefined || raw === null) return null;
   const meta = (got[META_KEY] as ProfileMeta | undefined) ?? { rev: 0, savedAt: '', source: 'ui' };
   return { profile: parseProfile(raw), meta };
+}
+
+/** The profile to SHOW and to check readiness against: what the dashboard has saved, or — when it
+ *  has saved nothing — the profile.yaml already sitting in the linked folder. Without this second
+ *  source a user with a working setup opens the console and is told nothing is set up, which is
+ *  both wrong and the opposite of reassuring. Silent: no picker, no gesture, no prompt. */
+export async function resolveProfile(): Promise<{ profile: Profile; meta: ProfileMeta; source: 'ui' | 'folder' } | null> {
+  const stored = await loadStoredProfile();
+  if (stored) return { ...stored, source: 'ui' };
+  const text = await readProfileYaml().catch(() => '');
+  if (!text.trim()) return null;
+  try {
+    const profile = parseProfile(parse(text));
+    return { profile, meta: { rev: 0, savedAt: '', source: 'folder' }, source: 'folder' };
+  } catch {
+    return null; // an invalid profile.yaml is reported by the editor, not by silently half-loading it
+  }
 }
 
 /** Validates first (throws the schema's message), then bumps rev. */

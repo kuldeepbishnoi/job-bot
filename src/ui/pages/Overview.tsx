@@ -5,7 +5,7 @@ import { queryEvents } from '@/platform/data/events';
 import { bySite } from '@/platform/data/stats';
 import { packById } from '@/sites/packs';
 import { armedAlarms, backgroundAlive, gmailConnected, type Requirement } from '../facts';
-import { applications, activeRuns, packs, profile, profileMeta, resumes, storage } from '../store';
+import { applications, activeRuns, packs, profile, profileMeta, profileSource, resumes, storage } from '../store';
 import { SiteCard, hasResume } from '../components/SiteCard';
 import { Requirements } from '../components/Requirements';
 import { Card, Empty } from '../components/common';
@@ -62,7 +62,11 @@ export function Overview(): JSX.Element {
         id: 'profile',
         label: 'Profile',
         ok: p !== null,
-        detail: p ? `${p.identity.first_name} ${p.identity.last_name}${profileMeta.value ? ` · rev ${profileMeta.value.rev} (${profileMeta.value.source})` : ''}` : 'not set up yet',
+        detail: p
+          ? profileSource.value === 'folder'
+            ? `${p.identity.first_name} ${p.identity.last_name} · read from the linked profile.yaml`
+            : `${p.identity.first_name} ${p.identity.last_name}${profileMeta.value ? ` · rev ${profileMeta.value.rev} (${profileMeta.value.source})` : ''}`
+          : 'not set up yet — or link the folder holding profile.yaml in Settings',
         ...(p ? {} : { fix: { label: 'Set up', action: 'goto' as const, arg: '/profile/identity' } }),
       });
       const resumeOk = hasResume(p, res);
@@ -70,7 +74,11 @@ export function Overview(): JSX.Element {
         id: 'resume',
         label: 'Résumé',
         ok: resumeOk,
-        detail: resumeOk ? `${res.length} uploaded · using ${p?.resume ?? ''}` : 'none uploaded, and profile.resume is not a file name',
+        detail: resumeOk
+          ? profileSource.value === 'folder' && !res.some((r) => r.id === p?.resume)
+            ? `${p?.resume ?? ''} · from the linked folder`
+            : `${res.length} uploaded · using ${p?.resume ?? ''}`
+          : 'none uploaded, and profile.resume is not a file name',
         ...(resumeOk ? {} : { fix: { label: 'Upload', action: 'goto' as const, arg: '/profile/resumes' } }),
       });
       out.push({

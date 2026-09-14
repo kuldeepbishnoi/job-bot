@@ -44,6 +44,26 @@ export async function getProfileDir(mode: FsMode = 'read'): Promise<DirHandle | 
   return (await dir.queryPermission({ mode })) === 'granted' ? dir : null;
 }
 
+/** profile.yaml as text, read SILENTLY from the linked folder ("" when there is none or the grant
+ *  lapsed). No user gesture: `getProfileDir('read')` only succeeds on a grant Chrome already holds.
+ *  This is what lets the dashboard show an existing setup instead of claiming nothing is set up. */
+export async function readProfileYaml(): Promise<string> {
+  const dir = await getProfileDir();
+  if (!dir) return '';
+  return readText(dir, 'profile.yaml');
+}
+
+/** Does the résumé `profile.resume` names actually exist in the folder? Silent, same as above. */
+export async function folderResumeExists(relPath: string): Promise<boolean> {
+  const dir = await getProfileDir();
+  if (!dir) return false;
+  const [sub, file] = relPath.split('/');
+  if (!sub) return false;
+  const host = file ? await dir.getDirectoryHandle(sub).catch(() => null) : dir;
+  if (!host) return false;
+  return (await host.getFileHandle(file ?? sub).catch(() => null)) !== null;
+}
+
 /** Read one file from `<profile>/applications/` ("" when absent). For the dashboard's reader:
  *  applications.jsonl · review.jsonl · registry.jsonl · log-<date>.txt. */
 export async function readRecordsFile(name: string): Promise<string> {

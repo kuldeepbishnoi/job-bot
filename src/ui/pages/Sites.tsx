@@ -7,7 +7,7 @@ import { ProfileSchema } from '@/config/schema';
 import { saveProfile, resolveRunInputs } from '@/platform/data/profile-store';
 import { dailySchedule, disableDaily, enableDaily, DAILY_HOUR } from '@/platform/schedule';
 import { packRequirements, type Requirement } from '../facts';
-import { packs, profile, resumes, runs } from '../store';
+import { packs, profile, profileSource, resumes, runs } from '../store';
 import { activeRunFor, hasResume, lastEndedRun, StartButton } from '../components/SiteCard';
 import { Requirements } from '../components/Requirements';
 import { Ago, Card, Empty, Pill } from '../components/common';
@@ -328,7 +328,7 @@ function SiteDetail({ pack }: { pack: SitePack }): JSX.Element {
   const res = resumes.value;
   const [reqs, setReqs] = useState<Requirement[]>([]);
   const recheck = (): void => {
-    void packRequirements(pack, p, hasResume(p, res)).then(setReqs);
+    void packRequirements(pack, p, hasResume(p, res), profileSource.value).then(setReqs);
   };
   useEffect(recheck, [pack.id, p, res]);
 

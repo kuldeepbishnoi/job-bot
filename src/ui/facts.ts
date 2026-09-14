@@ -72,23 +72,31 @@ export async function backgroundAlive(): Promise<boolean> {
 }
 
 /** Everything a pack needs before Start can do anything useful. Shown as chips on the site card. */
-export async function packRequirements(pack: SitePack, profile: Profile | null, hasResume: boolean): Promise<Requirement[]> {
+export async function packRequirements(
+  pack: SitePack,
+  profile: Profile | null,
+  hasResume: boolean,
+  source: 'ui' | 'folder' | null = null,
+): Promise<Requirement[]> {
   const reqs: Requirement[] = [];
 
+  const where = source === 'folder' ? ' · from profile.yaml' : '';
   reqs.push({
     id: 'profile',
     label: 'Profile',
     ok: profile !== null,
-    detail: profile ? `${profile.identity.first_name} ${profile.identity.last_name}` : 'not set up yet',
+    detail: profile ? `${profile.identity.first_name} ${profile.identity.last_name}${where}` : 'not set up yet',
     ...(profile ? {} : { fix: { label: 'Set up', action: 'goto' as const, arg: '/profile/identity' } }),
   });
 
   if (pack.needs.resume) {
+    // A résumé named by a linked profile.yaml counts: it is the file a run would actually send.
+    const fromFolder = source === 'folder' && !!profile && /\.(pdf|docx?|txt)$/i.test(profile.resume);
     reqs.push({
       id: 'resume',
       label: 'Résumé',
       ok: hasResume,
-      detail: hasResume ? undefined : 'no résumé uploaded or linked',
+      detail: hasResume ? (fromFolder ? `${profile!.resume} · from the linked folder` : undefined) : 'no résumé uploaded or linked',
       ...(hasResume ? {} : { fix: { label: 'Upload', action: 'goto' as const, arg: '/profile/resumes' } }),
     });
   }

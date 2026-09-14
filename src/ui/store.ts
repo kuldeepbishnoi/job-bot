@@ -8,7 +8,7 @@ import { listResumes } from '@/platform/data/resumes';
 import { captureUsage } from '@/platform/data/captures';
 import { eventCount } from '@/platform/data/events';
 import { changes } from '@/platform/data/idb';
-import { loadStoredProfile, type ProfileMeta } from '@/platform/data/profile-store';
+import { resolveProfile, type ProfileMeta } from '@/platform/data/profile-store';
 import { PACKS, packById } from '@/sites/packs';
 import { runHealth } from '@/engine/records';
 
@@ -20,6 +20,8 @@ export const applications = signal<Application[]>([]);
 export const runs = signal<Run[]>([]);
 export const profile = signal<Profile | null>(null);
 export const profileMeta = signal<ProfileMeta | null>(null);
+/** Where the shown profile came from: the dashboard's own copy, or the linked profile.yaml. */
+export const profileSource = signal<'ui' | 'folder' | null>(null);
 export const resumes = signal<ResumeMeta[]>([]);
 export const storage = signal<{ captures: { count: number; bytes: number }; events: number }>({
   captures: { count: 0, bytes: 0 },
@@ -78,9 +80,10 @@ async function refreshRuns(): Promise<void> {
 }
 
 async function refreshProfile(): Promise<void> {
-  const got = await loadStoredProfile();
+  const got = await resolveProfile();
   profile.value = got?.profile ?? null;
   profileMeta.value = got?.meta ?? null;
+  profileSource.value = got?.source ?? null;
 }
 
 async function refreshIdb(): Promise<void> {
