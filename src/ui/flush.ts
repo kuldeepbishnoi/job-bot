@@ -10,6 +10,11 @@ let timer: number | undefined;
 
 export async function flushNow(): Promise<number> {
   try {
+    // While an in-page run is going, the BACKGROUND is writing those same files record by record
+    // (persistApplication). Both sides read-whole-file → overwrite, so flushing on top of it erases
+    // whatever landed in between — including the review lines the console depends on. The
+    // background already writes every record, so there is nothing to flush until the run ends.
+    if ((await chrome.storage.local.get('linkedin_run'))['linkedin_run']) return 0;
     const got = await chrome.storage.local.get('debug_log');
     return await flushToDisk(await allRecords(), (got['debug_log'] as string[] | undefined) ?? []);
   } catch {

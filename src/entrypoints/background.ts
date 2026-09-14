@@ -149,7 +149,9 @@ async function runScheduled(siteId: string): Promise<void> {
     return;
   }
   try {
-    if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, 'daily');
+    // No registry exclude here: reading it needs the profile-folder grant, which only an extension
+    // page holds. The run still skips anything already recorded (recordedOnLinkedin).
+    if (siteId === 'linkedin') await startLinkedin(sched.profile, sched.resume, undefined, [], 'daily');
     else await startRun(siteId, sched.profile, sched.resume, chromePorts(), [], undefined, 'daily');
   } catch (e) {
     console.error('[jobbot] daily run failed to start', e);

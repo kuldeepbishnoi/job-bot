@@ -68,8 +68,11 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
 
     if (pack.id === 'linkedin') {
       await ensureScreenshots(); // optional: declining only loses the per-attempt screenshots
+      // Same rule as every other pack: never re-apply to a job any account already recorded.
+      const liExclude = [...(await readRegistry().catch(() => new Set<string>()))];
       const res = await send<{ ok: boolean; error?: string }>({
         t: 'runLinkedin',
+        exclude: liExclude,
         profile,
         resume,
         ...(opts.dryRun ? { overrides: { autoSubmit: false, maxPerRun: 1 } } : {}),
