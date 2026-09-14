@@ -48,7 +48,11 @@ export function parseBoardRef(ref: string): string | null {
   const forParam = url.searchParams.get('for');
   if (forParam && /^[a-z0-9_-]+$/i.test(forParam)) return forParam.toLowerCase();
   if (/(^|\.)greenhouse\.io$/i.test(url.hostname)) {
-    const first = url.pathname.split('/').filter(Boolean)[0];
+    const parts = url.pathname.split('/').filter(Boolean);
+    // boards-api.greenhouse.io/v1/boards/<token>/jobs — the Job Board API URL CLAUDE.md itself
+    // documents as ground truth; without this a pasted API URL silently resolves to "v1".
+    if (parts[0] === 'v1' && parts[1] === 'boards' && parts[2]) return parts[2].toLowerCase();
+    const first = parts[0];
     if (first && first !== 'embed' && /^[a-z0-9_-]+$/i.test(first)) return first.toLowerCase();
   }
   return null;

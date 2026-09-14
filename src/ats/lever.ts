@@ -45,10 +45,16 @@ function controls(block: Element): (HTMLInputElement | HTMLSelectElement | HTMLT
   );
 }
 
+/** Named controls a user actually sees. Lever pairs a REQUIRED checkbox with a same-named
+ *  `<input type="hidden" value="0">` right before it (its "unchecked" default, e.g.
+ *  `consent[marketing]`) — without this filter `ctrls[0]` is the hidden sentinel, `fill()` "checks"
+ *  it, and the real box (and the POST body) never changes. Same exclusion as `controls()`. */
 export function controlsNamed(doc: Document, name: string): (HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement)[] {
   const f = form(doc);
   if (!f) return [];
-  return Array.from(f.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')).filter((c) => c.getAttribute('name') === name);
+  return Array.from(f.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')).filter(
+    (c) => c.getAttribute('name') === name && !(c instanceof HTMLInputElement && c.type === 'hidden'),
+  );
 }
 
 /** Read every field out of the form. Pure DOM read — safe to run in tests. */

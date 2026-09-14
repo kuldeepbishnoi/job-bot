@@ -33,7 +33,9 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.last_name', any: ['last name', 'surname', 'family name'] },
   { intent: 'identity.linkedin', all: ['linkedin'] },
   { intent: 'identity.website', any: ['website', 'portfolio', 'personal site'] },
-  { intent: 'answers.needs_sponsorship', any: ['sponsorship', 'require sponsorship', 'need sponsorship', 'visa sponsorship', 'to sponsor', 'immigration case', 'work visa'] },
+  // 'work visa' alone also matches "Do you currently HOLD a valid work visa?" (a status question,
+  // opposite polarity from "will you NEED sponsorship") — require the requirement phrasing.
+  { intent: 'answers.needs_sponsorship', any: ['sponsorship', 'require sponsorship', 'need sponsorship', 'visa sponsorship', 'to sponsor', 'immigration case', 'require a work visa', 'need a work visa'] },
   { intent: 'answers.work_authorization', any: ['legally authorised', 'legally authorized', 'right to work', 'authorized to work', 'authorised to work', 'eligible to work'] },
   // LinkedIn Easy Apply screening questions — before the generic location / years rules.
   { intent: 'answers.top_choice', any: ['top choice'] },

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseBoardRef, parseLocationName, rawToJob, discoverGreenhouseBoards, boardsToWalk, DEFAULT_GREENHOUSE_BOARDS } from '@/sources/greenhouse-boards';
-import { extract } from '@/ats/greenhouse';
+import { extract, confirmed } from '@/ats/greenhouse';
 import { withIntent } from '@/engine/matcher';
 import { parseProfile } from '@/config/schema';
 
@@ -74,5 +74,25 @@ describe('greenhouse hosted job page (real capture) uses the same form as the em
     expect(byId('veteran_status')?.intent).toBe('answers.veteran_status');
     expect(byId('disability_status')?.intent).toBe('answers.disability');
     expect(doc.querySelector('button[type="submit"]')).not.toBeNull();
+  });
+});
+
+describe('greenhouse confirmed() — the real capture proves the naive text check false-positives', () => {
+  const html = readFileSync('fixtures/greenhouse-hosted-form.html', 'utf8').replace(/<link\b[^>]*>/gi, '').replace(/<script\b[\s\S]*?<\/script>/gi, '');
+
+  it('is NOT confirmed on the unsubmitted apply page even though its own prose/JSON say "confirmation"', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(extract(doc).length).toBeGreaterThan(0); // sanity: this is the real, unsubmitted form
+    expect(confirmed(doc)).toBe(false);
+  });
+
+  it('IS confirmed once the app navigates to its own confirmation route', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    Object.defineProperty(doc, 'location', { value: { pathname: '/anthropic/jobs/4461450008/confirmation' }, configurable: true });
+    expect(confirmed(doc)).toBe(true);
+  });
+
+  it('parses the Job Board API URL (boards-api.greenhouse.io/v1/boards/<token>/jobs) too', () => {
+    expect(parseBoardRef('https://boards-api.greenhouse.io/v1/boards/discord/jobs?content=false')).toBe('discord');
   });
 });

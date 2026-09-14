@@ -67,6 +67,15 @@ describe('lever extract (real apply-page fixture)', () => {
     expect((controlsNamed(doc, salary.id)[0] as HTMLTextAreaElement).value).toBe('9000');
   });
 
+  it('ticks the REAL checkbox, not the hidden "unchecked" sentinel Lever puts before it (#regression)', async () => {
+    const consent = byId('consent[marketing]')!;
+    await fill(doc, consent, { kind: 'check', value: true });
+    const named = controlsNamed(doc, 'consent[marketing]');
+    expect(named).toHaveLength(1); // hidden sentinel excluded
+    expect((named[0] as HTMLInputElement).type).toBe('checkbox');
+    expect((named[0] as HTMLInputElement).checked).toBe(true);
+  });
+
   it('locates the submit button and recognises the thanks page', () => {
     expect(submitButton(doc)?.id).toBe('btn-submit');
     expect(submittedByNavigation('https://jobs.lever.co/nium/b74e88a1-896b-4366-a0c2-cb159d803840/thanks')).toBe(true);

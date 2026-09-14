@@ -34,7 +34,7 @@ const C = {
   file: '.ashby-application-form-input-file input[type="file"]',
   autocomplete: '.ashby-application-form-input-autocomplete input',
   autocompleteResult: '.ashby-application-form-input-autocomplete-popup-result',
-  submit: '.ashby-application-form-submit-button button, .ashby-application-form-submit-button',
+  submit: '.ashby-application-form-submit-button',
   success: '.ashby-application-form-success-container',
   failure: '.ashby-application-form-failure-container',
   blocked: '.ashby-application-form-blocked-application-container',
@@ -56,7 +56,12 @@ function kindOf(entry: Element, schema?: AshbyFormField): FieldKind {
   if (entry.querySelector(C.yesno)) return 'select';
   if (entry.querySelector(C.select)) return 'select';
   if (entry.querySelector(C.radio)) return 'select';
-  if (entry.querySelector(C.checkbox)) return 'multiselect';
+  // A checkbox "group" of exactly one option is a lone consent/acknowledgement box (e.g. GDPR
+  // consent), not a multi-select — treating it as multiselect sends it through the choice/'Yes'
+  // matcher, which finds no option literally labelled "Yes" and throws.
+  const boxes = entry.querySelectorAll(C.checkbox).length;
+  if (boxes === 1) return 'checkbox';
+  if (boxes > 1) return 'multiselect';
   if (schema?.type === 'MultiValueSelect') return 'multiselect';
   if (schema?.type === 'Boolean' || schema?.type === 'ValueSelect') return 'select';
   if (schema?.type === 'Email') return 'email';
@@ -209,8 +214,13 @@ export function formLoaded(doc: Document): boolean {
   return !!doc.querySelector(C.container) && doc.querySelectorAll(C.entry).length > 0;
 }
 
+/** The wrapper div `.ashby-application-form-submit-button` precedes its own child `<button>` in
+ *  document order, so a plain `querySelector('wrapper button, wrapper')` always matches the
+ *  wrapper first — a synthetic click on it never reaches React's onClick, which is bound to the
+ *  button. Return the inner button explicitly. */
 export function submitButton(doc: Document): HTMLElement | null {
-  return doc.querySelector<HTMLElement>(C.submit);
+  const wrap = doc.querySelector<HTMLElement>(C.submit);
+  return wrap?.querySelector<HTMLElement>('button') ?? wrap;
 }
 
 export function confirmed(doc: Document): boolean {

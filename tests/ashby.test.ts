@@ -107,4 +107,21 @@ describe('ashby extract + fill (transcribed components, real schema)', () => {
     expect(submitButton(doc)?.textContent).toContain('Submit Application');
     expect(confirmed(doc)).toBe(false);
   });
+
+  it('returns the inner <button>, not its wrapper div (#regression: a click on the wrapper never reaches React onClick)', () => {
+    const btn = submitButton(doc)!;
+    expect(btn.tagName).toBe('BUTTON');
+  });
+
+  it('treats a lone required checkbox as a checkbox, not a multiselect (#regression: single-consent group)', async () => {
+    const html2 = `<div class="ashby-application-form-container">
+      <div data-field-path="consent"><div class="ashby-application-form-question-title"><label for="consent">I consent<span>*</span></label></div>
+        <fieldset class="ashby-application-form-input-checkbox-group"><div class="ashby-application-form-input-checkbox-group-option"><div class="ashby-application-form-input-checkbox-group-option-checkbox"><input type="checkbox" id="c1"></div><div class="ashby-application-form-input-checkbox-group-option-label"><label for="c1">I consent</label></div></div></fieldset>
+      </div></div>`;
+    const doc2 = new DOMParser().parseFromString(html2, 'text/html');
+    const consentField = extract(doc2, [{ path: 'consent', entryId: 'consent', title: 'I consent', type: 'Boolean', required: true, options: [] }])[0]!;
+    expect(consentField.kind).toBe('checkbox');
+    await fill(doc2, consentField, { kind: 'check', value: true });
+    expect(entryFor(doc2, 'consent')!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  });
 });
