@@ -16,7 +16,8 @@
     "mitm": "debug/launch.sh",
     "mitm:stop": "debug/stop.sh",
     "mitm:reset": "debug/reset.sh",
-    "fixture:amazon": "node debug/amazon-fixture.mjs"
+    "fixture:amazon": "node debug/amazon-fixture.mjs",
+    "tailor": "node scripts/tailor-resume.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

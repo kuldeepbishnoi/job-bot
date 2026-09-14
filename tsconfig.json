@@ -10,12 +10,14 @@
       ]
     },
     "jsx": "react-jsx",
-    "jsxImportSource": "preact"
+    "jsxImportSource": "preact",
+    "allowImportingTsExtensions": true
   },
   "include": [
     "src",
     "entrypoints",
     "tests",
-    "*.ts"
+    "*.ts",
+    "scripts"
   ]
 }
