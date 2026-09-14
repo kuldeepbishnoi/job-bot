@@ -395,7 +395,28 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
 
     const action = li.actionButton(m);
     if (!action) return fail(`no Next/Review/Submit button on step ${step} — ${li.describeState(document)}`);
-    const signature = `${action.kind}:${progress}:${li.extract(m).map((f) => f.id).join(',')}`;
+
+    // A question step we read as EMPTY is not an empty step — it is a step whose layout we failed
+    // to parse. Clicking Next through it walks past questions nobody answered, and the run then
+    // dies four identical clicks later saying only "errors: none" (six jobs did exactly that on
+    // 2026-09-14, and a Termgrid application never filled at all). Stop at the first one and keep
+    // the DOM, so the next occurrence is a fixable bug report instead of a silent blank.
+    const questions = li.extract(m);
+    if (questions.length === 0 && action.kind === 'next' && !li.resumeInput(m) && !li.resumeSelected(m) && progress > 0) {
+      recordPrefilled(m, filled);
+      const capture = await captureNow('no-questions-found');
+      await discard();
+      return {
+        kind: 'result',
+        status: 'parked',
+        note: `read no questions on step ${step} (progress ${progress}) but LinkedIn offered "Next" — the form's layout was not recognised, so nothing was answered. Captured for diagnosis.`,
+        fields: filled,
+        resume: resumeUsed,
+        capture,
+      };
+    }
+
+    const signature = `${action.kind}:${progress}:${questions.map((f) => f.id).join(',')}`;
     const repeats = (seen.get(signature) ?? 0) + 1;
     seen.set(signature, repeats);
     if (repeats > 3) {
