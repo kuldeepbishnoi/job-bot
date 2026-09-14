@@ -5,7 +5,7 @@ import type { Profile } from '../config/schema';
 export interface Site {
   readonly id: string;
   readonly label: string;
-  readonly ats: 'greenhouse' | 'amazon';
+  readonly ats: 'greenhouse' | 'amazon' | 'lever' | 'ashby';
   /** The profile is passed because some sites (Amazon) search with user-chosen filters;
    *  sites that index everything (Datadog) ignore it. */
   discover(profile: Profile): Promise<Job[]>;

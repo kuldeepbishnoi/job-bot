@@ -99,6 +99,7 @@ function mk(
 ): Application {
   return {
     company: site.id, jobId: job.id, title: job.title, url: job.url, date, status, note,
+    ...(job.company ? { employer: job.company } : {}),
     ...(fields && fields.length ? { fields } : {}),
     ...(screenshot ? { screenshot } : {}),
   };

@@ -28,6 +28,7 @@ export function optionAnswers(option: string, want: string): boolean {
 const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
   'identity.first_name': (p) => p.identity.first_name,
   'identity.last_name': (p) => p.identity.last_name,
+  'identity.full_name': (p) => `${p.identity.first_name} ${p.identity.last_name}`.trim(),
   'identity.preferred_name': (p) => p.identity.preferred_name || p.identity.first_name,
   'identity.email': (p) => p.identity.email,
   'identity.phone': (p) => p.identity.phone,
