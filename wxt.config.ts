@@ -27,7 +27,7 @@ export default defineConfig({
   srcDir: 'src',
   manifest: {
     name: 'JobBot',
-    description: 'Auto-apply to jobs. Datadog today; more companies later.',
+    description: 'Auto-apply to jobs across Greenhouse, Lever and Ashby boards, Datadog, Amazon, Instahyre and LinkedIn.',
     // Least privilege: only what the code actually uses.
     // storage = applications/stats + run state; tabs = drive the worker tab + find Gmail;
     // alarms = step the queue across service-worker restarts; identity = Gmail API OAuth for the OTP.
@@ -42,6 +42,11 @@ export default defineConfig({
       'https://careers.datadoghq.com/*',
       'https://boards.greenhouse.io/*',
       'https://job-boards.greenhouse.io/*',
+      'https://boards-api.greenhouse.io/*', // Greenhouse-boards pack: discovery across every board
+      'https://api.lever.co/*', // Lever pack: discovery
+      'https://jobs.lever.co/*', // Lever pack: the hosted apply form
+      'https://api.ashbyhq.com/*', // Ashby pack: discovery
+      'https://jobs.ashbyhq.com/*', // Ashby pack: the hosted apply form
       'https://gk6e3zbyuntvc5dap.a1.typesense.net/*',
       'https://www.instahyre.com/*',
       'https://www.linkedin.com/*',
