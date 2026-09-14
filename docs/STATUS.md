@@ -119,3 +119,24 @@ overwrites the same output name on every run without a warning.
 - OTP email has no job title → sequential processing is load-bearing, don't parallelize.
 - react-select option text matching is fuzzy (`includes`) — verify on live multi-city dropdowns.
 - Typesense public key/endpoint could change; it's captured in `sources/typesense.ts`.
+
+## Known-open items (2026-09-15, after the all-branch merge into main @ 09ad31e)
+Nobody owns these; each has a repro on its PR. Listed here because the branches they were found on
+are now merged or retired, so the PR comments are the only other record.
+
+- **Amazon pack (from #5's code, PR comments):** `resumeAttached` is inverted and unused; a daily
+  run starts without credentials so rotation cannot auto-login; rotation can pick an account that is
+  already logged in.
+- **Lever / Ashby (#8):** both content scripts dropped the Greenhouse settle/retry loop (8×600 ms
+  re-fill, retry-failed, late-field sweep) for a single pass after a fixed sleep — Lever's résumé
+  upload is async, so a submit can be recorded `failed` after actually succeeding, and only
+  `applied` feeds `appliedIds`, so the next run applies again. ~100 lines of `applyForm` are
+  duplicated three times with two copies already behind the original.
+- **Résumé tailor (#4):** one unparseable Skills line is skipped silently and its skills reappear on
+  a new `Other` line (duplicate skill); keyword matching is negation-blind; a same-name output
+  overwrites without warning. **This tool came into main as files, not a merge** (its branch forked
+  before #1/#2 were squash-merged and shares no history), so PR #4 is the only place these are
+  written down and there is no branch to fix them on — fix them on main.
+- **No real LinkedIn capture** in `fixtures/`: the DOM adapter's selectors are transcribed from two
+  other extensions, so a passing `linkedin.test.ts` is weak evidence. The first live dry run is what
+  closes this.

@@ -45,8 +45,24 @@ export interface RunState {
   readonly credentials?: Credentials;
 }
 
+/** Persist the run so a killed service worker resumes from it. The queue is the big part, and the
+ *  10 MB budget is shared with the records and the log, so a quota rejection is possible however
+ *  well QUEUE_CAP is chosen — machines differ in how much history has piled up. Halve the queue and
+ *  retry rather than failing the start: a shorter queue still applies to jobs, and what is dropped
+ *  is picked up by the next run (applied ids are excluded). Failing to start drops everything. */
 export async function saveRunState(s: RunState): Promise<void> {
-  await chrome.storage.local.set({ [STATE_KEY]: s });
+  let state = s;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await chrome.storage.local.set({ [STATE_KEY]: state });
+      return;
+    } catch (e) {
+      const half = Math.floor(state.queue.length / 2);
+      if (half < 1 || attempt >= 8) throw e; // nothing left to shed — the caller must see this
+      console.warn('[jobbot] run state too large for storage — halving the queue to', half, (e as Error).message);
+      state = { ...state, queue: state.queue.slice(0, half) };
+    }
+  }
 }
 
 export async function getRunState(): Promise<RunState | null> {

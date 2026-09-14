@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { accountsAtLimitToday, appliedTodayCount, record } from '@/platform/store';
+import { accountsAtLimitToday, appliedTodayCount, getRunState, record, saveRunState } from '@/platform/store';
 import type { Application } from '@/engine/types';
 
 // A tiny chrome.storage.local stand-in: the repository is the only thing under test here.
+// `quotaJobs` stands in for "how much of the 10 MB budget is left" — a run_state bigger than that
+// is rejected the way Chrome rejects one, so the shed-and-retry path is exercised for real.
 const mem: Record<string, unknown> = {};
+let quotaJobs = Number.POSITIVE_INFINITY;
+const setQuota = (n: number): void => {
+  quotaJobs = n;
+};
 (globalThis as unknown as { chrome: unknown }).chrome = {
   storage: {
     local: {
@@ -11,7 +17,11 @@ const mem: Record<string, unknown> = {};
         const keys = Array.isArray(k) ? k : [k];
         return Object.fromEntries(keys.filter((x) => x in mem).map((x) => [x, mem[x]]));
       },
-      set: async (o: Record<string, unknown>) => void Object.assign(mem, o),
+      set: async (o: Record<string, unknown>) => {
+        const run = o['run_state'] as { queue?: unknown[] } | undefined;
+        if (run?.queue && run.queue.length > quotaJobs) throw new Error('QUOTA_BYTES quota exceeded');
+        Object.assign(mem, o);
+      },
     },
   },
 };
@@ -57,5 +67,30 @@ describe('appliedTodayCount is per site', () => {
     expect(await appliedTodayCount('a@x.com', 'amazon')).toBe(3);
     expect(await appliedTodayCount('a@x.com', 'linkedin')).toBe(8);
     expect(await appliedTodayCount('a@x.com')).toBe(11); // unfiltered: every site
+  });
+});
+
+describe('saveRunState under a full storage budget', () => {
+  const job = (i: number) => ({ id: `j${i}`, title: 't', team: '', department: '', url: 'u', locations: [], seniority: [] });
+  const state = (queue: ReturnType<typeof job>[]) =>
+    ({ siteId: 'datadog', profile: {} as never, resume: {} as never, queue, cursor: 0 });
+
+  beforeEach(() => {
+    for (const k of Object.keys(mem)) delete mem[k];
+    setQuota(Number.POSITIVE_INFINITY);
+  });
+
+  it('halves the queue and retries rather than failing the run before it starts', async () => {
+    // Only a run_state holding ~1000 jobs fits in what is left of this machine's budget.
+    setQuota(1000);
+    await saveRunState(state(Array.from({ length: 4000 }, (_, i) => job(i))));
+    // 4000 -> 2000 -> 1000: the run starts with what fits instead of not starting at all, and the
+    // rest is picked up next run because applied ids are excluded.
+    expect((await getRunState())?.queue).toHaveLength(1000);
+  });
+
+  it('gives up rather than looping when there is nothing left to shed', async () => {
+    setQuota(-1); // every write refused, even an empty queue
+    await expect(saveRunState(state([]))).rejects.toThrow(/quota/i);
   });
 });

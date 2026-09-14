@@ -221,16 +221,26 @@ describe('the shared registry on a hands-off run', () => {
 
 describe('a pack walking hundreds of boards', () => {
   it('caps the persisted queue instead of failing to start, and says what it left behind', async () => {
-    // chrome.storage.local is 10 MB shared with the records and the log; a job is ~277 bytes, so an
-    // uncapped queue from a few hundred boards would blow the quota and the run would never begin.
+    // Only reachable with the blast-radius cap explicitly lifted (max_per_run: 0). QUEUE_CAP is the
+    // storage guard behind it: chrome.storage.local is 10 MB shared with the records and the log,
+    // and a job is ~277 bytes, so an uncapped queue would blow the quota and the run would never
+    // begin — taking the record writes with it.
     const many = Array.from({ length: QUEUE_CAP + 250 }, (_, i) => job(`j${i}`));
     const { ports } = fakePorts(many);
-    await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+    await startRun('datadog', { ...profile, max_per_run: 0 }, resume, ports, [], undefined, 'manual');
 
     const state = await getRunState();
     expect(state?.queue).toHaveLength(QUEUE_CAP);
     const run = (await listRuns()).at(-1);
     expect(run?.config?.['selected']).toMatch(/250 left for the next run/);
+  });
+
+  it('the schema default caps a run even when profile.yaml says nothing — removing the line is not "apply to everything"', async () => {
+    const many = Array.from({ length: 4000 }, (_, i) => job(`j${i}`));
+    const { ports } = fakePorts(many);
+    const defaulted = parseProfile({ identity: profile.identity, resume: 'r.pdf' });
+    await startRun('datadog', defaulted, resume, ports, [], undefined, 'manual');
+    expect((await getRunState())?.queue).toHaveLength(50);
   });
 
   it('a smaller max_per_run still wins — the cap is a ceiling, not a target', async () => {

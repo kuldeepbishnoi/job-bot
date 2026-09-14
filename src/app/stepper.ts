@@ -75,6 +75,9 @@ export async function startRun(
   // boards discovers tens of thousands of jobs — ~277 bytes each, so ~36k jobs alone would fill the
   // quota and the run would fail to start at all. Cap what we keep, and say so rather than letting
   // the rest vanish silently: the next run picks them up, because applied ids are excluded.
+  // max_per_run is the blast radius: with auto_submit on, this many real applications. 0 = the
+  // user explicitly lifted the limit; anything else caps here, defaulted by the schema so removing
+  // the line from profile.yaml cannot silently mean "apply to everything discovered".
   const wanted = profile.max_per_run ? all.slice(0, profile.max_per_run) : all;
   const queue = wanted.slice(0, QUEUE_CAP);
   const dropped = wanted.length - queue.length;

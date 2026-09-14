@@ -107,7 +107,11 @@ overrides: {}
 
 on_unknown: park        # unmatched required question -> park (default) | skip | guess (pick decline/No, record "(guessed)", never stuck)
 auto_submit: false      # false = fill + OTP then you approve · true = hands-free (needed for daily runs)
-# max_per_run: 15       # cap the queue per run — handy to test hands-free submission on a small batch
+# max_per_run: 15       # BLAST RADIUS: with auto_submit: true, how many real, unwithdrawable
+                        # applications one click can send. Defaults to 50 when absent — deleting
+                        # this line does NOT mean "apply to everything discovered", which matters
+                        # because the board packs can discover thousands of jobs and Greenhouse,
+                        # Lever and Ashby enforce no daily cap of their own. `0` = truly no limit.
 
 # Careers pages the apply-jobs skill runs through (search pages WITH your filters applied are best).
 # Unknown hosts get a site pack built first (site-pack skill).

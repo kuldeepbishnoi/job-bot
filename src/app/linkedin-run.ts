@@ -106,7 +106,9 @@ export async function startLinkedin(
   const cfg = profile.linkedin;
   if (!cfg) throw new Error('profile.yaml has no `linkedin:` block (search_urls) — see profile.example.yaml');
   if (await getLinkedinRun()) throw new Error('a LinkedIn run is already in progress — press Stop first');
-  const budget = Math.max(1, Math.min(overrides?.maxPerRun ?? Number.POSITIVE_INFINITY, cfg.max_per_run, profile.max_per_run ?? cfg.max_per_run)); // finite: it's persisted as JSON
+  // 0 means the user explicitly lifted the global cap, so it must not read as "budget 0".
+  const globalCap = profile.max_per_run || Number.POSITIVE_INFINITY;
+  const budget = Math.max(1, Math.min(overrides?.maxPerRun ?? Number.POSITIVE_INFINITY, cfg.max_per_run, globalCap)); // finite: it's persisted as JSON
   // Never re-apply to a job any account already recorded. The caller may pass the registry (the
   // popup/console read it anyway); otherwise read it here, which works in the service worker —
   // `writeRecord` has been writing to this same folder from the background since July, through the

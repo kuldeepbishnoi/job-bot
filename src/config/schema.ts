@@ -78,8 +78,13 @@ export const ProfileSchema = z.object({
   // (decline-to-answer if offered, else "No") and keep going — never stuck, guesses are recorded.
   on_unknown: z.enum(['park', 'skip', 'guess']).default('park'),
   auto_submit: z.boolean().default(false),
-  // Cap the queue per run (e.g. 15 to test hands-free submission on a small batch). Omit = all.
-  max_per_run: z.number().int().positive().optional(),
+  // Cap the applications one run may make. This is the blast radius, not a tuning knob: with
+  // `auto_submit: true` it is the number of real, unwithdrawable applications a single click can
+  // send. It DEFAULTS to 50 rather than "unlimited when unset", because the multi-company packs
+  // (Greenhouse boards, Lever, Ashby) can discover thousands of jobs and, unlike LinkedIn, those
+  // ATSes enforce no daily cap of their own — deleting this line must not mean "apply to
+  // everything discovered". Set `max_per_run: 0` to genuinely lift the limit.
+  max_per_run: z.number().int().nonnegative().default(50),
   // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
   careers: z.array(z.string().url()).default([]),
   // Multi-account: every login you apply from (one Chrome profile each, all sharing this folder).
