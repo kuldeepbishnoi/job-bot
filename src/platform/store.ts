@@ -116,10 +116,16 @@ export async function appliedTodayCount(account: string): Promise<number> {
   return (await readAll()).filter((a) => a.status === 'applied' && a.date === today && (a.account ?? '') === account).length;
 }
 
-/** Accounts whose run hit the ATS's own limit page today (recorded as a failed note). */
-export async function accountsAtLimitToday(): Promise<Set<string>> {
+/** Accounts whose run hit THIS site's own limit page today (recorded as a failed note). Limits are
+ *  per site: Amazon's daily cap says nothing about Datadog's, and without the filter one capped
+ *  Amazon account was excluded from every other site's rotation for the rest of the day. */
+export async function accountsAtLimitToday(company?: string): Promise<Set<string>> {
   const today = new Date().toISOString().slice(0, 10);
-  return new Set((await readAll()).filter((a) => a.date === today && /limit reached/i.test(a.note ?? '')).map((a) => a.account ?? ''));
+  return new Set(
+    (await readAll())
+      .filter((a) => a.date === today && /limit reached/i.test(a.note ?? '') && (!company || a.company === company))
+      .map((a) => a.account ?? ''),
+  );
 }
 
 export async function allRecords(): Promise<Application[]> {

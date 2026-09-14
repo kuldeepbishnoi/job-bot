@@ -121,7 +121,7 @@ export async function step(ports: RunPorts): Promise<void> {
 async function nextAccountWithRoom(site: Site, state: RunState, current: string): Promise<string | null> {
   const candidates = accountsFor(state.credentials, site.id).length ? accountsFor(state.credentials, site.id) : state.profile.accounts;
   const limit = state.profile.per_account_limit ?? Number.POSITIVE_INFINITY;
-  const capped = await accountsAtLimitToday();
+  const capped = await accountsAtLimitToday(site.id);
   for (const a of candidates) {
     if (a === current || capped.has(a)) continue;
     if ((await appliedTodayCount(a)) < limit) return a;
