@@ -373,12 +373,33 @@ describe('linkedin adapter — modal + questions', () => {
     expect(() => fill(m, fields[4]!, { kind: 'choice', values: ['Maybe'] })).toThrow(/no radio option/);
   });
 
-  it('guess policy never leaves a required select empty', () => {
+  it('a proficiency ladder with no profile answer PARKS instead of claiming the top option', () => {
     const m = modal(load(MODAL(QUESTIONS, NEXT)))!;
-    const f = extract(m).map(withIntent)[7]!;
+    const f = extract(m).map(withIntent)[7]!; // "What is your level of proficiency in English?"
     const bare = parseProfile({ ...profile, answers: {} });
     expect(resolve(f, bare, job, optionsFor(m, f)).kind).toBe('unknown');
-    expect(guessAnswer(f, optionsFor(m, f), bare)).toEqual({ kind: 'choice', values: ['Native or bilingual'] });
+    // Was: options[0] = "Native or bilingual" — the bot asserting the strongest claim on the
+    // ladder to an employer. A guess must never be a claim the applicant did not make.
+    expect(guessAnswer(f, optionsFor(m, f), bare)).toBeNull();
+    // With the answer in the profile it fills normally.
+    expect(resolve(f, profile, job, optionsFor(m, f))).toEqual({ kind: 'choice', values: ['Professional'] });
+  });
+
+  it('picks the option that ANSWERS the question, never one that merely contains the letters', () => {
+    // "Yes, I know Kubernetes well".includes("no") is true (inside "know") — the old substring
+    // fallback ticked Yes for a No answer and submitted it.
+    const body = `<div data-test-form-element><fieldset data-test-form-builder-radio-button-form-component="true">
+      <legend><span class="fb-dash-form-element__label"><span aria-hidden="true">Do you have hands-on experience with Kubernetes?</span></span></legend>
+      <div><input type="radio" id="k-0" name="k" value="a" data-test-text-selectable-option__input="Yes, I know Kubernetes well"><label for="k-0">Yes, I know Kubernetes well</label></div>
+      <div><input type="radio" id="k-1" name="k" value="b" data-test-text-selectable-option__input="Not at this time"><label for="k-1">Not at this time</label></div>
+    </fieldset></div>`;
+    const doc = load(MODAL(body, NEXT));
+    const m = modal(doc)!;
+    const f = extract(m)[0]!;
+    expect(() => fill(m, f, { kind: 'choice', values: ['No'] })).toThrow(/no radio option/);
+    expect(doc.querySelector<HTMLInputElement>('#k-0')!.checked).toBe(false);
+    fill(m, f, { kind: 'choice', values: ['Not at this time'] });
+    expect(doc.querySelector<HTMLInputElement>('#k-1')!.checked).toBe(true);
   });
 
   it('unchecks "Follow company" on the review step', () => {

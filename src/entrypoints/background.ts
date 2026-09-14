@@ -3,7 +3,7 @@ import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, STEP_ALARM
 import { chromePorts } from '@/app/ports';
 import { startInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
 import {
-  startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning,
+  startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning, onLinkedinAlive,
   linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
 } from '@/app/linkedin-run';
 import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
@@ -35,7 +35,7 @@ export default defineBackground(() => {
     // LinkedIn Easy Apply: in-page like Instahyre, but with a form — the profile travels with the
     // message; paging + recovery live in app/linkedin-run.ts.
     if (msg.t === 'runLinkedin') {
-      startLinkedin(msg.profile, msg.resume, msg.overrides).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
+      startLinkedin(msg.profile, msg.resume, msg.overrides, msg.exclude ?? []).then(() => sendResponse({ ok: true }), (e) => sendResponse({ ok: false, error: String((e as Error).message) }));
       return true;
     }
     if (msg.t === 'linkedin-result') {
@@ -47,14 +47,24 @@ export default defineBackground(() => {
     if (msg.t === 'linkedin-capture') {
       (async () => {
         try {
-          const windowId = _sender.tab?.windowId;
-          const dataUrl = windowId === undefined ? null : await chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 70 });
+          // Capture ONLY the tab that asked, and only while it is the active tab of its window:
+          // captureVisibleTab grabs whatever is visible now, which may be the user's email if they
+          // switched tabs since the content script checked.
+          const tab = _sender.tab;
+          if (!tab?.id || tab.windowId === undefined) return sendResponse({ dataUrl: null, error: 'no tab' });
+          const fresh = await chrome.tabs.get(tab.id).catch(() => null);
+          if (!fresh?.active) return sendResponse({ dataUrl: null, error: 'tab is not active — screenshot skipped' });
+          const dataUrl = await chrome.tabs.captureVisibleTab(fresh.windowId, { format: 'jpeg', quality: 70 });
           sendResponse({ dataUrl });
         } catch (e) {
           sendResponse({ dataUrl: null, error: String((e as Error).message) });
         }
       })();
       return true;
+    }
+    if (msg.t === 'linkedin-alive') {
+      void onLinkedinAlive(msg);
+      return;
     }
     if (msg.t === 'linkedin-warning') {
       void onLinkedinWarning(msg);

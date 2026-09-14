@@ -11,6 +11,17 @@ const NO = ['no', 'i do not', "i don't", 'false', 'not authorized'];
 const hasWord = (text: string, phrase: string): boolean =>
   (' ' + text.toLowerCase().replace(/[^a-z']+/g, ' ') + ' ').includes(' ' + phrase + ' ');
 
+/** Does this option text answer `want`? Exact first, then WHOLE-WORD containment either way.
+ *  Never a bare substring: "Yes, I know Kubernetes well".includes("no") is true (inside "know"),
+ *  which made the adapter tick Yes for a No answer. Used by every ATS adapter that picks an option. */
+export function optionAnswers(option: string, want: string): boolean {
+  const o = option.toLowerCase().trim();
+  const w = want.toLowerCase().trim();
+  if (!w) return false;
+  if (o === w) return true;
+  return hasWord(o, w) || hasWord(w, o);
+}
+
 // Decide what goes in each field. Pure: (field, profile, job, options) -> Answer.
 // options = the actual choices a select offers (needed to pick the right city/label).
 
@@ -247,7 +258,21 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
     if (field.kind === 'text') return { kind: 'text', value: val ? 'Yes' : 'No' };
     const synonyms = val ? YES : NO;
     const picked = options.filter((o) => synonyms.some((s) => hasWord(o, s)));
-    return picked.length ? { kind: 'choice', values: picked.slice(0, 1) } : { kind: 'choice', values: [val ? 'Yes' : 'No'] };
+    if (picked.length) return { kind: 'choice', values: picked.slice(0, 1) };
+    // A two-option question where only ONE side names itself ("Yes, I know Kubernetes well" /
+    // "Not at this time"): the other option is the answer. Without this the adapter's word-boundary
+    // matcher finds nothing and the job parks — and a substring match would tick the opposite box
+    // ("Yes, I know…" contains "no", inside "know"), which is how a No became a Yes.
+    const real = options.filter((o) => o.trim() !== '' && !/^select/i.test(o.trim()));
+    if (real.length === 2) {
+      const yes = real.filter((o) => YES.some((x) => hasWord(o, x)));
+      const no = real.filter((o) => NO.some((x) => hasWord(o, x)));
+      if (yes.length === 1 && no.length === 0) return { kind: 'choice', values: [val ? yes[0]! : real.find((o) => o !== yes[0])!] };
+      if (no.length === 1 && yes.length === 0) return { kind: 'choice', values: [val ? real.find((o) => o !== no[0])! : no[0]!] };
+    }
+    // No option says yes or no: a literal "Yes"/"No" would be typed into a free-text box, but on a
+    // real option list it means we do not know which option answers the question.
+    return options.length ? { kind: 'unknown' } : { kind: 'choice', values: [val ? 'Yes' : 'No'] };
   }
 
   // Numeric answer (years_of_experience: 6) -> the range option that contains it, or the number
@@ -269,7 +294,10 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
   }
 
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {
-    return { kind: 'text', value: Array.isArray(val) ? (val[0] ?? '') : val };
+    // An empty profile value (`github: ""`) is "no answer", not "type nothing": a required box
+    // would fail validation forever. Fall through to unknown → guess/park per policy.
+    const text = Array.isArray(val) ? (val[0] ?? '') : String(val);
+    return text.trim() ? { kind: 'text', value: text } : { kind: 'unknown' };
   }
 
   // select / multiselect: map desired value(s) onto real option labels.
@@ -330,8 +358,13 @@ export function guessAnswer(field: Field, options: readonly string[], profile?: 
   if (yn && AGREEABLE.test(field.label)) return { kind: 'choice', values: [yn.yes] };
   const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
   if (no) return { kind: 'choice', values: [no] };
-  const first = options.find((o) => o.trim() !== '' && !/^select/i.test(o.trim()));
-  return first ? { kind: 'choice', values: [first] } : null;
+  // Last resort: only for a list with no claim to overstate. Picking options[0] on a ladder
+  // ("Native or bilingual", "10+ years", "Expert") asserts the STRONGEST claim to an employer —
+  // a lie the owner would never have typed. Two or fewer real options is a binary we can't skew;
+  // anything longer parks and lands in the review file for a human answer.
+  const real = options.filter((o) => o.trim() !== '' && !/^select/i.test(o.trim()));
+  if (real.length > 2) return null;
+  return real[0] ? { kind: 'choice', values: [real[0]] } : null;
 }
 
 /** Per wanted value, an exact option wins outright ("India" must not become "British Indian Ocean

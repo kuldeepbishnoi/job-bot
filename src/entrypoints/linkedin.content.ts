@@ -3,6 +3,7 @@ import * as li from '@/ats/linkedin';
 import { describeAnswer, waitFor } from '@/ats/dom';
 import { withIntent } from '@/engine/matcher';
 import { guessAnswer, resolve } from '@/engine/resolver';
+import { fitNumber, fitText, maxFromHint } from '@/engine/fit-answer';
 import { titleWanted } from '@/engine/select-jobs';
 import type { Answer, AppliedField, ApplyStatus, Capture, Field, FieldSource, Job } from '@/engine/types';
 import type { Profile } from '@/config/schema';
@@ -148,6 +149,10 @@ async function runPage(msg: Extract<Msg, { t: 'linkedin-apply' }>): Promise<void
       newCards++;
       currentJob = id;
       jobLog = [];
+      // Tell the background this card is taken BEFORE touching it: if opening the card navigates
+      // the tab, this script dies mid-flight and the recovery would otherwise reopen the same card
+      // forever (bounded only by MAX_RECOVERIES, which ends the run with nothing applied).
+      void report({ t: 'linkedin-handled', runId: msg.runId, ids: [id] });
       const outcome = await applyToCard(card, msg.profile, msg.resume, msg.runId);
       if (outcome.kind === 'skip') {
         log('skip', outcome.note);
@@ -358,6 +363,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
       await sleep(PACE_BACKOFF_MS);
       return { kind: 'result', status: 'parked', note: 'LinkedIn paused Easy Apply (pace); retried later', fields: filled, resume: resumeUsed };
     }
+    void report({ t: 'linkedin-alive', runId, where: `step ${step}` }); // the watchdog must not reload a tab mid-application
     await settle(m);
     const progress = li.progress(m);
     log('step', step, 'progress', progress, li.describeQuestions(m).slice(0, 1500));
@@ -406,9 +412,23 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
       await pause(800);
       log('clicking Submit application', 'fields', filled.length);
       li.click(action.el);
-      const done = await waitFor(() => (li.applicationSent(document) || !li.modal(document) ? 'sent' : li.validationErrors(li.modal(document)!).length ? 'errors' : null), SUBMIT_WAIT_MS).catch(() => 'timeout' as const);
+      // Only a POSITIVE signal counts as submitted. "The modal disappeared" also happens when the
+      // Submit click trips LinkedIn's daily cap and the cap dialog replaces the modal — recording
+      // that as applied loses the job forever (it lands in the registry and is never retried).
+      const done = await waitFor(() => (li.applicationSent(document) ? 'sent' : li.limitReached(document) ? 'limit' : li.modal(document) ? (li.validationErrors(li.modal(document)!).length ? 'errors' : null) : 'gone'), SUBMIT_WAIT_MS).catch(() => 'timeout' as const);
       if (done === 'errors') return fail(`submit rejected: ${li.validationErrors(li.modal(document)!).join('; ')}`);
+      if (done === 'limit') return fail("LinkedIn's daily Easy Apply limit hit on Submit — this job was NOT submitted", 'failed', 'limit');
       if (done === 'timeout') return fail(`no confirmation ${SUBMIT_WAIT_MS / 1000}s after Submit — ${li.describeState(document)}`);
+      if (done === 'gone') {
+        // The modal vanished with no confirmation dialog. Give the dialog a moment; if nothing
+        // says "sent", park rather than claim an application that may not exist.
+        await pause(2500);
+        if (!li.applicationSent(document)) {
+          const capture = await captureNow('submit-unconfirmed');
+          await clearStrayDialogs('unconfirmed submit');
+          return { kind: 'result', status: 'parked', note: `clicked Submit but LinkedIn showed no confirmation — check this job by hand (${li.describeState(document)})`, fields: filled, resume: resumeUsed, capture };
+        }
+      }
       log('application sent', li.describeState(document));
       await pause(1200);
       await dismissAll();
@@ -438,7 +458,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
     errorRetries = 0;
     await pause(600);
   }
-  if (li.applicationSent(document) || !li.modal(document)) {
+  if (li.applicationSent(document)) {
     await dismissAll();
     return { kind: 'result', status: 'applied', fields: filled, resume: resumeUsed };
   }
@@ -450,7 +470,10 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
 async function captureNow(label: string): Promise<Capture> {
   const html = li.snapshotHtml(document);
   let screenshot: string | undefined;
-  if (document.visibilityState === 'visible') {
+  if (document.visibilityState === 'visible' && document.hasFocus() !== false) {
+    // The background re-checks that the tab it captures is still THIS one: between this call and
+    // the capture the user may have switched tabs, and captureVisibleTab would otherwise write a
+    // screenshot of their email into the job record.
     const r = await chrome.runtime.sendMessage({ t: 'linkedin-capture' } satisfies Msg).catch((e: Error) => ({ dataUrl: null, error: e.message })) as { dataUrl: string | null; error?: string } | undefined;
     if (r?.dataUrl) screenshot = r.dataUrl;
     else log('screenshot unavailable', r?.error ?? 'no grant');
@@ -568,52 +591,27 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
   }
 }
 
-/** Reshape a text answer to what the box accepts: LinkedIn's numeric boxes ("Enter a whole number
- *  between 0 and 99", "decimal number larger than 0.0") and length rules ("Minimum 20 characters",
- *  "Maximum 400 characters"). Never leaves a required box with something the form will reject. */
+/** Reshape a text answer so the box accepts it — the rules are pure and tested in
+ *  engine/fit-answer.ts. A number that cannot be made to fit honestly (a salary the box's ceiling
+ *  cannot express in any unit) parks the job instead of being clamped into a false figure. */
 function shapeText(value: string, field: Field, profile: Profile, hint: string, numeric: boolean): string {
-  if (numeric || /whole number|numeric|decimal|enter a number|valid number/i.test(hint)) return coerceNumber(value, field, profile, hint);
-  let v = value;
-  const min = Number(/minimum (?:of )?(\d+) char/i.exec(hint)?.[1] ?? /at least (\d+) char/i.exec(hint)?.[1] ?? 0);
-  const max = Number(/maximum (?:of )?(\d+) char/i.exec(hint)?.[1] ?? /at most (\d+) char/i.exec(hint)?.[1] ?? /no more than (\d+) char/i.exec(hint)?.[1] ?? 0);
-  if (min && v.trim().length < min) {
-    const cover = typeof profile.answers['cover_letter'] === 'string' ? profile.answers['cover_letter'] : '';
-    const fallback = `${profile.identity.first_name} ${profile.identity.last_name} — ${cover || 'I am interested in this role and my background matches the requirements listed; happy to discuss further.'}`;
-    v = (/^(n\/?a|none|-|\.)$/i.test(v.trim()) || !v.trim() ? fallback : `${v}. ${fallback}`).trim();
-    while (v.length < min) v += ' Thank you for considering my application.';
+  if (numeric || /whole number|numeric|decimal|enter a number|valid number/i.test(hint)) {
+    const fitted = fitNumber(value, field, profile, hint);
+    if (fitted === null) {
+      const max = maxFromHint(hint);
+      throw new NeedsProfileAnswer(`"${field.label}" will not take ${JSON.stringify(value)}${max !== null ? ` (it caps at ${max})` : ''} — answer this one by hand`);
+    }
+    return fitted;
   }
-  if (max && v.length > max) v = v.slice(0, max).replace(/\s+\S*$/, '').trim() || v.slice(0, max);
-  return v;
-}
-
-/** LinkedIn's numeric boxes reject anything but a number ("Enter a whole number between 0 and
- *  99", "decimal number larger than 0.0"). Turn whatever we resolved into one it accepts. */
-function coerceNumber(value: string, field: Field, profile: Profile, hint: string): string {
-  const decimal = /decimal/i.test(hint);
-  let n = Number.parseFloat(value.replace(/[^\d.]/g, ''));
-  if (!Number.isFinite(n)) {
-    const exact = profile.answers['exact_years_of_experience'];
-    const years = profile.answers['years_of_experience'];
-    if (/^yes$/i.test(value.trim())) n = 1;
-    else if (/^no$/i.test(value.trim())) n = 0;
-    else if (field.intent === 'answers.exact_years_of_experience' && typeof exact === 'number') n = exact;
-    else if (field.intent === 'answers.years_of_experience' || /year|experience/i.test(field.label)) n = typeof years === 'number' ? years : typeof exact === 'number' ? exact : 10;
-    else if (field.intent === 'answers.notice_period') n = 30;
-    else if (/salary|ctc|compensation/i.test(field.label)) n = 0;
-    else n = 1; // "never stuck": a positive number passes every LinkedIn numeric rule
-  }
-  if (!decimal) n = Math.max(0, Math.round(n));
-  if (/between 0 and 99/i.test(hint)) n = Math.min(99, n);
-  if (decimal && n <= 0) n = 1;
-  return decimal ? n.toFixed(1) : String(n);
+  return fitText(value, profile, hint);
 }
 
 /** LinkedIn named what's wrong: re-answer the questions that carry an error, then anything empty. */
 async function fixErrors(m: Element, profile: Profile, job: Job, filled: AppliedField[], errors: string[]): Promise<void> {
   const hint = errors.join(' ');
-  // Re-answer with the guess policy regardless of on_unknown: an empty required box blocks the
-  // whole run, and the record shows the source so it can be reviewed.
-  const forced: Profile = { ...profile, on_unknown: 'guess' };
+  // Honour the user's policy: with on_unknown 'park' they asked NOT to have answers invented, and
+  // an invented answer to a question LinkedIn just rejected is the most likely one to be wrong.
+  const forced: Profile = profile.on_unknown === 'guess' ? { ...profile, on_unknown: 'guess' } : profile;
   for (const field of li.fieldsInError(m).map(withIntent)) {
     const own = li.validationErrors(li.extract(m).length ? (m.querySelector(`[id="${CSS.escape(field.id)}"]`)?.closest('[data-test-form-element], .fb-dash-form-element, fieldset') ?? m) : m).join(' ') || hint;
     log('fixing', field.label, 'error', own.slice(0, 120));

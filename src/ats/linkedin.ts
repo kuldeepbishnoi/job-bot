@@ -1,4 +1,5 @@
 import type { Answer, Field } from '../engine/types';
+import { optionAnswers } from '../engine/resolver';
 import { click, setFile, setReactValue } from './dom';
 
 // LinkedIn Easy Apply adapter — pure DOM, no chrome/network, so it unit-tests in happy-dom.
@@ -548,8 +549,8 @@ export function fill(m: Element, field: Field, answer: Answer): void {
   const r = radios(block);
   if (r.length) {
     if (answer.kind !== 'choice') throw new Error('radio needs a choice');
-    const want = answer.values[0]?.toLowerCase().trim() ?? '';
-    const hit = r.find((i) => optionLabel(i, block).toLowerCase().trim() === want) ?? r.find((i) => optionLabel(i, block).toLowerCase().includes(want));
+    const want = answer.values[0] ?? '';
+    const hit = r.find((i) => optionLabel(i, block).toLowerCase().trim() === want.toLowerCase().trim()) ?? r.find((i) => optionAnswers(optionLabel(i, block), want));
     if (!hit) throw new Error(`no radio option "${answer.values[0]}"`);
     click(hit.id ? block.querySelector(`label[for="${hit.id}"]`) ?? hit : hit);
     if (!hit.checked) hit.click();
@@ -560,7 +561,7 @@ export function fill(m: Element, field: Field, answer: Answer): void {
     if (answer.kind !== 'choice') throw new Error('checkbox group needs choices');
     const wanted = answer.values.map((v) => v.toLowerCase().trim());
     for (const box of cb) {
-      const on = wanted.some((w) => optionLabel(box, block).toLowerCase().trim() === w);
+      const on = wanted.some((w) => optionAnswers(optionLabel(box, block), w));
       if (on !== box.checked) click(box.id ? block.querySelector(`label[for="${box.id}"]`) ?? box : box);
     }
     return;
@@ -575,8 +576,8 @@ export function fill(m: Element, field: Field, answer: Answer): void {
   if (!c) throw new Error('no control');
   if (c instanceof HTMLSelectElement) {
     if (answer.kind !== 'choice') throw new Error('select needs a choice');
-    const want = answer.values[0]?.toLowerCase().trim() ?? '';
-    const opt = [...c.options].find((o) => o.text.trim().toLowerCase() === want) ?? [...c.options].find((o) => o.text.trim().toLowerCase().includes(want) && !PLACEHOLDER.test(o.text));
+    const want = answer.values[0] ?? '';
+    const opt = [...c.options].find((o) => o.text.trim().toLowerCase() === want.toLowerCase().trim()) ?? [...c.options].find((o) => !PLACEHOLDER.test(o.text) && optionAnswers(o.text, want));
     if (!opt) throw new Error(`no option "${answer.values[0]}"`);
     const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
     setter?.call(c, opt.value);
@@ -605,13 +606,20 @@ export async function fillTypeahead(m: Element, field: Field, value: string, wai
   if (!input) throw new Error('typeahead input missing');
   input.focus();
   setReactValue(input, value);
-  const listSel = [input.getAttribute('aria-controls') ? `#${CSS.escape(input.getAttribute('aria-controls')!)}` : '', '.basic-typeahead__triggered-content', '.basic-typeahead_triggered-content', '.fb-single-typeahead-entitytriggered-content', '[role="listbox"]'].filter(Boolean).join(', ');
+  // Scope the listbox to THIS input: its aria-controls target, else a list inside this question's
+  // own block. A document-wide '[role="listbox"]' also matches the global nav search and any other
+  // typeahead still mounted in the modal — clicking one of those options fills the WRONG field.
+  const controls = input.getAttribute('aria-controls');
+  const listSel = ['.basic-typeahead__triggered-content', '.basic-typeahead_triggered-content', '.fb-single-typeahead-entitytriggered-content', '[role="listbox"]'].join(', ');
   const root = (m.getRootNode() as ParentNode) ?? document;
+  const listsNow = (): HTMLElement[] => {
+    const byId = controls ? [...root.querySelectorAll<HTMLElement>(`#${CSS.escape(controls)}`)] : [];
+    return byId.length ? byId : [...block!.querySelectorAll<HTMLElement>(listSel)];
+  };
   const end = Date.now() + waitMs;
   let options: HTMLElement[] = [];
   while (Date.now() < end) {
-    const lists = [...root.querySelectorAll<HTMLElement>(listSel), ...m.querySelectorAll<HTMLElement>(listSel)];
-    options = lists.flatMap((l) => [...l.querySelectorAll<HTMLElement>('[role="option"], .basic-typeahead__selectable, [data-test-single-typeahead-entity-form-search-result]')]).filter((o) => shown(o));
+    options = listsNow().flatMap((l) => [...l.querySelectorAll<HTMLElement>('[role="option"], .basic-typeahead__selectable, [data-test-single-typeahead-entity-form-search-result]')]).filter((o) => shown(o));
     if (options.length) break;
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -624,7 +632,9 @@ export async function fillTypeahead(m: Element, field: Field, value: string, wai
     return input.value;
   }
   const want = value.toLowerCase().trim();
-  const pick = options.find((o) => text(o).toLowerCase() === want) ?? options.find((o) => text(o).toLowerCase().startsWith(want)) ?? options.find((o) => text(o).toLowerCase().includes(want)) ?? options[0]!;
+  // No blind options[0]: an unrelated suggestion typed into "City" is wrong data, not a fallback.
+  const pick = options.find((o) => text(o).toLowerCase() === want) ?? options.find((o) => text(o).toLowerCase().startsWith(want)) ?? options.find((o) => text(o).toLowerCase().includes(want));
+  if (!pick) throw new Error(`typeahead offered nothing matching "${value}" (${options.slice(0, 4).map((o) => text(o)).join(' | ')})`);
   click(pick);
   return text(pick);
 }

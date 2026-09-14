@@ -31,6 +31,11 @@ export function formatLine(scope: string, args: readonly unknown[]): string {
     .join(' ')}`.slice(0, LINE_CHARS);
 }
 
+// Only the service worker appends to the pending list. A content script writing it too would race
+// takePendingLines (read → clear) and silently drop lines from the on-disk log; the content
+// script's own lines reach disk with the application record instead (`Application.log`).
+const OWNS_PENDING = typeof window === 'undefined';
+
 function flush(): void {
   timer = null;
   const lines = buffer;
@@ -38,10 +43,12 @@ function flush(): void {
   if (!lines.length) return;
   queue = queue
     .then(async () => {
-      const got = await chrome.storage.local.get([KEY, PENDING_KEY]);
+      const keys = OWNS_PENDING ? [KEY, PENDING_KEY] : [KEY];
+      const got = await chrome.storage.local.get(keys);
       const all = ((got[KEY] as string[] | undefined) ?? []).concat(lines).slice(-CAP);
-      const pending = ((got[PENDING_KEY] as string[] | undefined) ?? []).concat(lines).slice(-CAP);
-      await chrome.storage.local.set({ [KEY]: all, [PENDING_KEY]: pending });
+      const write: Record<string, string[]> = { [KEY]: all };
+      if (OWNS_PENDING) write[PENDING_KEY] = ((got[PENDING_KEY] as string[] | undefined) ?? []).concat(lines).slice(-CAP);
+      await chrome.storage.local.set(write);
     })
     .catch(() => {});
 }

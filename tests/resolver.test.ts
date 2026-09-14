@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolve, matchOptions, guessAnswer, salaryFor, salaryInUnit, noticeDays, pickNoticeOption } from '@/engine/resolver';
+import { fitNumber, fitText } from '@/engine/fit-answer';
 import { parseProfile } from '@/config/schema';
 import type { Field, Job } from '@/engine/types';
 
@@ -29,7 +30,10 @@ describe('guessAnswer (on_unknown: guess — never stuck)', () => {
   it('picks the applicant\'s own country from a country list, and never "North Korea" for "No"', () => {
     const p = parseProfile(base); // identity.country: India
     expect(guessAnswer(sel, ['Afghanistan', 'British Indian Ocean Territory', 'India', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['India'] });
-    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'], p)).toEqual({ kind: 'choice', values: ['Afghanistan'] }); // last resort: first option
+    // No decline, no own country, no yes/no, and MORE than two options = a ladder or a list where
+    // options[0] would assert the strongest claim ("Native or bilingual", "10+ years"). Park it.
+    expect(guessAnswer(sel, ['Afghanistan', 'Albania', 'North Korea'], p)).toBeNull();
+    expect(guessAnswer(sel, ['Option A', 'Option B'], p)).toEqual({ kind: 'choice', values: ['Option A'] }); // a binary has no claim to overstate
   });
   it('never stops: free text gets N/A, a checkbox gets checked, an empty select parks', () => {
     expect(guessAnswer(f({ kind: 'text' }), [])).toEqual({ kind: 'text', value: 'N/A' });
@@ -61,7 +65,9 @@ describe('resolver', () => {
 
   it('matches yes/no as whole words, so "No" never means "North Korea" or "I choose not to"', () => {
     const p = parseProfile({ ...base, answers: { sanctioned_country: false, government_employee: false } });
-    expect(resolve(f({ kind: 'select', intent: 'answers.sanctioned_country' }), p, job, ['Cuba', 'North Korea'])).toEqual({ kind: 'choice', values: ['No'] }); // no real "No" option → literal fallback, never a country
+    // Neither option says yes or no, and neither is inferable:it resolves unknown → the field parks and
+    // lands in review.jsonl. It must NEVER become a country ("North Korea" contains "no").
+    expect(resolve(f({ kind: 'select', intent: 'answers.sanctioned_country' }), p, job, ['Cuba', 'North Korea'])).toEqual({ kind: 'unknown' });
     expect(resolve(f({ kind: 'select', intent: 'answers.government_employee' }), p, job, ['Yes, I am a FORMER government employee.', 'No, I was NEVER a government employee.'])).toEqual({ kind: 'choice', values: ['No, I was NEVER a government employee.'] });
     expect(resolve(f({ kind: 'select', intent: 'answers.indigenous' }), parseProfile({ ...base, answers: { indigenous: false } }), job, ['Yes', 'I choose not to self-identify', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
@@ -211,5 +217,61 @@ describe('derived answers (salary / notice / city / top choice)', () => {
     expect(guessAnswer(f('Have you been convicted of a felony?', undefined, 'select'), ['Yes', 'No'], p)).toEqual({ kind: 'choice', values: ['No'] });
     expect(guessAnswer({ ...f('Mark job as a top choice', undefined, 'checkbox'), required: false }, [], p)).toEqual({ kind: 'check', value: false });
     expect(guessAnswer(f('I agree to the terms', undefined, 'checkbox'), [], p)).toEqual({ kind: 'check', value: true });
+  });
+});
+
+describe('fitting an answer to the box (engine/fit-answer)', () => {
+  const p = parseProfile({
+    identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+91 9', country: 'India', city: 'Gurugram' },
+    resume: 'r.pdf',
+    answers: { expected_salary: 7000000, current_salary: 5100000, years_of_experience: 4.7, exact_years_of_experience: 4.7, cover_letter: 'Backend engineer, Go and distributed systems.' },
+  });
+  const f = (label: string, intent: Field['intent']): Field => ({ id: label, label, kind: 'text', required: true, intent });
+  const NUM = 'Enter a whole number between 0 and 99';
+
+  it('rescales a salary the box cannot hold instead of clamping it to the ceiling', () => {
+    // The bug: Math.min(99, 7000000) told the employer the candidate expects 99.
+    expect(fitNumber('7000000', f('Expected CTC', 'answers.expected_salary'), p, NUM)).toBe('70');
+    expect(fitNumber('5100000', f('Current CTC', 'answers.current_salary'), p, NUM)).toBe('51');
+    expect(fitNumber('7000000', f('Expected CTC', 'answers.expected_salary'), p, '')).toBe('7000000');
+    // Nothing fits (a box capped at 9 cannot express 70 lakh in lakhs or thousands) → park.
+    expect(fitNumber('7000000', f('Expected CTC', 'answers.expected_salary'), p, 'between 0 and 9')).toBeNull();
+    // A salary with no profile answer is never invented as 0.
+    expect(fitNumber('N/A', f('Current fixed salary', 'answers.current_fixed_salary'), p, NUM)).toBeNull();
+  });
+
+  it('floors years instead of rounding them up', () => {
+    expect(fitNumber('4.7', f('Years of experience', 'answers.years_of_experience'), p, NUM)).toBe('4');
+    expect(fitNumber('4.7', f('Exact years', 'answers.exact_years_of_experience'), p, NUM)).toBe('4');
+    expect(fitNumber('N/A', f('How many years of experience in Java?', 'answers.years_of_experience'), p, NUM)).toBe('4');
+    expect(fitNumber('120', f('Years of experience', 'answers.years_of_experience'), p, NUM)).toBe('99');
+  });
+
+  it('pads a too-short message from the profile\'s own words and trims a too-long one', () => {
+    const padded = fitText('N/A', p, 'Minimum 20 characters');
+    expect(padded.length).toBeGreaterThanOrEqual(20);
+    expect(padded).toContain('K B');
+    expect(padded).not.toMatch(/^N\/A/);
+    expect(fitText('x'.repeat(500), p, 'Maximum 400 characters').length).toBeLessThanOrEqual(400);
+  });
+});
+
+describe('yes/no against options that do not say "yes" or "no"', () => {
+  const p = parseProfile({
+    identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '+91 9', country: 'India', city: 'Gurugram' },
+    resume: 'r.pdf', answers: { skills_experience: false, commute_ok: true },
+  });
+  const job: Job = { id: '1', title: '', team: '', department: '', url: '', locations: [], seniority: [] };
+  const f = (label: string, intent: Field['intent']): Field => ({ id: label, label, kind: 'select', required: true, intent });
+
+  it('infers the unnamed side of a two-option question', () => {
+    const opts = ['Yes, I know Kubernetes well', 'Not at this time'];
+    expect(resolve(f('Do you have experience with Kubernetes?', 'answers.skills_experience'), p, job, opts)).toEqual({ kind: 'choice', values: ['Not at this time'] });
+    expect(resolve(f('Are you comfortable commuting?', 'answers.commute_ok'), p, job, opts)).toEqual({ kind: 'choice', values: ['Yes, I know Kubernetes well'] });
+  });
+
+  it('parks rather than guessing when three options carry no yes/no', () => {
+    expect(resolve(f('Do you have experience with Kubernetes?', 'answers.skills_experience'), p, job, ['Expert', 'Intermediate', 'Beginner'])).toEqual({ kind: 'unknown' });
+    expect(resolve(f('Do you have experience with Kubernetes?', 'answers.skills_experience'), p, job, ['Expert', 'Some', 'None at all'])).toEqual({ kind: 'unknown' });
   });
 });

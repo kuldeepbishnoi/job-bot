@@ -61,7 +61,7 @@ export type Msg =
   // answers the modal's questions; the résumé is attached only when no card is pre-selected.
   // `overrides` lets the dashboard start a one-job dry run (autoSubmit:false, maxPerRun:1) without
   // editing profile.yaml; absent = exactly what the profile says.
-  | { t: 'runLinkedin'; profile: Profile; resume: SerializedFile; overrides?: { autoSubmit?: boolean; maxPerRun?: number } }
+  | { t: 'runLinkedin'; profile: Profile; resume: SerializedFile; exclude?: string[]; overrides?: { autoSubmit?: boolean; maxPerRun?: number } }
   // background -> linkedin content script: apply through every card on the CURRENT results page.
   // `exclude` = job ids already applied/handled (never reopened); `budget` = applies left this run.
   | { t: 'linkedin-apply'; runId: string; profile: Profile; resume: SerializedFile; exclude: string[]; budget: number }
@@ -78,6 +78,9 @@ export type Msg =
   | { t: 'linkedin-capture' }
   // linkedin content script -> background: something the USER must fix (another auto-apply
   // extension is driving the same page, LinkedIn is throttling us…) — kept on the run for the UI.
+  // linkedin content script -> background: still working (inside a multi-step form / a back-off).
+  // Keeps the stall watchdog from reloading the tab between Submit and its confirmation.
+  | { t: 'linkedin-alive'; runId: string; where: string }
   | { t: 'linkedin-warning'; runId: string; code: 'conflicting-extension' | 'not-logged-in' | 'pace'; detail: string }
   // linkedin content script -> background: cards skipped without an attempt (filtered / applied badge)
   | { t: 'linkedin-handled'; runId: string; ids: string[] }

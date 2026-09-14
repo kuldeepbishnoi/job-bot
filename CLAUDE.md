@@ -85,12 +85,13 @@ page capture — the first real run reads the Logs page and fixes selectors from
   Closing an unfinished modal pops Discard (`discard_application_confirm_btn`).
 - **Limits**: "You've reached today's Easy Apply limit" dialog ends the run; "applying at a fast
   pace … briefly paused" = back off. Unfocused tabs get throttled — the run tab is opened active.
-- **Live-learned (2026-09-04)**: the legacy card link is a real `<a href="/jobs/view/<id>/">`. The
-  shared `dom.ts#click` dispatches a NON-cancelable event, so no preventDefault (LinkedIn's or ours)
-  can stop the anchor → full navigation to the job page → content script dead. `ats/linkedin.ts#openCard`
-  dispatches a cancelable click with a one-shot capture `preventDefault` on the link; the first card
-  (`currentJobId` already in the URL) is never clicked; a tab found on `/jobs/view/…` is steered back
-  to the persisted search page (`reason: 'lost'`, bounded by `MAX_RECOVERIES`).
+- **Live-learned (2026-09-04)**: the legacy card link is a real `<a href="/jobs/view/<id>/">`, and the
+  shared `dom.ts#click` dispatches a NON-cancelable event, so no preventDefault can stop it → full
+  navigation → content script dead. The first card (`currentJobId` already in the URL) is never
+  clicked; a tab found on `/jobs/view/…` is steered back to the persisted search page
+  (`reason: 'lost'`, bounded by `MAX_RECOVERIES`). **Superseded 2026-09-14** on how the click is
+  made — see the next bullet; a card is reported `linkedin-handled` BEFORE it is opened, so a
+  navigation that kills the script cannot make recovery reopen the same card forever.
 - **Live-learned (2026-09-14, from the on-disk log + the user's screenshots + AutoApplyMax's
   `clickJobCard`)**: (a) opening a legacy card = a NATIVE `link.click()` (cancelable, so LinkedIn's
   own handler cancels the navigation and switches the pane); our capture-phase preventDefault had

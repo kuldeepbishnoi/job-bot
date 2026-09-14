@@ -44,6 +44,7 @@ export interface LinkedinRun {
   readonly applied: number;
   readonly skipped: number;
   readonly handled: readonly string[]; // job ids attempted or skipped this run — never reopened
+  readonly excluded: readonly string[]; // job ids from the shared registry (every account) — never reopened
   readonly tabId: number;
   readonly startedAt: number;
   readonly lastActivityAt: number;
@@ -84,12 +85,13 @@ export function searchUrl(base: string, start: number): string {
   return u.toString();
 }
 
-/** Job ids this extension already applied to on LinkedIn (any run), so a re-run never repeats. */
-async function appliedOnLinkedin(): Promise<string[]> {
-  return (await allRecords()).filter((a) => a.company === 'linkedin' && a.status === 'applied').map((a) => a.jobId);
+/** Job ids this extension already ATTEMPTED on LinkedIn (any run, any status), so a re-run never
+ *  repeats one. Parked counts: the user may have clicked Submit on it themselves. */
+async function recordedOnLinkedin(): Promise<string[]> {
+  return (await allRecords()).filter((a) => a.company === 'linkedin').map((a) => a.jobId);
 }
 
-export async function startLinkedin(base: Profile, resume: SerializedFile, overrides?: { autoSubmit?: boolean; maxPerRun?: number }): Promise<void> {
+export async function startLinkedin(base: Profile, resume: SerializedFile, overrides?: { autoSubmit?: boolean; maxPerRun?: number }, exclude: readonly string[] = []): Promise<void> {
   // The dashboard starts a dry run (fill one job, park with the modal open) by passing overrides
   // instead of making the user edit profile.yaml. Everything else still comes from the profile.
   const profile: Profile = overrides?.autoSubmit === undefined ? base : { ...base, auto_submit: overrides.autoSubmit };
@@ -113,6 +115,7 @@ export async function startLinkedin(base: Profile, resume: SerializedFile, overr
     applied: 0,
     skipped: 0,
     handled: [],
+    excluded: [...new Set(exclude)],
     tabId: tab.id,
     startedAt: now,
     lastActivityAt: now,
@@ -151,7 +154,10 @@ async function kick(runId: string): Promise<void> {
   }
   const fresh = await getLinkedinRun();
   if (!fresh || fresh.runId !== runId) return; // stopped while we waited
-  const exclude = [...new Set([...fresh.handled, ...(await appliedOnLinkedin())])];
+  // Never reopen: this run's cards, anything THIS extension recorded (any status — a parked job
+  // may already have been submitted by hand), and every job id in the shared registry, which is
+  // how several accounts avoid applying to the same job twice.
+  const exclude = [...new Set([...fresh.handled, ...(fresh.excluded ?? []), ...(await recordedOnLinkedin())])];
   const budget = Math.max(0, fresh.budget - fresh.applied);
   log('kick page', { url: fresh.urls[fresh.urlIdx], start: fresh.start, budget, exclude: exclude.length });
   await sendToTab(fresh.tabId, { t: 'linkedin-apply', runId, profile: fresh.profile, resume: fresh.resume, exclude, budget });
@@ -188,7 +194,8 @@ export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' 
     ...(msg.description ? { description: msg.description } : {}),
     ...(msg.capture ? { capture: msg.capture } : {}),
   };
-  await record(app); // chrome.storage: fields + capped log (captures/description stripped)
+  // A storage failure (quota) must not cost the on-disk record, the capture or the run's counters.
+  await record(app).catch((e: Error) => log('storage record failed (the on-disk record still lands)', e.message));
   // The complete record — with the capture files — goes to the profile folder NOW (not when the
   // popup next opens). `at`/`account` match what the store stamped, so the flush key is the same.
   const stamped: Application = { ...app, at, account: await getAccount() };
@@ -207,6 +214,17 @@ export async function onLinkedinResult(msg: Extract<Msg, { t: 'linkedin-result' 
     const current = `${msg.status === 'applied' ? '✓' : '⚠'} ${msg.job.title} · ${msg.job.company}`;
     await saveProgress({ done: applied, total: run.budget, current, phase: 'running', at: Date.now() });
     void send({ t: 'progress', done: applied, total: run.budget, current }).catch(() => {});
+  });
+}
+
+/** The page is alive inside a long step — refresh the stall clock WITHOUT touching the dead-run
+ *  clock, so a slow multi-step form is never reloaded mid-application but a truly stuck page
+ *  still gives up. */
+export function onLinkedinAlive(msg: Extract<Msg, { t: 'linkedin-alive' }>): Promise<void> {
+  return serialized(async () => {
+    const run = await getLinkedinRun();
+    if (!run || run.runId !== msg.runId) return;
+    await save({ ...run, lastActivityAt: Date.now() });
   });
 }
 

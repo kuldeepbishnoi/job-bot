@@ -45,7 +45,9 @@ async function startLinkedin(btn: HTMLButtonElement): Promise<void> {
     await ensureHosts();
     await ensureScreenshots();
     setStatus(`Starting LinkedIn… (${profile.linkedin.search_urls.length} search URL${profile.linkedin.search_urls.length === 1 ? '' : 's'}, auto_submit ${profile.auto_submit ? 'on' : 'OFF — one job, then halts'})`);
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'runLinkedin', profile, resume });
+    // Same rule as every other pack: never re-apply to a job any account already recorded.
+    const exclude = [...(await readRegistry())];
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'runLinkedin', profile, resume, exclude });
     if (!res?.ok) warn(res?.error ?? 'failed to start');
   } catch (e) {
     warn((e as Error).message);
@@ -140,6 +142,11 @@ async function startRun(siteId: string, btn: HTMLButtonElement): Promise<void> {
 // Append-only local files: flush whatever the background recorded since the last flush.
 async function flush(): Promise<void> {
   try {
+    // The background writes the same files (persistApplication) while a LinkedIn run is going, and
+    // both do read-whole-file → overwrite. Flushing on top of that erases whatever landed in
+    // between, including the review lines. The background is already writing every record, so
+    // there is nothing for us to flush until the run ends.
+    if ((await chrome.storage.local.get('linkedin_run'))['linkedin_run']) return;
     const got = await chrome.storage.local.get('debug_log');
     const n = await flushToDisk(await allRecords(), (got['debug_log'] as string[] | undefined) ?? []);
     if (n) console.log('[jobbot popup] flushed', n, 'records to applications.jsonl');
