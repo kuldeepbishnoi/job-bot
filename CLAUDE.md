@@ -257,6 +257,17 @@ fixtures/    real captured data for offline tests
     only that *some* company owns that slug — `archer` is a veterinary clinic, `wise` is an insurance
     agency, `remote` is General Assembly. Anything presented to the user as a curated list of
     companies must be verified by the board's own `company_name`, never by status code.
+13. **Never stop, but never fabricate.** The owner asked for both "it must not stop — not filling /
+    filling slowly is worst" and "every answer should be correct", which only look contradictory.
+    Reconciliation: retry as hard and as long as you like, but only ever at putting in an answer we
+    already have. Re-read the step, wait for a control that has not mounted, try again — a question
+    that is empty is far more often a control that was not ready than one we cannot answer. What
+    must never happen is inventing the answer itself: compensation, current employer, an experience
+    bucket, a legal commitment or a self-ID are the user's to state, and a plausible guess in those
+    fields is a lie told to an employer in their name. `guessAnswer` already encodes this — it
+    declines a ladder of more than two options rather than assert the strongest claim. Park only
+    after the retries are genuinely exhausted, and say in the note whether the PROFILE had an answer,
+    so the user can tell a form problem from a settings problem.
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)

@@ -1,0 +1,31 @@
+<!-- Real capture (2026-09-15) of ONE job-specific question on amazon.jobs/.../apply, provided by
+     the owner via DevTools. This is the markup our fill path must survive, and the reason it is
+     here rather than hand-written: the generated fixture (amazon-apply.html) has no select2
+     wrapper, so it could not have caught a select2-shaped failure.
+
+     What matters in it:
+       - the native <select> has NO id and NO name; the question id is on the ancestor div
+       - it carries aria-hidden="true" + class="select2-hidden-accessible" (select2 hides it
+         off-screen), so any visibility filter applied to the CONTROL would reject it
+       - all three job-specific selects on the page share label for="dropDownValues"
+       - option values are numeric keys; the human text is the option's label
+       - the visible widget is the sibling span.select2, showing "Select an option" -->
+<div class="card question-form active">
+  <div class="question" data-questionid="5546f3b9-aaaa-bbbb-cccc-AQ">
+    <div class="question-label required"><label>Which option best describes your total non-internship professional software development experience?</label></div>
+    <div class="drop-down-menu"><div class="drop-down-menu-select"><label for="dropDownValues">
+      <select tabindex="-1" class="select2-hidden-accessible" aria-hidden="true">
+        <option value=""></option>
+        <option value="1">less than 10 months</option>
+        <option value="2">10 months to less than 1 year</option>
+        <option value="3">1 year to less than 3 years</option>
+        <option value="4">more than 3 years</option>
+      </select>
+      <span class="select2 select2-container select2-container--default">
+        <span class="selection"><span class="select2-selection select2-selection--single" role="combobox">
+          <span class="select2-selection__rendered"><span class="select2-selection__placeholder">Select an option</span></span>
+        </span></span>
+      </span>
+    </label></div></div>
+  </div>
+</div>
