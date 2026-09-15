@@ -366,8 +366,9 @@ npm install          # once
 npm run dev          # load unpacked dev extension in Chrome (HMR)
 npm run build        # production build -> .output/chrome-mv3
 npm run install:chrome  # build + sync to ~/.jobbot/extension — load THAT folder in chrome://extensions
-npm test             # unit tests against fixtures (must stay green)
-npm run compile      # tsc --noEmit (must stay clean)
+npm test             # typechecks FIRST (pretest), then the unit tests — both must stay green
+npm run compile      # tsc --noEmit on its own
+npm run verify       # compile + test + build, i.e. everything a commit must pass
 npm run mitm         # start mitmweb + Chrome (scratch profile) — see debug/README.md
 npm run mitm:stop    # kill scratch Chrome + mitmweb
 npm run mitm:reset   # clear debug/captures/
@@ -383,7 +384,11 @@ cookies) — must quit Chrome first.
 ## Workflow rules (from the repo owner)
 - **Never push to `master`/`main` directly.** Work on a branch and open a PR; the owner + Claude
   review first. Address PR comments, then update the PR.
-- Keep `npm run compile` clean and `npm test` green in every commit.
+- Keep `npm run compile` clean and `npm test` green in every commit. `npm test` now typechecks
+  first, because running them separately is how a broken type reached main on 2026-09-15: the
+  typecheck was run BEFORE the last edit and never again, `vitest` does not typecheck, and the
+  suite passed. `npm run verify` is the whole gate in one command. Note `npx vitest run` skips the
+  hook — use `npm test`.
 - Prefer small, single-reason changes (SRP at the commit level).
 
 ## Status & next steps
