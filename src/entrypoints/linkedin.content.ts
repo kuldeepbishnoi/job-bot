@@ -24,7 +24,10 @@ import { dlog, formatLine } from '@/platform/debug-log';
 
 const MAX_STEPS = 15; // Easy Apply is 2–6 steps; a runaway loop must never spin forever
 const MAX_PAGES_IN_PAGE = 40; // LinkedIn caps search results at 40 pages anyway
-const MAX_ERROR_RETRIES = 2; // per step, after LinkedIn's validation named what's wrong
+const MAX_ERROR_RETRIES = 3; // per step, after LinkedIn's validation named what's wrong
+// A control that did not take the value usually just needed another go. Parking is the LAST
+// resort — a half-filled form left open helps nobody, and a slow fill beats no fill.
+const FILL_RETRIES = 3;
 const MODAL_WAIT_MS = 12_000;
 const SUBMIT_WAIT_MS = 15_000;
 const PACE_BACKOFF_MS = 150_000; // LinkedIn's "applying at a fast pace" pause
@@ -374,7 +377,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
         log('resume attached', resume.name);
         resumeUsed = resume.name;
         upsert(filled, { id: 'resume', label: 'Résumé', value: resume.name, source: 'profile', intent: 'resume', kind: 'file' });
-        await pause(3500); // LinkedIn uploads + renders the card
+        await pause(1800); // LinkedIn uploads + renders the card
       } else if (!filled.some((f) => f.id === 'resume')) {
         resumeUsed = li.resumeName(m) || "LinkedIn's selected résumé";
         upsert(filled, { id: 'resume', label: 'Résumé', value: `${resumeUsed} (pre-filled)`, source: 'prefilled', intent: 'resume', kind: 'file' });
@@ -401,7 +404,14 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
     // dies four identical clicks later saying only "errors: none" (six jobs did exactly that on
     // 2026-09-14, and a Termgrid application never filled at all). Stop at the first one and keep
     // the DOM, so the next occurrence is a fixable bug report instead of a silent blank.
-    const questions = li.extract(m);
+    let questions = li.extract(m);
+    // An empty read is usually a step still rendering. Look again before concluding we cannot
+    // parse it — stopping on the first empty read would abandon jobs that were about to be fine.
+    for (let retry = 0; retry < FILL_RETRIES && questions.length === 0 && action.kind === 'next' && progress > 0; retry++) {
+      await settle(m);
+      await pause(400);
+      questions = li.extract(m);
+    }
     if (questions.length === 0 && action.kind === 'next' && !li.resumeInput(m) && !li.resumeSelected(m) && progress > 0) {
       recordPrefilled(m, filled);
       const capture = await captureNow('no-questions-found');
@@ -421,7 +431,19 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
     // Review anyway — LinkedIn then showed "Enter a decimal number larger than 0.0" and "Please
     // enter a valid answer" on an empty form. Clicking on regardless is how a half-empty
     // application reaches Submit; the run must stop and say which questions are empty.
-    const emptyRequired = questions.filter((f) => f.required && f.kind !== 'file' && !li.isAnswered(m, f));
+    let emptyRequired = questions.filter((f) => f.required && f.kind !== 'file' && !li.isAnswered(m, f));
+    if (emptyRequired.length) {
+      // Try HARDER before giving up. A question we could not fill on the first pass is usually a
+      // control that needed a moment or a second attempt, not one we have no answer for — and a
+      // parked job helps nobody. Only after genuinely exhausting the retries do we stop, and we
+      // still never invent an answer we do not have (NeedsProfileAnswer propagates).
+      for (let retry = 0; retry < FILL_RETRIES && emptyRequired.length; retry++) {
+        log('required still empty — retry', retry + 1, emptyRequired.map((f) => f.label).join(' | '));
+        await settle(m);
+        await fillStep(m, profile, job, filled);
+        emptyRequired = li.extract(m).filter((f) => f.required && f.kind !== 'file' && !li.isAnswered(m, f));
+      }
+    }
     if (emptyRequired.length) {
       recordPrefilled(m, filled);
       recordUnanswered(m, filled);
@@ -472,7 +494,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
         log('auto_submit off — leaving the modal open for the user');
         return { kind: 'result', status: 'parked', note: 'Filled through Review; auto_submit is off — click "Submit application" yourself (run halted)', fields: filled, resume: resumeUsed, capture, halt: true };
       }
-      await pause(800);
+      await pause(350);
       log('clicking Submit application', 'fields', filled.length);
       li.click(action.el);
       // Only a POSITIVE signal counts as submitted. "The modal disappeared" also happens when the
@@ -493,7 +515,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
         }
       }
       log('application sent', li.describeState(document));
-      await pause(1200);
+      await pause(600);
       await dismissAll();
       await clearStrayDialogs('after submit');
       return { kind: 'result', status: 'applied', fields: filled, resume: resumeUsed, capture };
@@ -519,7 +541,7 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
       continue; // same step re-evaluated: fill anything still empty, click again
     }
     errorRetries = 0;
-    await pause(600);
+    await pause(250);
   }
   if (li.applicationSent(document)) {
     await dismissAll();
@@ -567,15 +589,17 @@ function upsert(filled: AppliedField[], rec: AppliedField): void {
  *  those are kept), plus any ticked opt-in checkbox the profile says to leave off ("Mark job as a
  *  top choice"). Passes: answering one question can reveal (or remove) dependents. */
 async function fillStep(m: Element, profile: Profile, job: Job, filled: AppliedField[]): Promise<void> {
-  for (let pass = 0; pass < 3; pass++) {
+  // Passes, not one shot: LinkedIn reveals follow-up questions as earlier ones are answered, and a
+  // control that ignored the first write often takes the second.
+  for (let pass = 0; pass < 5; pass++) {
     const todo = li.extract(m).map(withIntent).filter((f) => f.kind !== 'file' && (!li.isAnswered(m, f) || wantsUncheck(m, f, profile, job)));
     if (!todo.length) return;
     for (const field of todo) {
       if (li.isAnswered(m, field) && !wantsUncheck(m, field, profile, job)) continue;
       await answerField(m, field, profile, job, filled, ''); // NeedsProfileAnswer propagates → park
-      await pause(350);
+      await pause(180);
     }
-    await sleep(400);
+    await sleep(220);
   }
 }
 
