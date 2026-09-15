@@ -127,3 +127,59 @@ describe('lever site refuses to run with nothing configured, rather than silentl
     await expect(leverSite.discover(p)).rejects.toThrow(/no boards configured.*profile\.lever\.boards.*include_defaults/);
   });
 });
+
+// Real capture of jobs.lever.co/anchorage/09b2b0d1-fb52-431c-b617-2fb74b595b1d/apply (2026-09-15),
+// the page the owner reported as "not filling". Its two custom cards are the whole point: the
+// generated Nium fixture has no question that opens by describing a "remote/hybrid work culture",
+// and no "permanent resident of <country>", so neither failure could have shown up there.
+const anchorageDoc = new DOMParser().parseFromString(
+  readFileSync('fixtures/lever-apply-anchorage.html', 'utf8')
+    .replace(/<link\b[^>]*>/gi, '')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ''),
+  'text/html',
+);
+
+describe('lever: the Anchorage apply page answers every required question', () => {
+  const anchorageProfile = parseProfile({
+    identity: { first_name: 'Kuldeep', last_name: 'Bishnoi', email: 'k@x.com', phone: '+91 1', country: 'India', city: 'Gurugram', linkedin: 'https://linkedin.com/in/k' },
+    resume: 'resume/cv.pdf',
+    answers: { current_company: 'Blinkit', commute_ok: true, citizenship: 'India', permanent_resident_elsewhere: false },
+  });
+  const sgJob: Job = { id: 'a', title: 'APAC Regional Lead', team: '', department: '', url: 'https://jobs.lever.co/anchorage/a/apply', locations: ['Singapore'], seniority: [] };
+  const anchorageFields = extract(anchorageDoc).map(withIntent);
+  const answerFor = (re: RegExp) => {
+    const f = anchorageFields.find((x) => re.test(x.label))!;
+    return { field: f, answer: resolve(f, anchorageProfile, sgJob, optionsFor(anchorageDoc, f)) };
+  };
+
+  it('says yes to onboarding in person, from the profile rather than from the option list', () => {
+    // The label opens "…has a remote/hybrid work culture…", which the commute_ok rule's not:['remote']
+    // guard used to veto. With no intent it reached guessAnswer, which picks the first option
+    // containing the word "no" — "No, I am not willing to onboard in-person", auto-submitted.
+    const { field, answer } = answerFor(/onboard in-person/i);
+    expect(field.required).toBe(true);
+    expect(field.intent).toBe('answers.commute_ok');
+    expect(answer).toEqual({ kind: 'choice', values: ['Yes, I am able to onboard in-person'] });
+  });
+
+  it('answers a permanent-residency question about a country that is not the applicant\'s', () => {
+    const { answer } = answerFor(/permanent resident of Singapore/i);
+    expect(answer).toEqual({ kind: 'choice', values: ['NO'] });
+  });
+
+  it('leaves the same question unanswered when it names the country the applicant lives in', () => {
+    // "Are you a permanent resident of India?" is not what permanent_resident_elsewhere records,
+    // and a flat No would deny the residency he actually holds.
+    const f = { id: 'q', label: 'Are you a permanent resident of India?', kind: 'select' as const, required: false, intent: 'answers.permanent_resident_elsewhere' as const };
+    expect(resolve(f, anchorageProfile, sgJob, ['Yes', 'No'])).toEqual({ kind: 'unknown' });
+  });
+
+  it('leaves nothing required unanswered', () => {
+    const unanswered = anchorageFields
+      .filter((f) => f.required)
+      .filter((f) => resolve(f, anchorageProfile, sgJob, optionsFor(anchorageDoc, f)).kind === 'unknown')
+      .map((f) => f.label);
+    expect(unanswered).toEqual([]);
+  });
+});

@@ -40,6 +40,12 @@ const RULES: readonly Rule[] = [
   // LinkedIn Easy Apply screening questions — before the generic location / years rules.
   { intent: 'answers.top_choice', any: ['top choice'] },
   { intent: 'answers.shifts_ok', any: ['night shift', 'rotational shift', 'shift timing', 'us shift', 'uk shift', 'work in shifts', 'evening shift', 'in shifts'] },
+  // "…we require all new employees to onboard in-person. Can you commit to onboarding in-person
+  // during your first week?" (Anchorage/Lever). Must precede commute_ok: that rule is guarded with
+  // not:['remote'], and this question introduces itself with "a remote/hybrid work culture", so the
+  // guard threw the match away and the question fell through to the guesser — which reads the
+  // options, finds one starting with "No", and tells the employer the applicant will not come in.
+  { intent: 'answers.commute_ok', any: ['onboard in person', 'onboarding in person', 'in person onboarding', 'onboard in office', 'report to the office', 'attend the office'] },
   { intent: 'answers.commute_ok', any: ['comfortable commuting', 'commute to', 'commuting to', 'work from office', 'work from the office', 'from office', 'in office', 'in the office', 'on site', 'onsite', 'wfo'], not: ['remote'] },
   { intent: 'answers.remote_ok', any: ['remote setting', 'working remotely', 'hybrid setting', 'work from home', 'comfortable working remote', 'remote work', 'remotely'] },
   // Salary: the specific components first ("current fixed salary" must not become current_salary).
@@ -101,7 +107,9 @@ const RULES: readonly Rule[] = [
   // The follow-up list must be matched before the yes/no it depends on.
   { intent: 'answers.countries_lived', any: ['countries outside', 'which countries have you lived', 'countries you have lived'] },
   { intent: 'answers.lived_abroad', any: ['physically located outside', 'lived outside', 'lived or were physically located'] },
-  { intent: 'answers.permanent_resident_elsewhere', any: ['become a permanent resident', 'permanent resident in any other', 'permanent resident, asylee or refugee'] },
+  // Also the plain "Are you a permanent resident of <country>?" a job in that country asks. The
+  // resolver only answers it when the country named is NOT the user's own — see resolveDerived.
+  { intent: 'answers.permanent_resident_elsewhere', any: ['become a permanent resident', 'permanent resident in any other', 'permanent resident, asylee or refugee', 'permanent resident of', 'permanent residency of', 'permanent residency in'] },
   // Only the yes/no "are you located in any sanctioned country" — not its "which one?" follow-up.
   { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'], not: ['which sanctioned'] },
   // Only the country picker — not the "since obtaining your citizenship, did you…" yes/no follow-ups.

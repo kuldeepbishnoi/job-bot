@@ -239,6 +239,19 @@ function resolveDerived(intent: Intent, field: Field, profile: Profile, options:
   const choice = field.kind === 'select' || field.kind === 'multiselect';
   const yn = YESNO(options);
   switch (intent) {
+    // "Are you a permanent resident of Singapore?" — the profile flag means "a PR somewhere other
+    // than home", so it answers this only while the country named is not the user's own. Asked
+    // about India, a flat No would deny the residency of the country he actually lives in, and
+    // asked about his citizenship country the question is not the one the flag records.
+    case 'answers.permanent_resident_elsewhere': {
+      if (a.permanent_resident_elsewhere === undefined) return { kind: 'unknown' };
+      const home = [profile.identity.country, a.citizenship].filter((x): x is string => typeof x === 'string' && x.trim().length > 2);
+      const label = field.label.toLowerCase();
+      if (home.some((c) => label.includes(c.toLowerCase()))) return { kind: 'unknown' };
+      const v = a.permanent_resident_elsewhere;
+      if (!choice) return { kind: 'text', value: v ? 'Yes' : 'No' };
+      return yn ? { kind: 'choice', values: [v ? yn.yes : yn.no] } : { kind: 'unknown' };
+    }
     case 'answers.expected_salary':
     case 'answers.current_salary':
     case 'answers.current_fixed_salary':
@@ -421,6 +434,11 @@ const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|
 // make. NEVER guessed — not even to keep a run moving, and not even when the box is required:
 // a wrong salary can be corrected in the interview, an accepted arbitration clause cannot.
 // An explicit profile answer (or an overrides entry) still decides; only the guess path is blocked.
+// A question asking what the applicant is prepared to DO (rather than what is true of their past).
+// Saying No to one is a self-rejection, saying Yes is a promise only they can make — so neither is
+// guessable. AGREEABLE above still answers Yes to the ones phrased as plain willingness checks.
+const WILLINGNESS = /\b(commit to|willing to|prepared to|able to (start|join|attend|onboard|relocate|travel|commute|work))\b|\bcan you (commit|start|join|attend|onboard|relocate|travel)\b|\bwould you be (able|willing|prepared)\b/i;
+
 const CONSEQUENTIAL = /arbitrat|waiv|class action|binding|release of claims|indemnif|non-?compete|non-?solicit|nda\b|non-?disclosure|power of attorney|assign(ment)? of (invention|ip)|terms of service|legally bind|hold harmless|consent to (a )?(credit|drug)/i;
 
 /** True when a question's affirmative answer is a legal commitment we must not make for the user. */
@@ -443,6 +461,12 @@ export function guessAnswer(field: Field, options: readonly string[], profile?: 
   // "Are you comfortable / willing / okay with …?" — an applicant says Yes; anything else, No.
   const yn = YESNO(options);
   if (yn && AGREEABLE.test(field.label)) return { kind: 'choice', values: [yn.yes] };
+  // Defaulting to the option that starts with "No" is right for a history question ("have you ever
+  // been employed here?") and wrong for a willingness one: answering "No, I am not willing to
+  // onboard in-person" is not a cautious blank, it is an assertion that rejects the application on
+  // the applicant's behalf. We will not guess either way on those — park, and the review note names
+  // the question so one line in profile.yaml answers it (and every later form that asks it).
+  if (WILLINGNESS.test(field.label)) return null;
   const no = options.find((o) => NO.some((s) => hasWord(o, s)) || /^(none|not applicable|n\/a)\b/i.test(o.trim()));
   if (no) return { kind: 'choice', values: [no] };
   // Last resort: only for a list with no claim to overstate. Picking options[0] on a ladder

@@ -347,3 +347,26 @@ describe('answers we must never invent', () => {
     expect(resolve(f('Expected annual salary in USD'), us, job)).toEqual({ kind: 'text', value: '200000' });
   });
 });
+
+describe('guessAnswer refuses to answer for the applicant on a willingness question', () => {
+  const opts = ['Yes, I am able to onboard in-person', 'No, I am not willing to onboard in-person'];
+
+  it('parks rather than picking the No option', () => {
+    // The old fallback ("no option containing the word no") turned an unmatched required question
+    // into a self-rejection and then auto-submitted it. Neither answer is ours to give: park, and
+    // the review note carries the question so one profile line fixes it everywhere.
+    const q = f({ kind: 'multiselect', required: true, label: 'While we have a remote/hybrid work culture, we require all new employees to onboard in-person. Can you commit to onboarding in-person during your first week?' });
+    expect(guessAnswer(q, opts)).toBeNull();
+  });
+
+  it('still answers Yes to a plainly-phrased willingness check', () => {
+    // AGREEABLE runs first, so the questions we already handled keep their Yes.
+    const q = f({ kind: 'select', required: true, label: 'Are you willing to work from the office?' });
+    expect(guessAnswer(q, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
+  it('still answers No to a question about the applicant\'s history', () => {
+    const q = f({ kind: 'select', required: true, label: 'Have you ever been employed by this company?' });
+    expect(guessAnswer(q, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+  });
+});
