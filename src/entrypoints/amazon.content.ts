@@ -105,12 +105,19 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         // Crucially this never PARKS on those signals: a wrong guess must not mean zero
         // applications, which is the failure the previous version of this block would have caused.
         log('resume section: attaching', msg.resume.name);
-        az.attachResume(document, deserializeFile(msg.resume));
-        const onInput = await waitFor(() => (az.resumeAttached(document) ? true : null), 5_000).catch(() => false);
-        if (!onInput) log('résumé did not land on the input — continuing anyway', az.describeState(document));
-        // Wait for Amazon to finish uploading/parsing: stop as soon as it confirms, else ride out
-        // the same fixed budget the original code used, then let its own Continue gate decide.
-        const confirmed = await waitFor(() => (az.uploadConfirmed(document) ? true : null), 8_000).catch(() => false);
+        // Re-attach ONLY while the file is genuinely not on the input: that check is provable, and
+        // when it is false no upload has started, so retrying cannot duplicate one. Never park on
+        // these signals — "not filling is worst"; Amazon's own Continue gate is the real judge.
+        let onInput = false;
+        for (let attempt = 0; attempt < 3 && !onInput; attempt++) {
+          if (attempt) log('résumé not on the input yet — re-attaching', attempt);
+          az.attachResume(document, deserializeFile(msg.resume));
+          onInput = !!(await waitFor(() => (az.resumeAttached(document) ? true : null), 3_000).catch(() => false));
+        }
+        if (!onInput) log('résumé never landed on the input — continuing anyway', az.describeState(document));
+        // Bonus signal only, so give it a short window: it ends the wait early when it fires, and
+        // when the selector is wrong (it is unverified) this is pure dead time on every single job.
+        const confirmed = await waitFor(() => (az.uploadConfirmed(document) ? true : null), 3_000).catch(() => false);
         log('resume upload', { onInput, confirmed: !!confirmed });
         filled.push({ id: 'resume', label: 'Résumé', value: msg.resume.name });
         const cont = await waitFor(() => az.continueButton(document.body), 20_000).catch(() => null);
@@ -233,6 +240,60 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
             }
           }
         }
+      }
+
+      // Continue is NOT pressed while a required question is still blank. Advancing here is how a
+      // section reached Review with three empty dropdowns and the run looked like it was working:
+      // every fill silently did nothing, `isAnswered` stayed false, and we pressed on anyway.
+      //
+      // The note says whether the PROFILE had an answer, because that is the difference between
+      // "you need to answer this" (settings) and "we could not put your answer into the page"
+      // (a form problem) — without it the user goes and edits a profile that was already right.
+      // describeQuestions() is included verbatim: it names the control each question actually has,
+      // so "select:N" vs no control at all is what says whether Amazon changed the widget.
+      // "It must not stop — not filling / filling slowly is worst" (the owner). So parking is the
+      // LAST resort, not the first response to an empty question: re-read the section and try the
+      // answers we already have again, several times, because most empties are a control that had
+      // not mounted yet rather than a question we cannot answer. What does NOT relax is inventing
+      // an answer — retrying means more attempts at what we KNOW, never fabricating a number.
+      for (let round = 0; round < 3; round++) {
+        const empty = az.extract(form).map(withIntent).filter((f) => f.required && !az.isAnswered(document, f));
+        if (!empty.length) break;
+        log('retry round', round, 'still empty', empty.map((f) => f.id));
+        await settle(form); // the control may simply not have mounted yet
+        for (const f of empty) {
+          const options = az.optionsFor(document, f);
+          const answer = resolve(f, msg.profile, msg.job, options);
+          if (answer.kind === 'unknown') continue; // nothing of ours to put there — never invent one
+          try {
+            az.fill(document, f, answer);
+            if (az.isAnswered(document, f)) {
+              filled.push({ id: f.id, label: f.label, value: describeAnswer(answer) + (round ? ` (retry ${round})` : '') });
+            }
+          } catch (e) {
+            log('retry fill failed', f.id, (e as Error).message);
+          }
+        }
+        await sleep(250);
+      }
+
+      const stillEmpty = az.extract(form).map(withIntent).filter((f) => f.required && !az.isAnswered(document, f));
+      if (stillEmpty.length) {
+        const shape = az.describeQuestions(form);
+        const detail = stillEmpty
+          .map((f) => {
+            const options = az.optionsFor(document, f);
+            const answer = resolve(f, msg.profile, msg.job, options);
+            const had = answer.kind !== 'unknown' ? `profile HAD "${describeAnswer(answer)}"` : 'profile had no answer';
+            return `"${f.label.slice(0, 70)}" (${had}; ${options.length} options offered)`;
+          })
+          .join(' · ');
+        log('parking — required questions still empty after 5 passes, preflight and 3 retry rounds', detail, shape);
+        // Keep the section's DOM so the next person can see the real control instead of guessing.
+        void chrome.storage.local
+          .set({ [`amazon_unfilled:${msg.job.id}`]: { at: Date.now(), url: location.href, shape, html: form.outerHTML.slice(0, 200_000) } })
+          .catch(() => {});
+        return parked(`${stillEmpty.length} required question(s) would not accept an answer after every retry — ${detail} — controls: ${shape.slice(0, 200)}`);
       }
 
       // Between forms the page transitions for a few seconds (save XHR → next form or review mode);

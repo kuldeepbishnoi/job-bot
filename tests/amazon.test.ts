@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   activeForm, formKey, extract, optionsFor, isAnswered, fill, continueButton, submitButton, reviewMode, formsLoaded,
   validationErrors, isDuplicate, isApplyPage, submittedByNavigation, aiConsentStep, answerAiConsent, progress,
-  resumeInput, attachResume, resumeAttached, uploadConfirmed,
+  resumeInput, attachResume, resumeAttached, uploadConfirmed, describeQuestions,
 } from '@/ats/amazon';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
@@ -340,5 +340,100 @@ describe('amazon config defaults (#regression: the pack must work with zero conf
   it('an explicit search_url still overrides the default', () => {
     const p = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r.pdf', amazon: { search_url: 'https://www.amazon.jobs/en/search?country[]=IND' } });
     expect(p.amazon.search_url).toBe('https://www.amazon.jobs/en/search?country[]=IND');
+  });
+});
+
+// #regression (2026-09-15): a live run reached "Job-specific questions" with three required
+// dropdowns still reading "Select an option" and pressed Continue anyway — every fill had silently
+// done nothing, isAnswered stayed false, and on_unknown:'guess' meant nothing stopped the advance.
+// The application progressed with three blanks and nothing said so. These assert the two things
+// that make that diagnosable: the guard's inputs, and that describeQuestions names the control.
+describe('amazon — a required question that will not accept an answer', () => {
+  // Amazon marks a required question with `.question-label.required` (see ats/amazon.ts#toField),
+  // not a trailing asterisk in the text.
+  const question = (control: string) =>
+    `<div data-questionid="exp-AQ" class="question"><div class="question-label required"><label>Which option best describes your total experience?</label></div>${control}</div>`;
+  const NATIVE = '<select><option value="">Select an option</option><option value="3">3 to less than 5 years</option></select>';
+
+  it('isAnswered stays false while a select shows "Select an option" — the signal the guard parks on', () => {
+    const doc = parse(question(NATIVE));
+    visible(doc);
+    const field = extract(doc)[0]!;
+    expect(field.required).toBe(true);
+    expect(isAnswered(doc, field)).toBe(false);
+  });
+
+  it('and true once a real option is chosen, so the guard never blocks a section that worked', () => {
+    const doc = parse(question(NATIVE.replace('value="3"', 'value="3" selected')));
+    visible(doc);
+    expect(isAnswered(doc, extract(doc)[0]!)).toBe(true);
+  });
+
+  it('describeQuestions names the control, making "Amazon changed the widget" provable rather than guessed', () => {
+    const native = parse(question(NATIVE));
+    visible(native);
+    expect(describeQuestions(native.body)).toContain('select:2');
+
+    // The suspected live case: a styled custom dropdown with no native control in the question.
+    const custom = parse(question('<div class="dropdown" role="button"><span>Select an option</span></div>'));
+    visible(custom);
+    const shape = describeQuestions(custom.body);
+    expect(shape).toContain('exp-AQ');
+    expect(shape).not.toContain('select:'); // no native select => our fill could never have worked
+  });
+
+  it('a question with no native control yields no fillable field at all — which is why nothing reported a failure', () => {
+    const custom = parse(question('<div class="dropdown" role="button"><span>Select an option</span></div>'));
+    visible(custom);
+    expect(extract(custom)).toHaveLength(0);
+  });
+});
+
+// fixtures/amazon-select2-question.html is a REAL capture of a job-specific question (2026-09-15),
+// kept because the generated fixture has no select2 wrapper and so could never have caught a
+// select2-shaped failure. The live symptom was three of these reading "Select an option" after a
+// run; these assert the adapter handles the real markup end to end, so a future regression in
+// extraction, option reading, filling or answer-detection is caught here and not on a live run.
+describe('amazon — the REAL select2 job-specific question (captured from the live page)', () => {
+  const load2 = (): Document => {
+    const d = parse(readFileSync('fixtures/amazon-select2-question.html', 'utf8'));
+    visible(d);
+    // select2 hides the native control off-screen — reproduce that, so a visibility filter applied
+    // to the CONTROL (rather than the question) would fail this test rather than a live run.
+    const sel = d.querySelector('select') as HTMLElement;
+    sel.getClientRects = () => [] as unknown as DOMRectList;
+    Object.defineProperty(sel, 'offsetParent', { get: () => null, configurable: true });
+    return d;
+  };
+
+  it('extracts the question by its ancestor data-questionid, despite the select having no id or name', () => {
+    const doc = load2();
+    const fields = extract(doc).map(withIntent);
+    expect(fields).toHaveLength(1);
+    expect(fields[0]).toMatchObject({ id: '5546f3b9-aaaa-bbbb-cccc-AQ', kind: 'select', required: true });
+    expect(fields[0]!.intent).toBe('answers.years_of_experience');
+  });
+
+  it('reads the real option text, skipping the empty placeholder option', () => {
+    const doc = load2();
+    expect(optionsFor(doc, extract(doc)[0]!)).toEqual([
+      'less than 10 months', '10 months to less than 1 year', '1 year to less than 3 years', 'more than 3 years',
+    ]);
+  });
+
+  it('answers a 4.7-year candidate with "more than 3 years" and the value sticks', () => {
+    const doc = load2();
+    const field = extract(doc).map(withIntent)[0]!;
+    const p = parseProfile({
+      identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' },
+      resume: 'r.pdf', answers: { years_of_experience: 4.7 }, on_unknown: 'guess',
+    });
+    const answer = resolve(field, p, job, optionsFor(doc, field));
+    expect(answer).toEqual({ kind: 'choice', values: ['more than 3 years'] });
+
+    expect(isAnswered(doc, field)).toBe(false); // starts on the placeholder, like the screenshot
+    fill(doc, field, answer);
+    expect((doc.querySelector('select') as HTMLSelectElement).value).toBe('4'); // the option KEY
+    expect(isAnswered(doc, field)).toBe(true); // …and the guard now lets Continue through
   });
 });
