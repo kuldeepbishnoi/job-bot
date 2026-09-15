@@ -34,7 +34,10 @@ export const DEFAULT_GREENHOUSE_BOARDS: readonly string[] = [
 interface RawJob {
   id: number;
   title: string;
-  absolute_url: string;
+  // Optional because it is untrusted API output, not because it is usually absent: `rawToJob`
+  // already falls back to the hosted URL when it is missing (`j.absolute_url ?? ''`), and the test
+  // for that fallback could not be written while the type swore it was always there.
+  absolute_url?: string;
   location?: { name?: string | null } | null;
   company_name?: string;
   departments?: { name: string }[];
