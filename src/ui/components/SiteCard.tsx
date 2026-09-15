@@ -6,6 +6,7 @@ import type { SitePack } from '@/sites/packs';
 import type { DailySchedule } from '@/platform/schedule';
 import { dailySchedule, DAILY_HOUR } from '@/platform/schedule';
 import { packRequirements, type Requirement } from '../facts';
+import { saveProfile } from '@/platform/data/profile-store';
 import { startSite, stopRuns, resumeRun } from '../actions';
 import { profile, profileSource, resumes, runs, activeRuns, health, now } from '../store';
 import { href } from '../router';
@@ -116,6 +117,55 @@ const DRY_RUN_HELP =
   'Fills exactly one application and stops with the form open in the tab, so you can read every answer before anything is submitted. ' +
   'One job, not N: the run budget counts submitted applications, and a dry run never submits — so it ends as soon as the first job halts.';
 
+/** What pressing Start will actually do, said plainly. One global setting (Profile › Safety), shown
+ *  on every card because the card is where Start is: "auto apply is on" was a question the owner
+ *  had to leave the run page to answer, and the answer decides whether applications get sent. */
+export function autoSubmitState(p: Profile | null): { on: boolean; label: string; title: string } {
+  const on = p?.auto_submit === true;
+  return {
+    on,
+    label: on ? 'Auto-submit ON' : 'Auto-submit OFF',
+    title: on
+      ? 'Start fills each application and SUBMITS it. Applies to every site, not just this one.'
+      : 'Start fills each application and leaves it unsubmitted for your review — nothing is sent. Applies to every site, not just this one.',
+  };
+}
+
+/** The same flag as Profile › Safety, flipped from here. Writing through saveProfile means the
+ *  storage listener refreshes the shared signal, so every card re-renders together. */
+function AutoSubmit(): JSX.Element | null {
+  const p = profile.value;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!p) return null;
+  const s = autoSubmitState(p);
+  const flip = async (): Promise<void> => {
+    setBusy(true);
+    setErr('');
+    try {
+      await saveProfile({ ...p, auto_submit: !s.on }, 'ui');
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  };
+  return (
+    <>
+      <Pill tone={s.on ? 'ok' : 'warn'} title={s.title}>
+        {s.label}
+      </Pill>
+      <button class="small" disabled={busy} title={s.title} onClick={() => void flip()}>
+        {busy ? 'saving…' : s.on ? 'Turn off' : 'Turn on'}
+      </button>
+      {err && (
+        <span class="small" style={{ color: 'var(--err)' }}>
+          {err}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
   const p = profile.value;
   const res = resumes.value;
@@ -214,6 +264,7 @@ export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
       <WarningsBanner siteId={pack.id} />
 
       <div class="row wrap">
+        <AutoSubmit />
         <StartButton pack={pack} disabled={!!active} title={block ?? `start ${pack.label}`} />
         {offersDryRun(pack) && <StartButton pack={pack} dryRun disabled={!!active} title={DRY_RUN_HELP} />}
         {pack.supports.stop && (

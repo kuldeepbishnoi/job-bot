@@ -3,7 +3,7 @@ import type { Run } from '@/engine/records';
 import { EMPTY_COUNTS } from '@/engine/records';
 import type { SitePack } from '@/sites/packs';
 import type { Profile } from '@/config/schema';
-import { countsLine, hasResume, lastEndedRun, progressFor, startBlock } from '@/ui/components/SiteCard';
+import { autoSubmitState, countsLine, hasResume, lastEndedRun, progressFor, startBlock } from '@/ui/components/SiteCard';
 
 // Only the pure bits of the site card — the parts that decide what a user is told. Rendering is
 // left to the browser; these are the sentences that must never lie.
@@ -109,5 +109,22 @@ describe('startBlock', () => {
     ];
     expect(startBlock(undefined, reqs)).toBe('missing: Résumé');
     expect(startBlock(undefined, [reqs[0]!, reqs[2]!])).toBeNull();
+  });
+});
+
+describe('autoSubmitState', () => {
+  const p = (auto: boolean) => ({ auto_submit: auto }) as unknown as Parameters<typeof autoSubmitState>[0];
+
+  it('says whether Start will submit, and that the answer is global', () => {
+    // The owner asked to "turn auto apply on of everyone" — the flag is one setting shared by every
+    // pack, so a per-card toggle has to say so or it reads as this site only.
+    expect(autoSubmitState(p(true))).toMatchObject({ on: true, label: 'Auto-submit ON' });
+    expect(autoSubmitState(p(true)).title).toMatch(/every site/i);
+    expect(autoSubmitState(p(false))).toMatchObject({ on: false, label: 'Auto-submit OFF' });
+    expect(autoSubmitState(p(false)).title).toMatch(/nothing is sent/i);
+  });
+
+  it('reads a missing profile as off rather than assuming it will submit', () => {
+    expect(autoSubmitState(null).on).toBe(false);
   });
 });
