@@ -59,7 +59,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice'] },
   { intent: 'answers.immediate_joiner', any: ['immediate joiner', 'join immediately', 'can you join within', 'join us within', 'join within', 'immediately available', 'available immediately'] },
   // NEVER a bare 'notice': "Do you agree to our privacy notice?" was answered with "30".
-  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required'], not: ['privacy', 'policy', 'agree'] },
+  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join'], not: ['privacy', 'policy', 'agree'] },
   { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining'] },
   { intent: 'answers.current_company', any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
   { intent: 'answers.current_title', any: ['current designation', 'current title', 'current role', 'current job title', 'current position', 'present designation', 'present role'] },
@@ -74,7 +74,7 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.city', any: ['current city', 'current location', 'city you live', 'where are you located', 'where do you live', 'your city'] },
   // Plural / "where would you work" phrasing is the LOCATIONS question (a multi-choice of cities),
   // never "what city do you live in" — it must be tested BEFORE the bare-word city rule.
-  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you'], not: ['authorised', 'authorized'] },
+  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you', 'office locations', 'office location', 'working out of'], not: ['authorised', 'authorized'] },
   { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized', 'prefer', 'cities'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
   { intent: 'answers.how_did_you_hear', all: ['how did you hear'] },
@@ -113,7 +113,12 @@ const RULES: readonly Rule[] = [
   // Only the yes/no "are you located in any sanctioned country" — not its "which one?" follow-up.
   { intent: 'answers.sanctioned_country', any: ['sanctioned countr', 'sanctioned region'], not: ['which sanctioned'] },
   // Only the country picker — not the "since obtaining your citizenship, did you…" yes/no follow-ups.
-  { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country'] },
+  // Export-control questions ask the same fact in a much longer sentence — seen live on Lever
+  // (Zoox): "…please list any countries of which you are a citizen or legal permanent resident…".
+  // Unmapped, that reached guessAnswer and was answered "N/A", which is a false declaration on a
+  // compliance question when the profile says India. `not` keeps the sanctioned-country and
+  // permanent-resident-elsewhere rules above from being swallowed.
+  { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country', 'countries of which you are a citizen', 'country of which you are a citizen', 'citizen or legal permanent resident'], not: ['sanction', 'since obtaining'] },
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Free-text "why us" prompts (LinkedIn) — after the compliance rules so their "please provide
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
