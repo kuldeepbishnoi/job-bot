@@ -416,6 +416,29 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
       };
     }
 
+    // Never advance a step that still has an unanswered REQUIRED question. The engine had answers
+    // for both of FiduraAI's ("4.7" and "Yes"); they never reached the controls, and the run clicked
+    // Review anyway — LinkedIn then showed "Enter a decimal number larger than 0.0" and "Please
+    // enter a valid answer" on an empty form. Clicking on regardless is how a half-empty
+    // application reaches Submit; the run must stop and say which questions are empty.
+    const emptyRequired = questions.filter((f) => f.required && f.kind !== 'file' && !li.isAnswered(m, f));
+    if (emptyRequired.length) {
+      recordPrefilled(m, filled);
+      recordUnanswered(m, filled);
+      const capture = await captureNow('required-still-empty');
+      const names = emptyRequired.map((f) => `"${f.label}"`).join(', ');
+      log('parking: required questions still empty after filling', names);
+      await discard();
+      return {
+        kind: 'result',
+        status: 'parked',
+        note: `these required questions were still empty after filling: ${names}. The answers exist in the profile, so the form did not accept them — did not submit.`,
+        fields: filled,
+        resume: resumeUsed,
+        capture,
+      };
+    }
+
     const signature = `${action.kind}:${progress}:${questions.map((f) => f.id).join(',')}`;
     const repeats = (seen.get(signature) ?? 0) + 1;
     seen.set(signature, repeats);
