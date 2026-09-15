@@ -53,6 +53,14 @@ export const INTENT_CATALOG: Partial<Record<Intent, IntentMeta>> = {
   'answers.current_title': { label: 'Current job title', shape: 'text', group: 'Screening' },
   'answers.github': { label: 'GitHub profile', shape: 'text', group: 'Screening' },
   'answers.reason_for_change': { label: 'Reason for looking', shape: 'text', group: 'Screening' },
+  // The career-shape block the Lever boards ask (Termgrid asks all six, every one required). Facts
+  // only you hold, so each is never guessed: unset means the job parks with the question named.
+  'answers.current_company_years': { label: 'Years at current company', shape: 'number', group: 'Screening', help: 'Tenure, not total experience — the ladders read "Less than 1 year | 1–2 years | 3+ years".' },
+  'answers.company_size': { label: 'Size of your current employer', shape: 'text', group: 'Screening', help: 'Written as the options word it, e.g. "1000+" matches "1000+ employees".' },
+  'answers.work_capacity': { label: 'Individual contributor or manager', shape: 'text', group: 'Screening', help: '"Individual contributor" | "Individual contributor + People leader" | "People leader".' },
+  'answers.work_setup': { label: 'Preferred work setup', shape: 'text', group: 'Screening', help: 'Onsite | Hybrid | Remote. Separate from commute_ok, which answers whether you CAN.' },
+  'answers.industry': { label: 'Industry of your employers', shape: 'text', group: 'Screening' },
+  'answers.motivation': { label: 'Biggest motivation for a move', shape: 'text', group: 'Screening', help: 'Picked from the list a form offers; never guessed, because it is a statement about you.' },
 
   // Compensation
   'answers.expected_salary': { label: 'Expected salary / CTC', shape: 'number', group: 'Compensation', help: 'Numeric boxes want a number; text boxes get it as typed.' },

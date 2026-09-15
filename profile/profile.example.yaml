@@ -64,6 +64,16 @@ answers:
   shifts_ok: true                 # "Are you comfortable with night / rotational shifts?"
   current_company: "CHANGE ME"    # "Current company / employer"
   current_title: "Software Engineer"   # "Current designation / role"
+  # The shape of your career, as the Lever/Ashby boards ask it. Every one is a fact only you hold —
+  # the bot will not pick one for you, so an unset key parks the job and names the question. Write
+  # the value the way these forms word their options; matching is fuzzy, so "1000+" finds
+  # "1000+ employees" and "Remote" finds "Remote".
+  current_company_years: 3        # "How many years have you been in your current company?"
+  company_size: "1000+"           # "Size of your latest organization" — 10-100 | 100-200 | 500-1,000 | 1000+
+  work_capacity: "Individual contributor"  # …or "Individual contributor + People leader" | "People leader"
+  work_setup: "Remote"            # "What kind of work setup do you prefer?" — Onsite | Hybrid | Remote
+  industry: "Technology"          # "Which industry did your last organizations belong to?"
+  motivation: "Career growth"     # "Biggest motivation for choosing a job?" — pick the one that is true
   github: ""                      # "GitHub profile"
   reason_for_change: "Looking for a larger engineering scope and stronger ownership of production systems."
   top_choice: false               # LinkedIn "Mark job as a top choice" (3/month; opens a required 20+ char message box) — keep off

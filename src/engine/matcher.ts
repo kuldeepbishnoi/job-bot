@@ -59,8 +59,25 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice'] },
   { intent: 'answers.immediate_joiner', any: ['immediate joiner', 'join immediately', 'can you join within', 'join us within', 'join within', 'immediately available', 'available immediately'] },
   // NEVER a bare 'notice': "Do you agree to our privacy notice?" was answered with "30".
-  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join'], not: ['privacy', 'policy', 'agree'] },
+  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join', 'how soon you can join', 'how soon can you join'], not: ['privacy', 'policy', 'agree'] },
   { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining'] },
+  // Termgrid (Lever) asks six questions about the shape of the applicant's career that nothing in
+  // the profile answered, so the form parked with six required blanks — "it didn't even fill the
+  // form". These are facts only the owner holds; the rules exist so ONE line in profile.yaml
+  // answers them on every board that asks, and so they land in review.jsonl named until it does.
+  //
+  // The tenure rule must precede current_company: "How many years have you been in your current
+  // company?" contains the exact phrase "current company", so it was resolving to the company NAME
+  // and putting "Blinkit (Zomato)" up against options like "Less than 1 year | 1–2 years".
+  // Whole phrases, never all:['current'] + any:['years have you been']: Amazon's government-employee
+  // question says "Are you CURRENTLY or, in the past three YEARS, HAVE YOU BEEN a direct employee…",
+  // which satisfies both halves and stole the match.
+  { intent: 'answers.current_company_years', any: ['years have you been in your current', 'years have you been with your current', 'years in your current', 'years at your current', 'years with your current', 'long have you been in your current', 'long have you been with your current', 'long have you been at your current', 'tenure in your current', 'tenure at your current'] },
+  { intent: 'answers.company_size', any: ['size of your latest organization', 'size of your latest organisation', 'size of your current organization', 'size of your current organisation', 'size of your organization', 'size of your organisation', 'size of your company', 'company size', 'how many employees', 'headcount'] },
+  { intent: 'answers.work_capacity', any: ['what capacity did you work', 'capacity did you work in', 'capacity have you worked'] },
+  { intent: 'answers.work_setup', any: ['work setup do you prefer', 'preferred work setup', 'work mode do you prefer', 'preferred work mode', 'work arrangement do you prefer'] },
+  { intent: 'answers.industry', any: ['which industry', 'what industry', 'industry did your last', 'industry did your current', 'industry does your current'] },
+  { intent: 'answers.motivation', any: ['biggest motivation', 'motivation for choosing', 'what motivates you', 'primary motivation'] },
   { intent: 'answers.current_company', any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
   { intent: 'answers.current_title', any: ['current designation', 'current title', 'current role', 'current job title', 'current position', 'present designation', 'present role'] },
   { intent: 'answers.github', any: ['github', 'git hub'] },

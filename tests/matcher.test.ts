@@ -149,3 +149,27 @@ describe('matchIntent — broad terms must not shadow later rules', () => {
   ];
   it.each(cases)('%s', (label, intent) => expect(matchIntent(label)).toBe(intent));
 });
+
+describe('the career-shape questions a Lever board asks', () => {
+  const intentOf = (label: string) => matchIntent(label);
+
+  it('reads "how many years in your current company" as tenure, not the company name', () => {
+    // The label contains the exact phrase "current company", so it matched the rule that answers
+    // with the employer's NAME — putting "Blinkit (Zomato)" up against "Less than 1 year | 1–2 years".
+    expect(intentOf('How many years have you been in your current company?')).toBe('answers.current_company_years');
+    expect(intentOf('What is your current company?')).toBe('answers.current_company');
+    expect(intentOf('How long have you been in your current role?')).toBe('answers.current_company_years');
+  });
+
+  it('maps the rest of the Termgrid block', () => {
+    expect(intentOf('Which industry did your last organizations belong to?')).toBe('answers.industry');
+    expect(intentOf('What is the size of your latest organization?')).toBe('answers.company_size');
+    expect(intentOf('In your last roles, what capacity did you work in?')).toBe('answers.work_capacity');
+    expect(intentOf('What kind of work setup do you prefer?')).toBe('answers.work_setup');
+    expect(intentOf('What is your biggest motivation for choosing a job?')).toBe('answers.motivation');
+  });
+
+  it('answers "how soon you can join" from the notice period', () => {
+    expect(intentOf('How soon you can join?')).toBe('answers.notice_period');
+  });
+});

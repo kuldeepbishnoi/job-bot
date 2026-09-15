@@ -104,6 +104,12 @@ export type Intent =
   | 'answers.in_city' // "Are you currently located in Bangalore?" → yes iff the label names identity.city
   | 'answers.shifts_ok' // "Are you comfortable with night/rotational shifts?"
   | 'answers.current_company'
+  | 'answers.current_company_years' // "How many years have you been in your CURRENT company?" — tenure, not the name
+  | 'answers.company_size' // "What is the size of your latest organization?" (headcount bands)
+  | 'answers.work_capacity' // "In your last roles, what capacity did you work in?" (IC / IC + people leader / people leader)
+  | 'answers.work_setup' // "What kind of work setup do you prefer?" (Onsite / Hybrid / Remote)
+  | 'answers.industry' // "Which industry did your last organizations belong to?"
+  | 'answers.motivation' // "What is your biggest motivation for choosing a job?"
   | 'answers.current_title'
   | 'answers.github'
   | 'answers.reason_for_change'
