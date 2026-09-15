@@ -34,3 +34,29 @@ describe('years ranges', () => {
     expect(pickYearsOption(['Yes', 'No'], 6)).toBeNull();
   });
 });
+
+describe('mixed units, as real ATS dropdowns actually word them', () => {
+  // Captured from Amazon's live apply page (job-specific questions, 2026-09-15).
+  const amazon = ['less than 10 months', '10 months to less than 1 year', '1 year to less than 2 years', '2 years to less than 3 years', 'more than 3 years'];
+
+  it('a 4.7-year candidate is offered the open-ended top bucket, not a months-range', () => {
+    // The bug: "10 months to less than 1 year" parsed as 1–10 YEARS and swallowed 4.7, telling
+    // the employer this candidate had under a year of experience on a 3+ years role.
+    expect(pickYearsOption(amazon, 4.7)).toBe('more than 3 years');
+  });
+
+  it('each number keeps its own unit', () => {
+    expect(yearsRange('10 months to less than 1 year')).toEqual({ min: 10 / 12, max: 1, maxInclusive: false });
+    expect(yearsRange('less than 10 months')).toEqual({ min: 0, max: 10 / 12, maxInclusive: false });
+  });
+
+  it('still lands inside a months bucket when that is the truth', () => {
+    expect(pickYearsOption(amazon, 0.9)).toBe('10 months to less than 1 year');
+    expect(pickYearsOption(amazon, 0.5)).toBe('less than 10 months');
+    expect(pickYearsOption(amazon, 2.5)).toBe('2 years to less than 3 years');
+  });
+
+  it('never understates: more experience than any bucket names picks the top one', () => {
+    expect(pickYearsOption(amazon, 25)).toBe('more than 3 years');
+  });
+});

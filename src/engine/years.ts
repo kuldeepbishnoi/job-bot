@@ -12,12 +12,29 @@ interface Range {
 
 const num = (s: string): number => Number.parseFloat(s.replace(',', '.'));
 
+/** Numbers in a range label, each converted using the unit that follows IT (not the label's
+ *  dominant unit): "10 months to less than 1 year" -> [0.833, 1], not [10, 1]. A number with no
+ *  unit of its own borrows the next one in the label ("1 to 2 years"), else years. */
+function numbersInYears(t: string): number[] {
+  const tokens = [...t.matchAll(/(\d+(?:[.,]\d+)?)\s*(months?|mos?\b|years?|yrs?)?/g)];
+  const units = tokens.map((m) => m[2]);
+  return tokens.map((m, i) => {
+    const raw = num(m[1]!);
+    // Borrow the first unit stated after this number, so an unqualified leading number is not
+    // silently treated as years when the label is talking about months.
+    const unit = units[i] ?? units.slice(i + 1).find((u) => u !== undefined);
+    return /^mo/.test(unit ?? '') ? raw / 12 : raw;
+  });
+}
+
 /** Parse an option label into a numeric range, or null if it doesn't look like one. */
 export function yearsRange(label: string): Range | null {
   const t = label.toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
   if (/^(none|no experience|no prior experience)\b/.test(t)) return { min: 0, max: 0, maxInclusive: true };
-  const inMonths = /\bmonths?\b/.test(t) && !/\byears?\b/.test(t);
-  const nums = (t.match(/\d+(?:[.,]\d+)?/g)?.map(num) ?? []).map((n) => (inMonths ? n / 12 : n));
+  // Each number carries ITS OWN unit: Amazon offers "10 months to less than 1 year", where a
+  // whole-label unit test reads both sides as years and the option becomes the range 1–10 YEARS —
+  // which then swallows a 4.7-year candidate and tells the employer they have under a year.
+  const nums = numbersInYears(t);
   if (nums.length === 0) return null;
 
   // "N or less" / "N or fewer" / "up to N" -> [0, N]
