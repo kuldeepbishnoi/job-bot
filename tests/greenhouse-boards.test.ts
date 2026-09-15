@@ -35,6 +35,22 @@ describe('greenhouse boards discovery', () => {
     expect(j.locations).toContain('Remote');
   });
 
+  // #regression (2026-09-15): the pack always built job-boards.greenhouse.io/<board>/jobs/<id>.
+  // Measured live, ~30% of the curated boards host their own careers page instead, and for every
+  // one of those the hosted URL returns 200 with NO form (coinbase 403s) — we would have opened a
+  // formless page and failed every job on airbnb, coinbase, brex, asana, stripe and the rest.
+  it('uses the company\'s own apply URL when the board does not use the hosted page', () => {
+    const own = rawToJob('airbnb', { id: 1, title: 'SWE', absolute_url: 'https://careers.airbnb.com/positions/8184174?gh_jid=8184174' });
+    expect(own.url).toBe('https://careers.airbnb.com/positions/8184174?gh_jid=8184174');
+  });
+
+  it('keeps the hosted page when that IS where the board applies', () => {
+    const hosted = rawToJob('anthropic', { id: 2, title: 'SWE', absolute_url: 'https://job-boards.greenhouse.io/anthropic/jobs/2' });
+    expect(hosted.url).toBe('https://job-boards.greenhouse.io/anthropic/jobs/2');
+    // …and falls back to it when the API gives us nothing to go on.
+    expect(rawToJob('anthropic', { id: 3, title: 'SWE' }).url).toBe('https://job-boards.greenhouse.io/anthropic/jobs/3');
+  });
+
   it('skips a broken board and keeps the rest; refuses only when every board fails', async () => {
     const fetchImpl = (async (url: string) => {
       if (url.includes('/discord/')) return { ok: true, json: async () => board } as Response;

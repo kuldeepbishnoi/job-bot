@@ -88,14 +88,34 @@ export function parseLocationName(name: string | null | undefined): string[] {
   return out;
 }
 
+/**
+ * Where this job's application form actually lives.
+ *
+ * The hosted page `job-boards.greenhouse.io/<board>/jobs/<id>` is the right answer only for boards
+ * that USE it. Measured on 2026-09-15: ~30% of the curated boards host their own careers page
+ * instead (airbnb, coinbase, brex, asana, stripe, alloy, cockroachlabs, consensys, bitwarden,
+ * classpass…), and for every one of those the hosted URL still returns 200 with NO form at all —
+ * coinbase 403s outright. We would have opened a formless page and failed every job on them.
+ *
+ * The API's own `absolute_url` is where the company actually takes applicants. When that is on a
+ * greenhouse host, it IS the hosted page and nothing changes. When it is the company's own site,
+ * the form is embedded there as an iframe — the same shape as Datadog, which the embed content
+ * script already handles, so the apply path is unchanged. A company page that instead rolls its own
+ * form will fail, but it fails today too, now with a frame description saying why.
+ */
+export function applyUrl(board: string, j: RawJob): string {
+  const own = j.absolute_url ?? '';
+  if (own && !/(^|\.)greenhouse\.io\//.test(own)) return own;
+  return `${HOSTED}/${board}/jobs/${j.id}`;
+}
+
 export function rawToJob(board: string, j: RawJob): Job {
   return {
     id: String(j.id),
     title: j.title,
     team: '',
     department: j.departments?.[0]?.name ?? '',
-    // Always the hosted page (a known host with the known form), never the company's own site.
-    url: `${HOSTED}/${board}/jobs/${j.id}`,
+    url: applyUrl(board, j),
     locations: parseLocationName(j.location?.name),
     seniority: [],
     company: j.company_name || board,

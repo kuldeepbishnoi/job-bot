@@ -388,7 +388,19 @@ function toAnswer(val: AnswerValue, field: Field, options: readonly string[]): A
   const wanted = Array.isArray(val) ? val : [val];
   const picked = matchOptions(options, wanted);
   // No options yet (a live-search picker) → pass the text through; the adapter types it.
-  if (picked.length === 0) return options.length ? { kind: 'unknown' } : { kind: 'choice', values: wanted };
+  if (picked.length === 0 && !options.length) return { kind: 'choice', values: wanted };
+  if (picked.length === 0) {
+    // "How did you hear about us?" is a per-company list, so one fixed profile string cannot match
+    // every form: the owner's "Amazon Career Site" is simply not among Zoox's options, and that
+    // BLOCKED an otherwise complete application on a question of no consequence. When the answer we
+    // hold is genuinely absent from the list, "Other" is the honest choice — it claims nothing —
+    // and it only applies to this intent, never to a question where the answer matters.
+    if (field.intent === 'answers.how_did_you_hear') {
+      const other = options.find((o) => /^\s*other\b/i.test(o) || /\bother\s*$/i.test(o));
+      if (other) return { kind: 'choice', values: [other] };
+    }
+    return { kind: 'unknown' };
+  }
   return { kind: 'choice', values: field.kind === 'select' ? picked.slice(0, 1) : picked };
 }
 
@@ -439,7 +451,11 @@ const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|
 // guessable. AGREEABLE above still answers Yes to the ones phrased as plain willingness checks.
 const WILLINGNESS = /\b(commit to|willing to|prepared to|able to (start|join|attend|onboard|relocate|travel|commute|work))\b|\bcan you (commit|start|join|attend|onboard|relocate|travel)\b|\bwould you be (able|willing|prepared)\b/i;
 
-const CONSEQUENTIAL = /arbitrat|waiv|class action|binding|release of claims|indemnif|non-?compete|non-?solicit|nda\b|non-?disclosure|power of attorney|assign(ment)? of (invention|ip)|terms of service|legally bind|hold harmless|consent to (a )?(credit|drug)/i;
+// Legal commitments, plus DECLARATIONS OF FACT to a government-facing process. "N/A" on an export
+// control or immigration question is not a cautious blank — it is a false statement made in the
+// user's name on a form that asks precisely because the answer has legal weight. If no intent maps
+// one of these, it parks and the user answers it once in profile.yaml.
+const CONSEQUENTIAL = /arbitrat|waiv|class action|binding|release of claims|indemnif|non-?compete|non-?solicit|nda\b|non-?disclosure|power of attorney|assign(ment)? of (invention|ip)|terms of service|legally bind|hold harmless|consent to (a )?(credit|drug)|export control|export licens|deemed export|itar|ear99|sanction|embargo|citizen or legal permanent resident|immigration status|right to work|visa status|security clearance/i;
 
 /** True when a question's affirmative answer is a legal commitment we must not make for the user. */
 export function isConsequential(label: string): boolean {
@@ -453,6 +469,12 @@ export function guessAnswer(field: Field, options: readonly string[], profile?: 
   if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
   if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
+  // WHERE the user is willing to work is theirs to state, like compensation or an experience
+  // bucket (invariant 13). Seen live on Lever (Spotify): options "London | Stockholm" for a
+  // Bengaluru-based applicant, and because a two-option list is not a ladder we could not
+  // overstate, the old fallback picked London — a work-location preference they never expressed,
+  // on a question whose own text says to leave it blank if you want remote. Leave it blank.
+  if (field.intent === 'locations') return null;
   const decline = optionForToken('DECLINE', options);
   if (decline) return { kind: 'choice', values: [decline] };
   const country = profile?.identity.country?.trim().toLowerCase();
