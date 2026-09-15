@@ -13,7 +13,9 @@
 // Server-rendered boards only (Lever, Greenhouse hosted): one GET is the whole form. A React board
 // that assembles itself client-side (Ashby, Workday, LinkedIn) needs a real browser — use
 // `npm run mitm -- <url>` and capture from there, then pass --file to read what it dumped.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { Window } from 'happy-dom';
 import { parse as parseYaml } from 'yaml';
 import { parseProfile } from '../src/config/schema.ts';
@@ -34,7 +36,7 @@ const flag = (n: string): string | undefined => {
 const target = args.find((a) => !a.startsWith('--') && args[args.indexOf(a) - 1]?.startsWith('--') !== true);
 const fromFile = flag('--file');
 if (!target && !fromFile) {
-  console.error('usage: npm run probe -- <apply-url> [--save <path>] [--as lever|greenhouse] [--file <html>]');
+  console.error('usage: npm run probe -- <apply-url> [--save <path>] [--as lever|greenhouse] [--file <html>] [--profile <yaml>]');
   process.exit(2);
 }
 
@@ -75,7 +77,34 @@ window.document.write(
 );
 const doc = window.document as unknown as Document;
 
-const profile = parseProfile(parseYaml(readFileSync('profile/profile.yaml', 'utf8')));
+// WHICH profile answered is half the result. This reads profile/profile.yaml relative to the
+// working directory, so running it from a git worktree reads that worktree's copy — a stale one
+// there once reported "Current company -> N/A" and sent a session hunting a resolver bug that did
+// not exist. Name the file and its age, and say so out loud when it predates the installed build.
+const profilePath = flag('--profile') ?? 'profile/profile.yaml';
+const profile = parseProfile(parseYaml(readFileSync(profilePath, 'utf8')));
+const profileAge = statSync(profilePath).mtime;
+console.log(`profile: ${resolvePath(profilePath)}  (saved ${profileAge.toISOString().slice(0, 16).replace('T', ' ')})`);
+// A linked git worktree has its own profile/ — and profile.yaml is git-ignored, so it is whatever
+// copy happened to be there, frozen on the day the worktree was made. Comparing mtimes against the
+// build would fire on every run (the build is rebuilt constantly, the profile rarely); comparing
+// against the MAIN checkout's copy fires only when the two have actually drifted, which is the case
+// that sent a session chasing a resolver bug that was really a September 4 profile.
+try {
+  const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], { encoding: 'utf8' }).trim();
+  const commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim();
+  if (resolvePath(gitDir) !== resolvePath(commonDir)) {
+    const mainCopy = resolvePath(commonDir, '..', 'profile/profile.yaml');
+    const mine = resolvePath(profilePath);
+    if (mainCopy !== mine && readFileSync(mainCopy, 'utf8') !== readFileSync(mine, 'utf8')) {
+      console.log(`  NOTE: this is a worktree, and its profile DIFFERS from ${mainCopy}.`);
+      console.log('        An answer that looks wrong below may be this file, not the code. Re-run with --profile to compare.');
+    }
+  }
+} catch {
+  // Not a git checkout, or no copy in the main tree — nothing to compare, so nothing to say.
+}
+
 // The job only feeds location-shaped answers; its title is what the JD-derived ones would use.
 const job: Job = { id: 'probe', title: doc.querySelector('h2')?.textContent?.trim() ?? '', team: '', department: '', url: target ?? '', locations: [doc.querySelector('.location')?.textContent?.trim() ?? ''].filter(Boolean), seniority: [] };
 
