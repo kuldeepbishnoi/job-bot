@@ -315,4 +315,25 @@ describe('Stop actually stops', () => {
     expect(await getRunState()).toBeNull();
     expect((await listRuns()).at(-1)?.phase).toBe('stopped');
   });
+  it('signed out: pauses ONCE on the login page instead of failing every job (#regression 2026-10-04: Amazon "kept restarting")', async () => {
+    let calls = 0;
+    const opened: string[] = [];
+    const { ports, recorded } = fakePorts([job('a1'), job('a2'), job('a3')], async () => {
+      calls++;
+      throw new Error('not logged in: Amazon sent the apply page to sign-in');
+    });
+    ports.openJob = async (url) => (opened.push(url), 1);
+    await startRun('amazon', profile, resume, ports, [], undefined, 'manual');
+
+    const state = await getRunState();
+    expect(state?.paused?.reason).toMatch(/not logged in/);
+    expect(state?.cursor).toBe(0); // the job is retried after Resume, not written off
+    expect(recorded).toHaveLength(0); // a sign-out is not a job outcome
+    expect(opened.at(-1)).toMatch(/applicant\/login/);
+    expect((await listRuns()).at(-1)?.phase).toBe('paused');
+
+    await step(ports); // a stray alarm/timer while paused does nothing
+    await watchdog(ports);
+    expect(calls).toBe(1);
+  });
 });

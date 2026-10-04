@@ -77,3 +77,14 @@ describe('amazon.jobs discovery', () => {
     await expect(discoverAmazonJobs(PAGE_URL, fetchImpl)).rejects.toThrow(/boom/);
   });
 });
+
+describe('amazon site — signed-out detection', () => {
+  it('knows its sign-in pages, and never mistakes the apply app or a submit landing for one', async () => {
+    const { amazon } = await import('@/sites/amazon');
+    expect(amazon.isLoginPage!('https://passport.amazon.jobs/signin?returnUrl=%2Fapplicant%2Fjobs%2F123%2Fapply')).toBe(true);
+    expect(amazon.isLoginPage!('https://www.amazon.jobs/applicant/login')).toBe(true);
+    expect(amazon.isLoginPage!('https://www.amazon.jobs/en/applicant/login?x=1')).toBe(true);
+    expect(amazon.isLoginPage!('https://www.amazon.jobs/applicant/jobs/3075915/apply')).toBe(false);
+    expect(amazon.isLoginPage!('https://www.amazon.jobs/applicant/jobs/3075915/summary?result=duplicate')).toBe(false);
+  });
+});

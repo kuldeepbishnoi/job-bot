@@ -15,4 +15,8 @@ export const amazon: Site = {
   submittedUrl: submittedByNavigation,
   logoutUrl: 'https://account.amazon.jobs/logout',
   loginUrl: 'https://www.amazon.jobs/applicant/login',
+  // Logged out, /applicant/jobs/<id>/apply redirects to passport.amazon.jobs (or the applicant
+  // login page), where no apply content script runs — the job used to fail on a frame timeout and
+  // the next one reopened the same login page, every ~20 s, for the whole queue.
+  isLoginPage: (url) => /^https:\/\/(passport|account)\.amazon\.jobs\//i.test(url) || /amazon\.jobs\/[a-z-]*\/?applicant\/login/i.test(url),
 };

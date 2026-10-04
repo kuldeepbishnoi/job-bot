@@ -16,4 +16,10 @@ export interface Site {
    *  where the user logs the next one in. The bot never types credentials — it pauses. */
   readonly logoutUrl?: string;
   readonly loginUrl?: string;
+  /** True when the apply URL bounced to a sign-in page — the session is gone, so every job in the
+   *  queue would bounce the same way. The stepper pauses instead of failing them one by one. */
+  isLoginPage?(url: string): boolean;
 }
+
+/** The note a job gets when its apply page redirected to sign-in. The stepper matches on it. */
+export const NOT_LOGGED_IN = 'not logged in';

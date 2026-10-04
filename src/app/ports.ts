@@ -7,6 +7,7 @@ import { record, appliedIds, saveProgress, getProgress } from '../platform/store
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
+import { NOT_LOGGED_IN } from '../sites/site';
 import type { Profile } from '../config/schema';
 import type { Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
@@ -112,7 +113,13 @@ export function chromePorts(): RunPorts {
     appliedIds,
     openJob,
     apply: async (site, tabId, profile, job, resume) => {
-      await waitForFrame(tabId);
+      const onLogin = async (): Promise<boolean> => !!site.isLoginPage?.((await chrome.tabs.get(tabId).catch(() => null))?.url ?? '');
+      if (await onLogin()) throw new Error(`${NOT_LOGGED_IN}: ${site.label} sent the apply page to sign-in`);
+      await waitForFrame(tabId).catch(async (e: Error) => {
+        // The redirect can land after the load we waited for — look again before blaming the frame.
+        if (await onLogin()) throw new Error(`${NOT_LOGGED_IN}: ${site.label} sent the apply page to sign-in`);
+        throw e;
+      });
       const ctx = { jobId: job.id, siteId: site.id };
       elog('info', 'apply', `${job.id} ${job.title}`, { url: job.url }, ctx);
       try {
