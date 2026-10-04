@@ -33,7 +33,7 @@ export default defineContentScript({
         // `ready` is the point of the handshake: the embed's bootstrap document answers a ping too,
         // and it is replaced moments later. Only a document that actually holds the form can be
         // filled, so say which one this is rather than just "a script is here".
-        respond({ pong: true, ready: gh.submitButton(document) !== null, confirmed: gh.confirmed(document), why: location.href });
+        respond({ pong: true, ready: gh.submitButton(document) !== null, confirmed: gh.confirmed(document), otp: gh.needsOtp(document), why: location.href });
         return true;
       }
       if (msg.t === 'apply') {
@@ -188,12 +188,22 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     }
 
     log('all fields processed, clicking submit');
+    // Say so BEFORE the click, durably: on Datadog the embed replaces this document the instant the
+    // submit is accepted, so the reply below never arrives. Without this the background took the
+    // closed port for a frame swap mid-fill, filled the fresh form and submitted AGAIN — every
+    // Datadog job on 2026-10-04 was applied to twice (two "Thank you for applying" emails each).
+    await chrome.storage.local.set({ [submitClickedKey(msg.job.id)]: { at: Date.now(), filled: records() } });
     click(gh.submitButton(document)!);
     return { ...(await afterSubmit(msg.job.id)), filled: records() };
   } catch (e) {
     dlog('greenhouse', `[${msg.job.id}]`, 'apply error', (e as Error).message, '—', describeFrame());
     return { status: 'error', note: String((e as Error).message) };
   }
+}
+
+/** Shared with app/ports.ts: the marker that a submit was clicked for this job. */
+function submitClickedKey(jobId: string): string {
+  return `submit_clicked:${jobId}`;
 }
 
 async function doOtp(code: string, autoSubmit: boolean): Promise<OtpOutcome> {

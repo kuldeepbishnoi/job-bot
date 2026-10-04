@@ -73,6 +73,15 @@ async function outcomeAfterPortClosed(site: Site, tabId: number, jobId: string, 
   return { status: 'submitted', note: `submitted — page moved on to ${url}`, ...(filled ? { filled } : {}) };
 }
 
+/** The content script's "I clicked Submit for this job" marker (greenhouse.content.ts), consumed once. */
+async function submitClicked(jobId: string): Promise<{ filled?: ApplyOutcome['filled'] } | null> {
+  const key = `submit_clicked:${jobId}`;
+  const got = (await chrome.storage.local.get(key).catch(() => ({}))) as Record<string, { at: number; filled?: ApplyOutcome['filled'] } | undefined>;
+  const mark = got[key];
+  await chrome.storage.local.remove(key).catch(() => {});
+  return mark && Date.now() - mark.at < 10 * 60_000 ? mark : null;
+}
+
 /** A closed port can mean the document was replaced mid-apply (the Greenhouse embed does exactly
  *  that). That is recoverable — but only after proving we would not be applying twice. So: wait for
  *  the real form frame again, ask it whether this application is already confirmed, and retry ONLY
@@ -122,6 +131,7 @@ export function chromePorts(): RunPorts {
       });
       const ctx = { jobId: job.id, siteId: site.id };
       elog('info', 'apply', `${job.id} ${job.title}`, { url: job.url }, ctx);
+      await chrome.storage.local.remove(`submit_clicked:${job.id}`).catch(() => {}); // only THIS attempt's click counts
       try {
         const out = await withTimeout(
           sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit }),
@@ -132,6 +142,21 @@ export function chromePorts(): RunPorts {
         return out;
       } catch (e) {
         elog('warn', 'apply', `${job.id} port closed: ${(e as Error).message}`, undefined, ctx);
+        // Submit was already clicked → the closed port IS the submit landing. Never refill: that
+        // was a second application to the same job (2026-10-04, every Datadog job twice).
+        const clicked = await submitClicked(job.id);
+        if (clicked) {
+          // The replacement page may be Greenhouse's emailed-code step rather than a confirmation:
+          // then the application is NOT done — hand it to the OTP path instead of calling it applied.
+          const next = await waitForFrame(tabId, 12).then(() => sendToTab<{ otp?: boolean }>(tabId, { t: 'ping' })).catch(() => null);
+          if (next?.otp) {
+            elog('info', 'outcome', `${job.id} submit landed on the emailed-code step`, undefined, ctx);
+            return { status: 'needs_otp', ...(clicked.filled ? { filled: clicked.filled } : {}) };
+          }
+          const out: ApplyOutcome = { status: 'submitted', note: 'submitted — the form was replaced right after Submit (the ATS moved on)', ...(clicked.filled ? { filled: clicked.filled } : {}) };
+          elog('info', 'outcome', `${job.id} submitted (port closed after the submit click)`, undefined, ctx);
+          return out;
+        }
         const retried = await retryAfterFrameSwap(site, tabId, profile, job, resume, ctx);
         if (retried) return retried;
         const out = await outcomeAfterPortClosed(site, tabId, job.id, e);
