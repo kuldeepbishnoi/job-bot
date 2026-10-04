@@ -22,6 +22,10 @@ describe('2026-10-04 board questions map to the right intent', () => {
     ['Do you have any close personal relationships (e.g. family members, domestic partners, friends, etc.) currently working at 1Password that might create a conflict of interest (or the perception of one)?', undefined],
     ['Current company', 'answers.current_company'],
     ['Acknowledge/Confirm', 'answers.acknowledge_true'],
+    ['compensation expectation', 'answers.expected_salary'],
+    ['Are you over the age of 18?', 'answers.over_18'],
+    ['Are you 18 or older?', 'answers.over_18'],
+    ['Please tell us how you heard about this opportunity.', 'answers.how_did_you_hear'],
     ['What is it about this job that appeals to you?', 'answers.cover_letter'],
     ['Do you have a Bachelor\'s degree?', 'answers.degree_bachelors'],
   ];
@@ -66,5 +70,14 @@ describe('2026-10-04 answers', () => {
     const box = (label: string) => resolve(withIntent({ id: 'c', label, kind: 'checkbox', required: false }), p2, job('Amsterdam'), []);
     expect(box('Acknowledge/Confirm')).toEqual({ kind: 'check', value: true });
     expect(box('Please acknowledge the mutual arbitration agreement').kind).toBe('unknown');
+  });
+
+  it('an unlabelled referral-source list ("Please check all that apply:") is answered as how-did-you-hear', () => {
+    const opts = ['Friend', 'Recruiter/current employee', 'LinkedIn', 'AngelList', 'Other'];
+    expect(resolve(withIntent({ id: 'h', label: 'Please check all that apply:', kind: 'multiselect', required: true }), profile, job('Remote'), opts)).toEqual({ kind: 'choice', values: ['Other'] });
+  });
+
+  it('LinkedIn "compensation expectation" for an India job is the profile figure, not a park', () => {
+    expect(ans('compensation expectation', 'text', 'India (Remote)')).toEqual({ kind: 'text', value: '7000000' });
   });
 });

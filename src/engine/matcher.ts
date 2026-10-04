@@ -51,7 +51,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.commute_ok', any: ['comfortable commuting', 'commute to', 'commuting to', 'work from office', 'work from the office', 'from office', 'in office', 'in the office', 'on site', 'onsite', 'wfo'], not: ['remote'] },
   { intent: 'answers.remote_ok', any: ['remote setting', 'working remotely', 'hybrid setting', 'work from home', 'comfortable working remote', 'remote work', 'remotely'] },
   // Salary: the specific components first ("current fixed salary" must not become current_salary).
-  { intent: 'answers.expected_salary', any: ['expected salary', 'expected ctc', 'salary expectation', 'desired salary', 'expected compensation', 'expected annual', 'salary you are looking', 'expected pay', 'expected package', 'salary expectations', 'expectation in', 'expected fixed', 'expected variable', 'expected total', 'expected gross'] },
+  { intent: 'answers.expected_salary', any: ['expected salary', 'expected ctc', 'salary expectation', 'desired salary', 'expected compensation', 'expected annual', 'salary you are looking', 'expected pay', 'expected package', 'salary expectations', 'expectation in', 'expected fixed', 'expected variable', 'expected total', 'expected gross', 'compensation expectation', 'pay expectation', 'ctc expectation', 'salary requirement', 'desired compensation', 'desired pay'] },
   // Longer phrasings (Lever: "Expected Monthly Fixed (Base) Salary in …") — anything with "expected" is never a current_* answer.
   { intent: 'answers.expected_salary', all: ['expected'], any: ['salary', 'ctc', 'compensation', 'pay', 'package'] },
   { intent: 'answers.current_variable_salary', any: ['variable salary', 'variable pay', 'variable component', 'current variable', 'variable ctc'], not: ['expected'] },
@@ -89,7 +89,8 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.reason_for_change', any: ['reason for change', 'reason for job change', 'why are you looking', 'reason for leaving', 'looking for a change', 'why do you want to leave', 'reason to change', 'why are you leaving'] },
   { intent: 'answers.in_city', any: ['located in', 'based in', 'based out of', 'residing in', 'staying in', 'living in', 'reside in', 'currently in', 'located at'], not: ['relocat', 'willing', 'open to', 'comfortable', 'work from', 'sanction', 'countr'] },
   { intent: 'answers.background_check', any: ['background check', 'background verification'] },
-  { intent: 'answers.over_18', any: ['18 years', 'at least 18', 'over 18', 'legal age'] },
+  // "Are you over the age of 18?" (Gopuff) slipped past these and the guess answered No — a minor.
+  { intent: 'answers.over_18', any: ['18 years', 'at least 18', 'over 18', 'legal age', 'age of 18', '18 or older', '18 years of age', 'eighteen'] },
   { intent: 'answers.language_proficiency', any: ['level of proficiency', 'proficiency in', 'proficient in english', 'english proficiency', 'level of english'] },
   { intent: 'answers.drivers_license', any: ['driver s license', 'drivers license', 'driving license', 'driving licence', 'driver s licence'] },
   { intent: 'answers.security_clearance', any: ['security clearance', 'clearance'] },
@@ -99,7 +100,7 @@ const RULES: readonly Rule[] = [
   { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you', 'office locations', 'office location', 'working out of'], not: ['authorised', 'authorized'] },
   { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized', 'prefer', 'cities'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
-  { intent: 'answers.how_did_you_hear', any: ['how did you hear', 'how did you first learn', 'how did you learn about', 'where did you hear', 'how did you find out about', 'how did you find this', 'source of application'] },
+  { intent: 'answers.how_did_you_hear', any: ['how did you hear', 'how you heard', 'hear about this', 'hear about us', 'how did you first learn', 'how did you learn about', 'where did you hear', 'how did you find out about', 'how did you find this', 'source of application'] },
   { intent: 'answers.how_did_you_hear_detail', any: ['please specify'] },
   { intent: 'answers.education_level', any: ['education level', 'highest degree', 'level of education', 'highest qualification', 'educational qualification', 'highest education'], not: ['bachelor', 'master s', 'masters'] },
   { intent: 'answers.school_name', any: ['school name', 'name of institution', 'university name', 'your school'] },

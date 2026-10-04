@@ -101,8 +101,11 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     if (outcome === 'captcha') return parked('hCaptcha challenge shown — solve it and click Submit yourself');
     if (outcome?.startsWith('error:')) return parked(`Lever rejected the form: ${outcome.slice(6)}`);
     // No signal within the wait: the navigation usually killed us before this point; if we are
-    // still here, tell the orchestrator so it checks the tab URL.
-    return { status: 'error', note: 'no confirmation after submit (still on the apply page)', filled: records() };
+    // still here, say what the page shows. An hCaptcha challenge that is mounted but not yet laid out
+    // was the likeliest cause on 2026-10-04 (matchgroup) and is the user's to solve.
+    const challenge = document.querySelector('iframe[src*="hcaptcha.com"][src*="challenge"], iframe[title*="hCaptcha challenge" i]');
+    if (challenge) return parked('hCaptcha challenge after Submit — solve it and click Submit yourself');
+    return { status: 'error', note: 'no confirmation after submit (still on the apply page, no captcha or form error shown)', filled: records() };
   } catch (e) {
     log('apply error', (e as Error).message);
     return { status: 'error', note: String((e as Error).message), filled: records() };

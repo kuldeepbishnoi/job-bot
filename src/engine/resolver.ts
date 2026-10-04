@@ -43,6 +43,9 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
 const MAX_YEARS_TEXT = 10;
 
 export function resolve(field: Field, profile: Profile, job: Job, options: readonly string[] = []): Answer {
+  // A referral-source list under a label that names nothing ("Please check all that apply:" on
+  // Hive's Lever form) is still "how did you hear" — the options say so.
+  if (!field.intent && looksLikeSourceList(options)) field = { ...field, intent: 'answers.how_did_you_hear' };
   // Only fill file inputs when we know they want the resume — otherwise (cover letter,
   // transcripts, portfolio uploads) leave them alone. Any file field without resume intent
   // was previously getting the resume attached, which is wrong.
@@ -531,6 +534,11 @@ const CONSEQUENTIAL = /arbitrat|waiv|class action|binding|release of claims|inde
 /** True when a question's affirmative answer is a legal commitment we must not make for the user. */
 export function isConsequential(label: string): boolean {
   return CONSEQUENTIAL.test(label);
+}
+
+function looksLikeSourceList(options: readonly string[]): boolean {
+  const t = options.join(' | ');
+  return /\blinkedin\b/i.test(t) && /\b(friend|referral|recruiter|job board|indeed|glassdoor|advertisement)\b/i.test(t);
 }
 
 const NEVER_GUESS_TEXT = /^(identity\.|answers\.(expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
