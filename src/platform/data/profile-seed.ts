@@ -16,7 +16,11 @@ export interface ProfileSeed {
   readonly yaml: string;
   readonly resume: { readonly name: string; readonly type: string; readonly base64: string } | null;
   readonly from?: string;
+  /** registry.jsonl's applied job ids — excluded from every run (store.ts#appliedIds). */
+  readonly applied?: readonly string[];
 }
+
+export const SEED_APPLIED_KEY = 'seed_applied_ids';
 
 const SEED_HASH_KEY = 'profile_seed_hash';
 
@@ -38,6 +42,9 @@ export async function readSeed(): Promise<ProfileSeed | null> {
 
 export async function importSeed(seed: ProfileSeed | null): Promise<SeedResult> {
   if (!seed) return { status: 'none' };
+  // The applied list is not part of "the profile": refresh it every time, so a registry line added
+  // after the last profile import still stops a repeat — and never overwrites a dashboard edit.
+  if (seed.applied) await chrome.storage.local.set({ [SEED_APPLIED_KEY]: [...seed.applied] });
   const got = await chrome.storage.local.get(SEED_HASH_KEY);
   if (got[SEED_HASH_KEY] === seed.hash) return { status: 'unchanged' };
 

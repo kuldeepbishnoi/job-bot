@@ -153,8 +153,14 @@ export async function allRecords(): Promise<Application[]> {
   return readAll();
 }
 
+/** Every job id never to apply to again: this browser's applied records, plus the on-disk
+ *  registry's (every account, every machine) that `npm run install:chrome` ships in the profile
+ *  seed under `seed_applied_ids` (profile-seed.ts) — readable here without the folder grant. */
 export async function appliedIds(): Promise<Set<string>> {
-  return appliedJobIds(await readAll());
+  const ids = appliedJobIds(await readAll());
+  const got = await chrome.storage.local.get('seed_applied_ids');
+  for (const id of (got['seed_applied_ids'] as string[] | undefined) ?? []) ids.add(id);
+  return ids;
 }
 
 export async function parked(): Promise<Application[]> {

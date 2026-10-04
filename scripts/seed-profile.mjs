@@ -36,7 +36,13 @@ if (resumePath && existsSync(resumePath)) {
 } else {
   console.log(`seed: résumé "${resumeRel}" not found under ${profileDir} — the extension keeps its stored résumé`);
 }
+// The cross-account "never apply twice" list. The extension reads it from the profile folder only
+// with a folder grant; shipping it here makes every run honour it without one.
+const registryPath = join(profileDir, 'applications', 'registry.jsonl');
+const applied = existsSync(registryPath)
+  ? [...new Set(readFileSync(registryPath, 'utf8').split('\n').flatMap((l) => { try { const r = JSON.parse(l); return r.status === 'applied' && r.jobId ? [String(r.jobId)] : []; } catch { return []; } }))]
+  : [];
 const hash = createHash('sha256').update(yaml).update(resume?.base64 ?? '').digest('hex').slice(0, 16);
 mkdirSync(join(target, 'seed'), { recursive: true });
-writeFileSync(join(target, 'seed', 'profile.json'), JSON.stringify({ hash, yaml, resume, from: yamlPath }));
-console.log(`seed: ${yamlPath}${resume ? ` + ${resume.name}` : ''} → ${join(target, 'seed/profile.json')} (${hash}) — reload JobBot to apply`);
+writeFileSync(join(target, 'seed', 'profile.json'), JSON.stringify({ hash, yaml, resume, applied, from: yamlPath }));
+console.log(`seed: ${yamlPath}${resume ? ` + ${resume.name}` : ''} → ${join(target, 'seed/profile.json')} (${hash}), ${applied.length} already-applied job ids — reload JobBot to apply`);

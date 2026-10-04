@@ -53,4 +53,14 @@ describe('profile seed', () => {
     expect((await loadStoredProfile())!.profile).toEqual(before);
     expect((await importSeed(null)).status).toBe('none');
   });
+
+  it('the registry it ships is excluded from every run, and refreshes without re-importing the profile', async () => {
+    const { appliedIds } = await import('@/platform/store');
+    await importSeed({ ...seed('h1'), applied: ['8249202'] });
+    const edited = { ...(await loadStoredProfile())!.profile, max_per_run: 3 };
+    await saveProfile(edited, 'ui');
+    expect((await importSeed({ ...seed('h1'), applied: ['8249202', '4599111'] })).status).toBe('unchanged');
+    expect([...(await appliedIds())].sort()).toEqual(['4599111', '8249202']);
+    expect((await loadStoredProfile())!.profile.max_per_run).toBe(3); // the dashboard edit stands
+  });
 });
