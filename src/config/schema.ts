@@ -91,6 +91,10 @@ export const ProfileSchema = z.object({
   // ATSes enforce no daily cap of their own — deleting this line must not mean "apply to
   // everything discovered". Set `max_per_run: 0` to genuinely lift the limit.
   max_per_run: z.number().int().nonnegative().default(50),
+  // Never stop (owner, 2026-10-04: "it should keep on applying … it should not stop ever"): when a
+  // site runs out of jobs, look again this many minutes later for new postings, until Stop. 0 = off
+  // (a run ends when its queue does). Applied jobs are always excluded, so a repeat only finds new ones.
+  repeat_every_minutes: z.number().int().nonnegative().default(0),
   // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
   careers: z.array(z.string().url()).default([]),
   // Multi-account: every login you apply from (one Chrome profile each, all sharing this folder).

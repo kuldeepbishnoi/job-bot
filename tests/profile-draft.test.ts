@@ -47,6 +47,7 @@ const VALID: Profile = {
   careers: [],
   accounts: [],
   max_per_run: 50,
+  repeat_every_minutes: 0,
   greenhouse: { boards: [], include_defaults: false },
   lever: { boards: [], include_defaults: false },
   ashby: { boards: [], include_defaults: false },

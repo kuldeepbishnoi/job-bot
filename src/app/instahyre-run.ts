@@ -48,7 +48,10 @@ async function waitReady(tabId: number, tries = 40): Promise<void> {
 
 /** Kick off the in-page apply loop. The content script drives it and reports back via runtime
  *  messages (handled in background.ts); this just finds the tab and starts it. */
-export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual', want?: Want): Promise<void> {
+export async function startInstahyre(trigger: 'manual' | 'daily' | 'repeat' = 'manual', want?: Want, repeatEveryMinutes = 0): Promise<void> {
+  // Never stop (owner, 2026-10-04): remember how to start again, so a finished loop looks for new
+  // postings later. Stop removes this.
+  await chrome.storage.local.set({ [AGAIN_CFG]: { want, repeatEveryMinutes } });
   const tabId = await ensureOppsTab();
   await waitReady(tabId);
   const runId = await observe.runStarted({
@@ -65,6 +68,21 @@ export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual', wan
   await sendToTab(tabId, { t: 'instahyre-apply', want });
 }
 
+export const INSTAHYRE_AGAIN_ALARM = 'jobbot-instahyre-again';
+const AGAIN_CFG = 'instahyre_again';
+
+/** The repeat alarm: reload the opportunities tab (new postings) and run the loop again. */
+export async function instahyreAgain(): Promise<void> {
+  const cfg = (await chrome.storage.local.get(AGAIN_CFG))[AGAIN_CFG] as { want?: Want; repeatEveryMinutes: number } | undefined;
+  if (!cfg) return; // stopped meanwhile
+  const [tab] = await chrome.tabs.query({ url: `${OPPS_URL}*` });
+  if (tab?.id !== undefined) await chrome.tabs.reload(tab.id).catch(() => {});
+  await sleep(4000);
+  await startInstahyre('repeat', cfg.want, cfg.repeatEveryMinutes).catch(async () => {
+    await chrome.alarms.create(INSTAHYRE_AGAIN_ALARM, { delayInMinutes: Math.max(1, cfg.repeatEveryMinutes) }); // try next interval
+  });
+}
+
 /** Popup/console -> background: end an Instahyre run.
  *
  *  The loop lives in the PAGE, so this has to reach the page — clearing background state does not
@@ -75,6 +93,8 @@ export async function startInstahyre(trigger: 'manual' | 'daily' = 'manual', wan
  */
 export async function stopInstahyre(): Promise<void> {
   const runId = await currentRunId();
+  await chrome.storage.local.remove(AGAIN_CFG); // stop means stop — no "look again later"
+  await chrome.alarms.clear(INSTAHYRE_AGAIN_ALARM);
   const [tab] = await chrome.tabs.query({ url: `${OPPS_URL}*` });
   if (tab?.id !== undefined) await sendToTab(tab.id, { t: 'instahyre-stop' }).catch(() => {});
   if (!runId) return; // nothing running — Stop is a no-op, not an error
@@ -116,6 +136,8 @@ export async function finishInstahyre(applied: number, skipped = 0, stopped = fa
     return;
   }
   await observe.runEnded(runId, 'done', `opportunities exhausted — ${applied} applied, ${skipped} skipped`);
+  const cfg = (await chrome.storage.local.get(AGAIN_CFG))[AGAIN_CFG] as { repeatEveryMinutes: number } | undefined;
+  if (cfg && cfg.repeatEveryMinutes > 0) await chrome.alarms.create(INSTAHYRE_AGAIN_ALARM, { delayInMinutes: cfg.repeatEveryMinutes });
   await setRunId(null);
   await saveProgress({ done: applied, total: applied, current: 'Instahyre', phase: 'done', at: Date.now() });
   void send({ t: 'runDone' }).catch(() => {});

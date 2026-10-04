@@ -1,7 +1,7 @@
 import { defineBackground } from 'wxt/sandbox';
-import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, kickQueue, STEP_ALARM, WATCHDOG_ALARM, siteFromStepAlarm } from '@/app/stepper';
+import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, kickQueue, runAgain, STEP_ALARM, WATCHDOG_ALARM, siteFromStepAlarm, siteFromAgainAlarm } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
-import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre } from '@/app/instahyre-run';
+import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre, instahyreAgain, INSTAHYRE_AGAIN_ALARM } from '@/app/instahyre-run';
 import {
   startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning, onLinkedinAlive,
   linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
@@ -103,7 +103,7 @@ export default defineBackground(() => {
     if (msg.t === 'runInstahyre') {
       (async () => {
         try {
-          await startInstahyre('manual', msg.want);
+          await startInstahyre('manual', msg.want, msg.repeatEveryMinutes);
           sendResponse({ ok: true });
         } catch (e) {
           sendResponse({ ok: false, error: String((e as Error).message) });
@@ -133,6 +133,15 @@ export default defineBackground(() => {
 
   chrome.alarms.onAlarm.addListener((alarm) => {
     // Each site's run has its own step alarm (`jobbot-step:<site>`) — sites apply in parallel.
+    const againSite = siteFromAgainAlarm(alarm.name);
+    if (againSite) {
+      void runAgain(chromePorts(againSite), againSite);
+      return;
+    }
+    if (alarm.name === INSTAHYRE_AGAIN_ALARM) {
+      void instahyreAgain();
+      return;
+    }
     const stepSite = siteFromStepAlarm(alarm.name);
     if (stepSite) {
       void step(chromePorts(stepSite), stepSite);

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { installChromeRuntimeFake, type ChromeRuntimeFake } from './helpers/chrome-extras';
-import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP, queuedSites, kickQueue } from '@/app/stepper';
+import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP, queuedSites, kickQueue, runAgain } from '@/app/stepper';
 import type { RunPorts } from '@/app/runner';
 import { listRuns } from '@/platform/data/runs';
 import { queryEvents, clearEvents } from '@/platform/data/events';
@@ -367,6 +367,24 @@ describe('Stop actually stops', () => {
     expect((await getRunState('greenhouse'))?.siteId).toBe('greenhouse');
     expect(await getRunState('lever')).not.toBeNull();
     expect(await queuedSites()).toEqual([]);
+  });
+
+  it('never stops: a site out of jobs looks again later for NEW postings, until Stop (#2026-10-04)', async () => {
+    const repeating = parseProfile({ ...profile, repeat_every_minutes: 30 });
+    const { ports, recorded } = fakePorts([job('r1')]);
+    await startRun('lever', repeating, resume, ports, [], undefined, 'manual'); // r1
+    await step(ports, 'lever'); // queue exhausted → finish → look again in 30 min
+    expect(await getRunState('lever')).toBeNull();
+    expect(chrome.calls.alarmsCreated['jobbot-again:lever']).toEqual({ delayInMinutes: 30 });
+
+    // 30 min later the alarm fires: a NEW posting appeared; the applied one is excluded.
+    ports.discover = async () => [job('r1'), job('r2')];
+    ports.appliedIds = async () => new Set(recorded.filter((a) => a.status === 'applied').map((a) => a.jobId));
+    await runAgain(ports, 'lever');
+    await vi.waitFor(async () => expect(recorded.map((a) => a.jobId)).toEqual(['r1', 'r2']));
+
+    await stopRun(ports); // and Stop cancels the next look
+    expect(chrome.calls.alarmsCleared).toContain('jobbot-again:lever');
   });
 
   it('two Greenhouse-family sites share one lane (their emailed codes name no job) — never at once', async () => {

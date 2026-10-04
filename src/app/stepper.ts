@@ -386,8 +386,9 @@ export async function stopRun(ports: RunPorts, siteId?: string): Promise<void> {
   // Stop with no site = stop EVERYTHING (the popup's Stop): every running site, and the queue.
   const states = (await listRunStates()).filter((s) => !siteId || s.siteId === siteId);
   if (!siteId) await chrome.storage.local.remove(RUN_QUEUE_KEY);
+  await cancelAgain(siteId, states.map((s) => s.siteId));
   if (!states.length) return void (await ports.cleanup()); // no worker run — just tidy the window
-  for (const s of states) await finish(bound(ports, s.siteId), s.siteId, 'stopped by you', 'stopped');
+  for (const s of states) await finish(bound(ports, s.siteId), s.siteId, 'stopped by you', 'stopped'); // 'stopped' never arms a repeat
 }
 
 /** Every exit goes through here, and every exit names its reason — a run that ends silently is
@@ -401,7 +402,47 @@ async function finish(ports: RunPorts, siteId: string, reason: string, phase: 'd
   await observe.runEnded(state?.runId ?? null, phase, reason); // only ever this run's id — another pack's may be active
   const p = await getProgress(siteId);
   await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: reason, phase: 'done', at: Date.now() }, siteId);
+  // Never stop: a site that ran out of jobs looks again later for new postings, until Stop.
+  const every = state?.profile.repeat_every_minutes ?? 0;
+  if (phase === 'done' && state && every > 0 && /^queue exhausted/.test(reason)) {
+    await chrome.storage.local.set({ [againKey(siteId)]: { siteId, profile: state.profile, resume: state.resume, exclude: [], ...(state.credentials ? { credentials: state.credentials } : {}), trigger: 'repeat' } satisfies QueuedRun });
+    await chrome.alarms.create(againAlarm(siteId), { delayInMinutes: every });
+    await observe.event('info', 'run', `${siteId}: no jobs left — looking again for new postings in ${every} min`, undefined, { siteId });
+  }
   await startNextQueued(ports, phase, laneOf(siteId));
+}
+
+// ---- repeat: a finished site looks again for new postings (profile.repeat_every_minutes) ----------
+export const AGAIN_ALARM = 'jobbot-again';
+const againAlarm = (siteId: string): string => `${AGAIN_ALARM}:${siteId}`;
+const againKey = (siteId: string): string => `run_again:${siteId}`;
+export const siteFromAgainAlarm = (name: string): string | null => (name.startsWith(`${AGAIN_ALARM}:`) ? name.slice(AGAIN_ALARM.length + 1) : null);
+
+/** The repeat alarm fired: start the site again with the inputs it last ran with. */
+export async function runAgain(ports: RunPorts, siteId: string): Promise<void> {
+  const q = (await chrome.storage.local.get(againKey(siteId)))[againKey(siteId)] as QueuedRun | undefined;
+  if (!q) return; // Stop cleared it
+  await chrome.storage.local.remove(againKey(siteId));
+  await startRun(q.siteId, q.profile, q.resume, bound(ports, siteId), q.exclude, q.credentials, 'repeat', { detachFirstStep: true, queueIfBusy: true }).catch(async (e: Error) => {
+    // Discovery down, say — never let one bad round end "forever": try again next interval.
+    await observe.event('warn', 'run', `${siteId}: repeat could not start (${e.message}) — retrying in ${q.profile.repeat_every_minutes} min`, undefined, { siteId });
+    await chrome.storage.local.set({ [againKey(siteId)]: q });
+    await chrome.alarms.create(againAlarm(siteId), { delayInMinutes: Math.max(1, q.profile.repeat_every_minutes) });
+  });
+}
+
+/** Stop must also cancel the "look again later" — stop means stop. */
+async function cancelAgain(siteId?: string, running: readonly string[] = []): Promise<void> {
+  // A running site has no stored repeat yet, but its finish would arm one — clear its alarm too.
+  for (const id of running) await chrome.alarms.clear(againAlarm(id));
+  const all = await chrome.storage.local.get(null);
+  for (const k of Object.keys(all)) {
+    if (!k.startsWith('run_again:')) continue;
+    const id = k.slice('run_again:'.length);
+    if (siteId && id !== siteId) continue;
+    await chrome.storage.local.remove(k);
+    await chrome.alarms.clear(againAlarm(id));
+  }
 }
 
 // ---- the run queue: Start while another site runs = "next", not an error ----------------------

@@ -65,7 +65,7 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
       // want.titles_any/titles_none: Instahyre's own "matching" queue and its full search board
       // both offer plenty of non-engineering roles, and neither is filtered by us without this.
       const { profile } = await resolveRunInputs({ allowFolder: true });
-      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre', want: profile.want });
+      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre', want: profile.want, repeatEveryMinutes: profile.repeat_every_minutes });
       return res ?? { ok: false, error: 'no answer from the background' };
     }
 

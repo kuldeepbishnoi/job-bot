@@ -16,7 +16,9 @@ import type { Want } from '@/config/schema';
 //      when a page runs out. Dedupe by card identity so an already-handled card is never reopened.
 // The whole loop lives here in the page (not a background long-runner, which MV3 would kill).
 
-const MAX_APPLIES = 200; // safety cap so a runaway loop can't hammer the ATS
+// No cap (owner, 2026-10-04: "there won't be any limit … it should not stop ever"). The title
+// filter decides WHAT is applied to; Stop ends it; the background re-runs it for new postings.
+const MAX_APPLIES = Number.POSITIVE_INFINITY;
 const SETTLE_MS = 1400; // let AngularJS run its digest + load the next opportunity
 const GAP_MS = 800; // human-like pause between applies
 // FAIL CLOSED on a missing want. Until 2026-09-15 this loop had no title filter at all and applied
