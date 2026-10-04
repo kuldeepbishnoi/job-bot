@@ -618,7 +618,9 @@ async function answerField(m: Element, field: Field, profile: Profile, job: Job,
   let source: FieldSource = profile.overrides[field.label.trim()] !== undefined ? 'override' : 'profile';
   // A question about pay or employer with NO intent is still a question about pay or employer:
   // "How much do you earn currently?" used to fall through and get a fabricated 1.
-  const moneyOrEmployer = /salary|ctc|compensation|cost to company|earn|remuneration|emolument|current (company|employer|organi[sz]ation)|present (company|employer)/i.test(field.label);
+  // Whole words: a bare /earn/ matched "l-earn-ing", so "…unlock new ways of working, learning…"
+  // (an AI-tools question) parked as a salary question on 2026-10-04.
+  const moneyOrEmployer = /\b(salary|ctc|compensation|cost to company|earn(s|ing|ings)?|remuneration|emoluments?)\b|current (company|employer|organi[sz]ation)|present (company|employer)/i.test(field.label);
   if (answer.kind === 'unknown' && field.required && (moneyOrEmployer || (field.intent && NEVER_GUESS.has(field.intent)))) {
     const key = (field.intent ?? 'current_salary').replace(/^answers\./, '');
     log('WILL NOT GUESS', JSON.stringify(field.label), `— add \`answers.${key}\` to profile.yaml`);

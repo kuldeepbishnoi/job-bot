@@ -57,12 +57,12 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.current_variable_salary', any: ['variable salary', 'variable pay', 'variable component', 'current variable', 'variable ctc'], not: ['expected'] },
   { intent: 'answers.current_fixed_salary', any: ['fixed salary', 'fixed ctc', 'fixed pay', 'fixed component', 'current fixed', 'base salary', 'fixed compensation'], not: ['expected'] },
   { intent: 'answers.total_ctc', any: ['total ctc', 'fixed variable', 'total compensation', 'total salary', 'overall ctc', 'current total', 'gross salary', 'gross ctc', 'annual package', 'current package'], not: ['expected'] },
-  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary', 'cost to company', 'how much do you earn', 'how much are you earning', 'your salary', 'salary you are drawing', 'current remuneration', 'current emoluments'], not: ['expected'] },
+  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'last drawn', 'drawn ctc', 'current last drawn', 'present drawn', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary', 'cost to company', 'how much do you earn', 'how much are you earning', 'your salary', 'salary you are drawing', 'current remuneration', 'current emoluments'], not: ['expected'] },
   { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice'] },
   { intent: 'answers.immediate_joiner', any: ['immediate joiner', 'join immediately', 'can you join within', 'join us within', 'join within', 'immediately available', 'available immediately'] },
   // NEVER a bare 'notice': "Do you agree to our privacy notice?" was answered with "30".
   { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join', 'how soon you can join', 'how soon can you join'], not: ['privacy', 'policy', 'agree'] },
-  { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining'] },
+  { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining', 'could you start', 'can you start', 'start working', 'notice before starting'] },
   // Termgrid (Lever) asks six questions about the shape of the applicant's career that nothing in
   // the profile answered, so the form parked with six required blanks — "it didn't even fill the
   // form". These are facts only the owner holds; the rules exist so ONE line in profile.yaml
@@ -108,7 +108,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.currently_student', any: ['currently a student', 'currently enrolled'] },
   { intent: 'answers.graduation', any: ['when did you graduate', 'graduation date', 'year of graduation'] },
   { intent: 'answers.relevant_experience', any: ['relevant non internship professional experience', 'relevant professional experience'] },
-  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above', 'acknowledge confirm', 'acknowledge and confirm', 'please acknowledge'] },
+  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above', 'acknowledge confirm', 'acknowledge and confirm', 'please acknowledge', 'acknowledged'] },
   { intent: 'answers.privacy_consent', any: ['candidate privacy', 'privacy policy', 'privacy notice', 'processed in accordance'] },
   { intent: 'answers.gender', all: ['gender'] },
   { intent: 'answers.hispanic_latino', any: ['hispanic', 'latino'] },
@@ -145,7 +145,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Free-text "why us" prompts (LinkedIn) — after the compliance rules so their "please provide
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
-  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'appeals to you', 'excites you about', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
+  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'appeals to you', 'appeal to you', 'resonate with you', 'excites you about', 'interests you about', 'interests you', 'drew you to', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
   { intent: 'answers.roles_of_interest', any: ['roles of interest', 'areas of interest', 'specific roles', 'teams are you interested', 'what kind of role', 'type of role'] },
   // Screening questions.
   { intent: 'answers.exact_years_of_experience', any: ['exact years', 'exact number of years', 'precisely how many years', 'exactly how many years'] },

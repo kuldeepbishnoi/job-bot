@@ -30,11 +30,13 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
   'identity.last_name': (p) => p.identity.last_name,
   'identity.full_name': (p) => `${p.identity.first_name} ${p.identity.last_name}`.trim(),
   'identity.preferred_name': (p) => p.identity.preferred_name || p.identity.first_name,
+  // No personal site: the GitHub profile is the honest "website" (a REQUIRED Website box parked a
+  // LinkedIn job on 2026-10-04 with nothing to put in it).
+  'identity.website': (p) => p.identity.website || (typeof p.answers['github'] === 'string' ? (p.answers['github'] as string) : ''),
   'identity.email': (p) => p.identity.email,
   'identity.phone': (p) => p.identity.phone,
   'identity.country': (p) => p.identity.country,
   'identity.linkedin': (p) => p.identity.linkedin,
-  'identity.website': (p) => p.identity.website,
   'identity.city': (p) => p.identity.city,
 };
 
@@ -73,6 +75,16 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     // past the step would commit the applicant to something only they can agree to.
     if (isConsequential(field.label)) return { kind: 'unknown' };
     return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
+  }
+
+  // "Are you an EU citizen?" / "Are you a citizen of the United States?" — a fact the profile holds
+  // (answers.citizenship). Yes only when the place named IS that citizenship; Affirm parked on it.
+  if (!intent && /\bcitizens?\b/i.test(field.label) && !/\bsince obtaining\b/i.test(field.label)) {
+    const yn = YESNO(options);
+    const citizenship = typeof profile.answers['citizenship'] === 'string' ? (profile.answers['citizenship'] as string).toLowerCase() : '';
+    if (yn && citizenship && /\b(are|is) you\b|\bare you a\b|\bcitizen of\b|\beu citizen\b/i.test(field.label)) {
+      return { kind: 'choice', values: [field.label.toLowerCase().includes(citizenship) ? yn.yes : yn.no] };
+    }
   }
 
   if (!intent) return { kind: 'unknown' };

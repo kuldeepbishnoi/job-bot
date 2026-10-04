@@ -25,6 +25,13 @@ describe('2026-10-04 board questions map to the right intent', () => {
     ['compensation expectation', 'answers.expected_salary'],
     ['Are you over the age of 18?', 'answers.over_18'],
     ['Are you 18 or older?', 'answers.over_18'],
+    ['What aspects of the cryptocurrency industry appeal to you, and how do they align with your career goals?', 'answers.cover_letter'],
+    ['What aspects of startup culture resonate with you, and how do you believe they align with your work style?', 'answers.cover_letter'],
+    ['How did you hear about Alchemy?', 'answers.how_did_you_hear'],
+    ['Acknowledged', 'answers.acknowledge_true'],
+    ['What is your Current/Last drawn CTC(in LPA)?', 'answers.current_salary'],
+    ['When could you start working?', 'answers.start_date'],
+    ['What about Baseten and this role interests you?', 'answers.cover_letter'],
     ['Please tell us how you heard about this opportunity.', 'answers.how_did_you_hear'],
     ['What is it about this job that appeals to you?', 'answers.cover_letter'],
     ['Do you have a Bachelor\'s degree?', 'answers.degree_bachelors'],
@@ -79,5 +86,17 @@ describe('2026-10-04 answers', () => {
 
   it('LinkedIn "compensation expectation" for an India job is the profile figure, not a park', () => {
     expect(ans('compensation expectation', 'text', 'India (Remote)')).toEqual({ kind: 'text', value: '7000000' });
+  });
+
+  it('"Are you an EU citizen?" is answered from answers.citizenship — Yes only for that country', () => {
+    const p2 = parseProfile({ ...profile, answers: { ...profile.answers, citizenship: 'India' } });
+    const q = (label: string) => resolve(withIntent({ id: 'c', label, kind: 'select', required: true }), p2, job('Amsterdam'), ['Yes', 'No']);
+    expect(q('Are you an EU citizen (a citizen of European Union Member State)?')).toEqual({ kind: 'choice', values: ['No'] });
+    expect(q('Are you a citizen of India?')).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
+  it('a REQUIRED Website with no personal site gets the GitHub profile', () => {
+    const p2 = parseProfile({ ...profile, answers: { ...profile.answers, github: 'https://github.com/k' } });
+    expect(resolve(withIntent({ id: 'w', label: 'Website', kind: 'text', required: true }), p2, job('Remote'), [])).toEqual({ kind: 'text', value: 'https://github.com/k' });
   });
 });
