@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wxt",
     "build": "wxt build",
-    "install:chrome": "wxt build && mkdir -p ~/.jobbot/extension && rsync -a --delete .output/chrome-mv3/ ~/.jobbot/extension/ && node scripts/seed-profile.mjs",
+    "install:chrome": "wxt build && mkdir -p ~/.jobbot/extension && rsync -a --delete .output/chrome-mv3/ ~/.jobbot/extension/ && node scripts/seed-profile.mjs && node scripts/install-native-host.mjs",
     "seed:profile": "node scripts/seed-profile.mjs",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",

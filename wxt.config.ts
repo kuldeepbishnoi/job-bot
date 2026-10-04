@@ -45,9 +45,9 @@ export default defineConfig({
     // Least privilege: only what the code actually uses.
     // storage = applications/stats + run state; tabs = drive the worker tab + find Gmail;
     // alarms = step the queue across service-worker restarts; identity = Gmail API OAuth for the OTP.
-    // downloads (+ .ui to keep the bar quiet): records, captures and the full log go to
-    // ~/Downloads/jobbot when the profile folder is not linked — no user step (owner, 2026-10-04).
-    permissions: ['storage', 'tabs', 'alarms', 'identity', 'downloads', 'downloads.ui'],
+    // nativeMessaging: records, captures and the full log reach profile/applications through
+    // JobBot's own local host when the folder is not linked — no click, no dialog (owner, 2026-10-04).
+    permissions: ['storage', 'tabs', 'alarms', 'identity', 'nativeMessaging'],
     // Screenshots of every LinkedIn attempt (the review step before Submit; the failure state) go
     // to the profile folder. `chrome.tabs.captureVisibleTab` needs `<all_urls>` or activeTab — host
     // permissions are not enough (0 of 312 records ever got one). OPTIONAL: the popup asks when

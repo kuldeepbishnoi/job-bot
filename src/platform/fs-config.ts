@@ -5,7 +5,7 @@ import { parseProfile, type Profile } from '../config/schema';
 import { serializeFile, type SerializedFile } from './serialized-file';
 import type { Application } from '../engine/types';
 import { parseCredentialsCsv, type Credentials } from './credentials';
-import { saveToDownloads, saveLogChunk } from './download-disk';
+import { nativeAppend, nativeWrite } from './native-disk';
 
 const HANDLE_KEY = 'profileDirHandle';
 const RECORDS_DIR = 'applications';
@@ -136,8 +136,8 @@ export async function writeRecord(app: Application): Promise<void> {
   try {
     const dir = await getHandle();
     if (!dir || (await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-      // No folder link → the same record into ~/Downloads/jobbot, with no user step.
-      await persistToDownloads(app);
+      // No folder link → the same record through the native host, with no user step.
+      await persistToDisk(app);
       return;
     }
     const records = await dir.getDirectoryHandle(RECORDS_DIR, { create: true });
@@ -333,7 +333,7 @@ export interface ReviewLine {
  *  popup flush catches up later, without the capture). */
 export async function persistApplication(app: Application): Promise<boolean> {
   const dir = await recordsDir();
-  if (!dir) return persistToDownloads(app); // no folder link: ~/Downloads/jobbot, no user step
+  if (!dir) return persistToDisk(app); // no folder link: the native host writes the same files
   const key = `${app.jobId}@${app.at ?? app.date}`;
   const got = await chrome.storage.local.get(FLUSHED_KEY);
   const flushed = new Set((got[FLUSHED_KEY] as string[] | undefined) ?? []);
@@ -368,19 +368,30 @@ export async function persistApplication(app: Application): Promise<boolean> {
   return true;
 }
 
-/** No profile-folder grant: the same record, captures and review lines into ~/Downloads/jobbot/
- *  (platform/download-disk.ts). One JSON file per attempt — downloads cannot append. */
-export async function persistToDownloads(app: Application): Promise<boolean> {
+/** No profile-folder grant: the SAME files, through JobBot's native host (platform/native-disk.ts)
+ *  into profile/applications — records, registry, review lines and captures. No user step. */
+export async function persistToDisk(app: Application): Promise<boolean> {
   const { screenshot, capture, ...rec } = app;
-  const stamp = `${app.date}_${app.company}_${app.jobId}_${app.status}`.replace(/[^A-Za-z0-9._-]+/g, '-');
+  const stamp = `${app.date}_${app.jobId}_${app.status}`.replace(/[^A-Za-z0-9._-]+/g, '-');
   const files: string[] = [];
   const shot = capture?.screenshot ?? screenshot;
   if (shot) {
     const ext = /image\/png/.test(shot.slice(0, 20)) ? 'png' : 'jpg';
-    if (await saveToDownloads(`captures/${stamp}.${ext}`, shot)) files.push(`captures/${stamp}.${ext}`);
+    if (await nativeWrite(`${CAPTURES_DIR}/${stamp}.${ext}`, shot)) files.push(`${CAPTURES_DIR}/${stamp}.${ext}`);
   }
-  if (capture?.html && (await saveToDownloads(`captures/${stamp}.html`, capture.html, 'text/html'))) files.push(`captures/${stamp}.html`);
-  return saveToDownloads(`records/${stamp}.json`, JSON.stringify({ ...rec, log: app.log ?? [], captureLabel: capture?.label, files }, null, 1), 'application/json');
+  if (capture?.html && (await nativeWrite(`${CAPTURES_DIR}/${stamp}.html`, capture.html))) files.push(`${CAPTURES_DIR}/${stamp}.html`);
+  const ok = await nativeAppend(APPLICATIONS_JSONL, JSON.stringify({ ...rec, log: app.log ?? [], captureLabel: capture?.label, files }) + '\n');
+  if (!ok) return false; // no host installed
+  const r: RegistryLine = { jobId: app.jobId, company: app.company, account: app.account ?? '', date: app.date, status: app.status };
+  await nativeAppend(REGISTRY_JSONL, JSON.stringify(r) + '\n');
+  const review = (app.fields ?? [])
+    .filter((f) => f.error || !f.source || f.source === 'guessed' || f.source === 'coerced' || f.source === 'unanswered' || (!f.intent && f.source !== 'prefilled'))
+    .map<ReviewLine>((f) => ({
+      at: app.at ?? new Date().toISOString(), company: app.company, jobId: app.jobId, title: app.title, url: app.url, status: app.status,
+      label: f.label, kind: f.kind, intent: f.intent, options: f.options, value: f.value, source: f.source ?? 'unknown', error: f.error,
+    }));
+  if (review.length) await nativeAppend(REVIEW_JSONL, review.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  return true;
 }
 
 /** Append debug-log lines to `applications/log-<yyyy-mm-dd>.txt` — the complete, uncapped run log
@@ -388,7 +399,17 @@ export async function persistToDownloads(app: Application): Promise<boolean> {
 export async function appendLogLines(lines: readonly string[]): Promise<boolean> {
   if (!lines.length) return true;
   const dir = await recordsDir();
-  if (!dir) return saveLogChunk(lines); // no folder link: ~/Downloads/jobbot/logs
+  if (!dir) {
+    // No folder link: append through the native host, one call per day file.
+    const byDay = new Map<string, string[]>();
+    for (const l of lines) {
+      const d = /^\d{4}-\d\d-\d\d/.test(l) ? l.slice(0, 10) : new Date().toISOString().slice(0, 10);
+      byDay.set(d, [...(byDay.get(d) ?? []), l]);
+    }
+    let ok = true;
+    for (const [day, ls] of byDay) ok = (await nativeAppend(`log-${day}.txt`, ls.join('\n') + '\n')) && ok;
+    return ok;
+  }
   const byDay = new Map<string, string[]>();
   for (const l of lines) {
     const day = l.slice(0, 10);
