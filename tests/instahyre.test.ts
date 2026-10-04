@@ -161,6 +161,22 @@ describe('instahyre adapter — search-list fallback', () => {
     expect(nextPageButton(doc)!.getAttribute('ng-click')).toBe('nextPage()');
   });
 
+  it('a "View job »" card is ONE card, identified by its heading (#regression 2026-10-04 layout)', () => {
+    const doc = parse(`<div class="list"><div class="wrap">
+      <div class="opp"><h3><a ng-click="openApplyModal(opp)">CapsLock - Golang Developer</a></h3><button ng-click="openApplyModal(opp)">View job »</button><a ng-click="submitChoice(opp, false)">Not interested</a></div>
+      <div class="opp"><h3>Swiggy - Golang Developer</h3><button ng-click="openApplyModal(opp)">View job »</button></div>
+      <div class="opp"><h3>Razorpay - Backend Engineer</h3><button ng-click="openApplyModal(opp)">View job »</button></div></div></div>`);
+    visible(doc);
+    const ids = openModalLinks(doc).map((el) => cardId(el));
+    expect(ids).toEqual(['CapsLock - Golang Developer', 'Swiggy - Golang Developer', 'Razorpay - Backend Engineer']);
+  });
+
+  it('a disabled "Next »" on the last page is no pager at all', () => {
+    const doc = parse(`<li class="disabled"><a ng-click="nextPage()">Next »</a></li>`);
+    visible(doc);
+    expect(nextPageButton(doc)).toBeNull();
+  });
+
   it('finds the modal close control', () => {
     const doc = parse(`<div class="application-modal"><a ng-click="closeApplyModal()">×</a></div>`);
     visible(doc);
