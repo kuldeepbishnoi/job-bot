@@ -28,8 +28,8 @@ export default defineBackground(() => {
     if (msg.t === 'run') {
       (async () => {
         try {
-          await startRun(msg.siteId, msg.profile, msg.resume, chromePorts(), msg.exclude ?? [], msg.credentials, 'manual', { detachFirstStep: true });
-          sendResponse({ ok: true });
+          const r = await startRun(msg.siteId, msg.profile, msg.resume, chromePorts(), msg.exclude ?? [], msg.credentials, 'manual', { detachFirstStep: true, queueIfBusy: true });
+          sendResponse({ ok: true, ...(r.queuedBehind ? { note: `Queued — starts by itself when ${r.queuedBehind} finishes` } : {}) });
         } catch (e) {
           sendResponse({ ok: false, error: String((e as Error).message) });
         }

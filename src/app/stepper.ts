@@ -64,8 +64,8 @@ export async function startRun(
   exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
   credentials?: RunState['credentials'],
   trigger: Run['trigger'] = 'manual',
-  opts: { readonly detachFirstStep?: boolean } = {},
-): Promise<void> {
+  opts: { readonly detachFirstStep?: boolean; readonly queueIfBusy?: boolean } = {},
+): Promise<{ readonly queuedBehind?: string }> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
@@ -76,6 +76,11 @@ export async function startRun(
   const existing = await getRunState();
   if (existing && (await runInProgress())) {
     const other = siteById(existing.siteId)?.label ?? existing.siteId;
+    if (opts.queueIfBusy && existing.siteId !== siteId) {
+      // Wait your turn instead of refusing: finish() starts the next queued site on its own.
+      await enqueueRun({ siteId, profile, resume, exclude: [...exclude], ...(credentials ? { credentials } : {}), trigger });
+      return { queuedBehind: other };
+    }
     throw new Error(`${other} is already running${existing.paused ? ' (paused)' : ''} — one worker run at a time; Stop it or let it finish first`);
   }
 
@@ -153,6 +158,7 @@ export async function startRun(
   // for the whole of it. The run is fully persisted by now, so nothing is lost by not waiting.
   if (opts.detachFirstStep) void step(ports);
   else await step(ports);
+  return {};
 }
 
 
@@ -207,6 +213,7 @@ async function giveUp(ports: RunPorts, state: RunState, reason: string): Promise
   await clearRunState();
   await ports.cleanup().catch(() => {});
   await observe.runEnded(state.runId ?? null, 'dead', reason);
+  await startNextQueued(ports, 'dead');
 }
 
 /** Process exactly one job, advance the cursor, and schedule the next wake (or finish).
@@ -361,4 +368,49 @@ async function finish(ports: RunPorts, reason: string, phase: 'done' | 'stopped'
   await observe.runEnded(state?.runId ?? null, phase, reason); // only ever this run's id — another pack's may be active
   const p = await getProgress();
   await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: reason, phase: 'done', at: Date.now() });
+  await startNextQueued(ports, phase);
+}
+
+// ---- the run queue: Start while another site runs = "next", not an error ----------------------
+const RUN_QUEUE_KEY = 'run_queue';
+interface QueuedRun {
+  readonly siteId: string;
+  readonly profile: Profile;
+  readonly resume: SerializedFile;
+  readonly exclude: readonly string[];
+  readonly credentials?: RunState['credentials'];
+  readonly trigger: Run['trigger'];
+}
+
+async function readQueue(): Promise<QueuedRun[]> {
+  return ((await chrome.storage.local.get(RUN_QUEUE_KEY))[RUN_QUEUE_KEY] as QueuedRun[] | undefined) ?? [];
+}
+
+/** Site ids waiting their turn, in order (for the UI). */
+export async function queuedSites(): Promise<string[]> {
+  return (await readQueue()).map((q) => q.siteId);
+}
+
+async function enqueueRun(q: QueuedRun): Promise<void> {
+  // One slot per site: a second Start of a waiting site refreshes its inputs, never runs it twice.
+  const rest = (await readQueue()).filter((x) => x.siteId !== q.siteId);
+  await chrome.storage.local.set({ [RUN_QUEUE_KEY]: [...rest, q] });
+}
+
+/** Stop means stop: it empties the queue too. Any other ending hands the worker to the next site. */
+async function startNextQueued(ports: RunPorts, phase: 'done' | 'stopped' | 'dead'): Promise<void> {
+  if (phase === 'stopped') {
+    await chrome.storage.local.remove(RUN_QUEUE_KEY);
+    return;
+  }
+  const [next, ...rest] = await readQueue();
+  if (!next) return;
+  await chrome.storage.local.set({ [RUN_QUEUE_KEY]: rest });
+  try {
+    await startRun(next.siteId, next.profile, next.resume, ports, next.exclude, next.credentials, next.trigger, { detachFirstStep: true });
+  } catch (e) {
+    // A queued site that cannot start (no boards, discovery down) must not block the ones behind it.
+    await observe.event('warn', 'run', `queued ${next.siteId} could not start: ${(e as Error).message}`, undefined, { siteId: next.siteId });
+    await startNextQueued(ports, 'done');
+  }
 }

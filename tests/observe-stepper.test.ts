@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { installChromeRuntimeFake, type ChromeRuntimeFake } from './helpers/chrome-extras';
-import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP } from '@/app/stepper';
+import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP, queuedSites } from '@/app/stepper';
 import type { RunPorts } from '@/app/runner';
 import { listRuns } from '@/platform/data/runs';
 import { queryEvents, clearEvents } from '@/platform/data/events';
@@ -344,5 +344,30 @@ describe('Stop actually stops', () => {
     await expect(startRun('greenhouse', profile, resume, ports, [], undefined, 'manual')).rejects.toThrow(/Ashby.*already running/i);
     expect((await getRunState())?.siteId).toBe('ashby');
     expect((await getRunState())?.queue).toEqual(before?.queue);
+  });
+  it('Start while another site runs QUEUES it, and it starts on its own when that run finishes (#2026-10-04: "Datadog is already running")', async () => {
+    const { ports } = fakePorts([job('d1'), job('d2')]);
+    await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+    await saveProgress({ done: 1, total: 2, current: 'Job d2', phase: 'running', at: Date.now() });
+
+    const r = await startRun('greenhouse', profile, resume, ports, [], undefined, 'manual', { queueIfBusy: true });
+    expect(r.queuedBehind).toBe('Datadog');
+    expect(await queuedSites()).toEqual(['greenhouse']);
+    expect((await getRunState())?.siteId).toBe('datadog'); // the running site is untouched
+
+    await step(ports); // d2 — Datadog's queue is now exhausted
+    await step(ports); // → finish → the queued site takes over
+    expect((await getRunState())?.siteId).toBe('greenhouse');
+    expect(await queuedSites()).toEqual([]);
+  });
+
+  it('Stop empties the queue too — stop means stop', async () => {
+    const { ports } = fakePorts([job('s1'), job('s2')]);
+    await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+    await saveProgress({ done: 1, total: 2, current: 'x', phase: 'running', at: Date.now() });
+    await startRun('lever', profile, resume, ports, [], undefined, 'manual', { queueIfBusy: true });
+    await stopRun(ports);
+    expect(await getRunState()).toBeNull();
+    expect(await queuedSites()).toEqual([]);
   });
 });

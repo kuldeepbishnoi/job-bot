@@ -13,6 +13,8 @@ import { requestHosts } from './facts';
 export interface StartResult {
   readonly ok: boolean;
   readonly error?: string;
+  /** Started fine but not now — e.g. queued behind the run in progress. */
+  readonly note?: string;
 }
 
 export interface StartOptions {
@@ -91,7 +93,7 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
     // from repeating a job, and accounts.csv (when present) lets rotation log the next one in.
     const exclude = [...(await readRegistry().catch(() => new Set<string>()))];
     const credentials = await loadCredentials().catch(() => undefined);
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId: pack.id, profile, resume, exclude, credentials });
+    const res = await send<{ ok: boolean; error?: string; note?: string }>({ t: 'run', siteId: pack.id, profile, resume, exclude, credentials });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
