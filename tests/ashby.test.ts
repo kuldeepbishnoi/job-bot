@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { extract, fill, optionsFor, submitButton, confirmed, entryFor } from '@/ats/ashby';
+import { extract, fill, optionsFor, submitButton, confirmed, entryFor, correctionsNeeded } from '@/ats/ashby';
 import { formFieldsFromSchema, parseApplicationUrl } from '@/sources/ashby';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
@@ -123,5 +123,13 @@ describe('ashby extract + fill (transcribed components, real schema)', () => {
     expect(consentField.kind).toBe('checkbox');
     await fill(doc2, consentField, { kind: 'check', value: true });
     expect(entryFor(doc2, 'consent')!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  });
+});
+
+describe('ashby — a rejected submit says why (#regression 2026-10-04: 6 jobs "no success container")', () => {
+  it('reads the "Your form needs corrections" alert Ashby renders (markup from its bundle)', () => {
+    const doc = new DOMParser().parseFromString(`<form><div role="alert" aria-live="assertive"><h3>Your form needs corrections</h3><ul><li><p>Missing entry for required field: How did you hear about Alchemy?</p></li></ul></div></form>`, 'text/html');
+    expect(correctionsNeeded(doc)).toEqual(['Missing entry for required field: How did you hear about Alchemy?']);
+    expect(correctionsNeeded(new DOMParser().parseFromString('<form><div role="alert">Saved</div></form>', 'text/html'))).toBeNull();
   });
 });

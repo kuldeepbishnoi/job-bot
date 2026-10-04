@@ -232,6 +232,16 @@ export function failureMessage(doc: Document): string | null {
   return el ? labelText(el) : null;
 }
 
+/** Ashby's own rejection of a submit: a `role="alert"` box "Your form needs corrections" listing
+ *  one message per field (read from its bundle, 2026-10-04 — there is no published class for it).
+ *  Until this was read, a rejected submit waited 30 s and said only "no success container". */
+export function correctionsNeeded(doc: Document): string[] | null {
+  const box = [...doc.querySelectorAll('[role="alert"]')].find((el) => /needs corrections/i.test(el.textContent ?? ''));
+  if (!box) return null;
+  const items = [...box.querySelectorAll('li')].map((li) => labelText(li)).filter(Boolean);
+  return items.length ? items : [labelText(box)];
+}
+
 /** Ashby's application-limits disclosure (already applied / too many applications). */
 export function blockedMessage(doc: Document): string | null {
   const el = doc.querySelector(C.blocked);

@@ -125,9 +125,15 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       if (ab.confirmed(document)) return 'submitted' as const;
       const f = ab.failureMessage(document);
       if (f) return `failure:${f}` as const;
+      const fix = ab.correctionsNeeded(document);
+      if (fix) return `corrections:${fix.join(' | ')}` as const;
       return null;
     }, 30_000).catch(() => null);
     if (outcome === 'submitted') return { status: 'submitted', filled: records() };
+    if (outcome?.startsWith('corrections:')) {
+      log('Ashby rejected the submit', outcome.slice(12));
+      return parked(`Ashby rejected the submit: ${outcome.slice(12, 400)}`);
+    }
     if (outcome?.startsWith('failure:')) return parked(`Ashby could not submit: ${outcome.slice(8, 300)}`);
     return { status: 'error', note: `no success container after submit — ${ab.describeState(document)}`, filled: records() };
   } catch (e) {
