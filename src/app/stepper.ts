@@ -8,7 +8,7 @@ import type { RunState } from '../platform/store';
 import type { Application, Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs, spreadAcrossEmployers } from '../engine/select-jobs';
-import { saveRunState, getRunState, clearRunState, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
+import { saveRunState, getRunState, clearRunState, listRunStates, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
 import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
 import { readRegistry } from '../platform/fs-config';
 import { accountsAtLimitToday } from '../platform/store';
@@ -18,11 +18,24 @@ import * as observe from './observe';
 // MV3 service workers get killed after ~30s idle (and can't run for hours). So we DON'T loop the
 // whole queue in one await. Instead: persist the queue, process ONE job, then schedule an alarm
 // that re-wakes the worker for the next job. State lives in storage, so a killed SW resumes cleanly.
+//
+// PARALLEL (2026-10-04): every site has its own run — its own run_state, step alarm, worker lane and
+// lock — so Amazon, Lever, Ashby and Greenhouse apply at the same time. Two sites that share a lane
+// (laneFor: the Greenhouse family, whose emailed codes name no job) still take turns via the queue.
 export const STEP_ALARM = 'jobbot-step';
+export const stepAlarm = (siteId: string): string => `${STEP_ALARM}:${siteId}`;
+/** The site a step alarm belongs to, or null (the pre-parallel bare alarm, or another alarm). */
+export const siteFromStepAlarm = (name: string): string | null => (name.startsWith(`${STEP_ALARM}:`) ? name.slice(STEP_ALARM.length + 1) : null);
 export const WATCHDOG_ALARM = 'jobbot-watchdog';
 const GAP_MINUTES = 0.5; // alarm backup between jobs (30s is the chrome.alarms minimum)
 const PACE_MS = 6_000; // the real gap: a timer drives the next job while the SW is still awake
-let stepping = false; // one step at a time — the timer and the backup alarm can both fire
+const stepping = new Set<string>(); // one step at a time PER SITE — the timer and the backup alarm can both fire
+
+/** A lane = the worker a site applies in; same rule as app/ports.ts#laneFor (kept pure here). */
+function laneOf(siteId: string): string {
+  return siteById(siteId)?.ats === 'greenhouse' ? 'greenhouse' : siteId;
+}
+const bound = (ports: RunPorts, siteId: string): RunPorts => ports.forSite?.(siteId) ?? ports;
 // A step that shows no progress for this long is presumed dead (SW killed mid-apply, a tab that
 // never answered…). The apply port caps one job at 4 min, so 6 min means the alarm chain broke.
 const STALL_MS = 6 * 60 * 1000;
@@ -38,16 +51,22 @@ export const JOB_DEADLINE_MS = 7 * 60 * 1000;
 const STALE_RUN_MS = 2 * 60 * 60 * 1000;
 
 /** Is a run genuinely in progress? A stale one (no progress for 2h) is cleared and reported false. */
-export async function runInProgress(now = Date.now()): Promise<boolean> {
-  const state = await getRunState();
+export async function runInProgress(now = Date.now(), siteId?: string): Promise<boolean> {
+  if (!siteId) {
+    // Any site: true if at least one run is genuinely live (each stale one is buried on the way).
+    let any = false;
+    for (const s of await listRunStates()) if (await runInProgress(now, s.siteId)) any = true;
+    return any;
+  }
+  const state = await getRunState(siteId);
   if (!state) return false;
   // A run PAUSED for an account rotation is still a run: its queue is the user's, and they were
   // told to click "Resume as next account". Deleting it here meant the daily alarm silently threw
   // the queue away and Resume then reported success while doing nothing.
   if (state.paused) return true;
-  const p = await getProgress();
+  const p = await getProgress(siteId);
   if (p && p.phase === 'running' && now - p.at < STALE_RUN_MS) return true;
-  await clearRunState();
+  await clearRunState(siteId);
   // The run never reached finish() — say so instead of letting it sit "running" in the console.
   await observe.runEnded(state.runId ?? null, 'dead', p ? deadReason(now - p.at) : 'the run never reported progress — presumed dead');
   return false;
@@ -68,20 +87,23 @@ export async function startRun(
 ): Promise<{ readonly queuedBehind?: string }> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
+  ports = bound(ports, siteId); // this site's worker lane
 
-  // ONE worker run at a time: there is one run_state, one worker window and one OTP inbox
-  // (invariant 8). Until 2026-10-04 a second Start simply overwrote the first run's queue — the
-  // user started Greenhouse and Lever while Ashby ran, Ashby's queue was replaced by Greenhouse's,
-  // and Ashby's card went on saying RUNNING over a run that no longer existed.
-  const existing = await getRunState();
-  if (existing && (await runInProgress())) {
+  // Sites run in parallel; ONE run per lane. A second Start never overwrites a live run (until
+  // 2026-10-04 it replaced the running site's queue), and a site whose lane is busy — the same
+  // site, or a Greenhouse-family site while another one awaits its emailed code — waits its turn.
+  let existing: RunState | null = null;
+  for (const s of await listRunStates()) {
+    if (laneOf(s.siteId) === laneOf(siteId) && (await runInProgress(Date.now(), s.siteId))) existing = s;
+  }
+  if (existing) {
     const other = siteById(existing.siteId)?.label ?? existing.siteId;
     if (opts.queueIfBusy && existing.siteId !== siteId) {
       // Wait your turn instead of refusing: finish() starts the next queued site on its own.
       await enqueueRun({ siteId, profile, resume, exclude: [...exclude], ...(credentials ? { credentials } : {}), trigger });
       return { queuedBehind: other };
     }
-    throw new Error(`${other} is already running${existing.paused ? ' (paused)' : ''} — one worker run at a time; Stop it or let it finish first`);
+    throw new Error(`${other} is already running${existing.paused ? ' (paused)' : ''}${existing.siteId === siteId ? '' : ' in the same lane (they share the emailed-code inbox)'} — Stop it or let it finish first`);
   }
 
   // Rotation identifies "the account we just tried" by getAccount(). If that does not actually
@@ -156,8 +178,8 @@ export async function startRun(
   // Do the first one immediately (the SW is alive during the click). A UI caller detaches it: the
   // Start button waits on this promise, and a first job takes minutes — it sat on "Starting…"
   // for the whole of it. The run is fully persisted by now, so nothing is lost by not waiting.
-  if (opts.detachFirstStep) void step(ports);
-  else await step(ports);
+  if (opts.detachFirstStep) void step(ports, siteId);
+  else await step(ports, siteId);
   return {};
 }
 
@@ -184,13 +206,17 @@ async function mkFailed(site: Site, job: Job, ports: RunPorts, note: string): Pr
 
 /** Watchdog tick: a run exists but hasn't progressed for STALL_MS → drive the current job again. */
 export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void> {
-  const state = await getRunState();
-  if (!state) {
+  const states = await listRunStates();
+  if (!states.length) {
     await chrome.alarms.clear(WATCHDOG_ALARM);
     return;
   }
+  for (const state of states) await watchOne(bound(ports, state.siteId), state, now);
+}
+
+async function watchOne(ports: RunPorts, state: RunState, now: number): Promise<void> {
   if (state.paused) return; // waiting on the user — not a stall
-  const p = await getProgress();
+  const p = await getProgress(state.siteId);
   // Re-driving forever hides a broken run. Past STALE_RUN_MS with no progress at all, give up
   // loudly — the console shows 'dead' with the age, instead of a run that never ends.
   if (p && now - p.at > STALE_RUN_MS) {
@@ -198,33 +224,34 @@ export async function watchdog(ports: RunPorts, now = Date.now()): Promise<void>
     return;
   }
   const stalled = !p || p.phase !== 'running' || now - p.at > STALL_MS;
-  const armed = (await chrome.alarms.get(STEP_ALARM)) !== undefined;
+  const armed = (await chrome.alarms.get(stepAlarm(state.siteId))) !== undefined;
   if (stalled && !armed) {
     console.warn('[jobbot] watchdog: run stalled at', state.cursor, '/', state.queue.length, '— re-driving');
     await observe.event('warn', 'run', `watchdog: stalled at ${state.cursor}/${state.queue.length} — re-driving`, undefined, { runId: state.runId ?? undefined, siteId: state.siteId });
-    await step(ports);
+    await step(ports, state.siteId);
   }
 }
 
 /** The watchdog's last resort: tear the run down and mark the Run dead with the evidence. */
 async function giveUp(ports: RunPorts, state: RunState, reason: string): Promise<void> {
-  await chrome.alarms.clear(STEP_ALARM);
-  await chrome.alarms.clear(WATCHDOG_ALARM);
-  await clearRunState();
+  await chrome.alarms.clear(stepAlarm(state.siteId));
+  await clearRunState(state.siteId);
   await ports.cleanup().catch(() => {});
   await observe.runEnded(state.runId ?? null, 'dead', reason);
-  await startNextQueued(ports, 'dead');
+  await startNextQueued(ports, 'dead', laneOf(state.siteId));
 }
 
 /** Process exactly one job, advance the cursor, and schedule the next wake (or finish).
  *  The next job is driven by a short timer (the SW is awake right after a step); the alarm is
  *  the backup for when the SW is torn down before the timer fires. */
-export async function step(ports: RunPorts): Promise<void> {
-  if (stepping) return;
-  stepping = true;
+export async function step(ports: RunPorts, siteId?: string): Promise<void> {
+  const sid = siteId ?? (await getRunState())?.siteId; // no site = the only run (pre-parallel callers)
+  if (!sid || stepping.has(sid)) return;
+  stepping.add(sid);
+  ports = bound(ports, sid);
   try {
-    await chrome.alarms.clear(STEP_ALARM); // whichever driver got here first owns this step
-    const state = await getRunState();
+    await chrome.alarms.clear(stepAlarm(sid)); // whichever driver got here first owns this step
+    const state = await getRunState(sid);
     if (!state) return;
     if (state.paused) return; // waiting for the user to log the next account in (popup → resume)
     // A new SW generation: re-attach to the Run this queue belongs to before writing anything.
@@ -232,8 +259,8 @@ export async function step(ports: RunPorts): Promise<void> {
     if (runId && observe.activeRunId() !== runId) await observe.adoptRun(runId);
 
     const site = siteById(state.siteId);
-    if (!site) return finish(ports, `unknown site ${state.siteId}`);
-    if (state.cursor >= state.queue.length) return finish(ports, `queue exhausted (${state.cursor}/${state.queue.length})`);
+    if (!site) return finish(ports, sid, `unknown site ${state.siteId}`);
+    if (state.cursor >= state.queue.length) return finish(ports, sid, `queue exhausted (${state.cursor}/${state.queue.length})`);
 
     // Per-account daily limit (Amazon: 10) → rotate to the next account that still has room.
     const limit = state.profile.per_account_limit;
@@ -254,7 +281,7 @@ export async function step(ports: RunPorts): Promise<void> {
     // reopened that page every few seconds for the whole queue ("it keeps restarting on its own").
     // Not a job outcome — record nothing, keep the cursor on this job, and wait for the user.
     if (result.status === 'failed' && result.note?.startsWith(NOT_LOGGED_IN)) {
-      const live = await getRunState();
+      const live = await getRunState(sid);
       if (!live || (live.runId ?? null) !== runId) return; // stopped meanwhile — stay stopped
       return pauseForLogin(site, live, ports);
     }
@@ -264,7 +291,7 @@ export async function step(ports: RunPorts): Promise<void> {
     // Stop clears the run state, but THIS step was already in flight and would otherwise re-save it
     // below — resurrecting the queue and its alarms. That is why Stop appeared to do nothing. The
     // record above still lands: an application that was submitted happened, whatever the user clicked.
-    const live = await getRunState();
+    const live = await getRunState(sid);
     if (!live || (live.runId ?? null) !== runId) {
       await observe.event('info', 'run', 'stopped mid-job — not continuing', { jobId: job.id });
       return;
@@ -274,10 +301,10 @@ export async function step(ports: RunPorts): Promise<void> {
     if (result.status === 'failed' && /limit reached/i.test(result.note ?? '')) return rotateAccount(site, live, ports, result.note ?? 'limit reached');
 
     await saveRunState({ ...live, cursor: live.cursor + 1 });
-    await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
-    setTimeout(() => void step(ports), PACE_MS);
+    await chrome.alarms.create(stepAlarm(sid), { delayInMinutes: GAP_MINUTES });
+    setTimeout(() => void step(ports, sid), PACE_MS);
   } finally {
-    stepping = false;
+    stepping.delete(sid);
   }
 }
 
@@ -299,13 +326,13 @@ async function nextAccountWithRoom(site: Site, state: RunState, current: string)
 async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reason: string): Promise<void> {
   const current = await getAccount();
   const next = await nextAccountWithRoom(site, state, current);
-  if (!next) return finish(ports, `${reason} — every account is at its limit for today`);
+  if (!next) return finish(ports, state.siteId, `${reason} — every account is at its limit for today`);
   if (site.logoutUrl) await ports.openJob(site.logoutUrl).catch(() => {});
   const tabId = site.loginUrl ? await ports.openJob(site.loginUrl).catch(() => -1) : -1;
   // With credentials on file, log the next account in ourselves (email → password → emailed code).
   const password = passwordFor(state.credentials, site.id, next);
   if (tabId >= 0 && password) {
-    await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} — logging in as ${next}…`, phase: 'running', at: Date.now() });
+    await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} — logging in as ${next}…`, phase: 'running', at: Date.now() }, state.siteId);
     // ports.login can THROW (its waitForFrame gives up when no content script answers, e.g. the
     // login URL redirected to a logged-in page). Unguarded, that rejected the whole step: the
     // pause was never written, the alarm was already cleared, and the watchdog re-drove the same
@@ -314,17 +341,17 @@ async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reaso
     if (res.ok) {
       await setAccount(next);
       await observe.runResumed(state.runId ?? null, `auto-login: switched to ${next}`);
-      await saveProgress({ done: state.cursor, total: state.queue.length, current: `switched to ${next}`, phase: 'running', at: Date.now() });
-      await chrome.alarms.create(STEP_ALARM, { delayInMinutes: GAP_MINUTES });
-      setTimeout(() => void step(ports), PACE_MS);
+      await saveProgress({ done: state.cursor, total: state.queue.length, current: `switched to ${next}`, phase: 'running', at: Date.now() }, state.siteId);
+      await chrome.alarms.create(stepAlarm(state.siteId), { delayInMinutes: GAP_MINUTES });
+      setTimeout(() => void step(ports, state.siteId), PACE_MS);
       return;
     }
     reason = `${reason}; auto-login as ${next} failed: ${res.note ?? 'unknown'}`;
   }
   await saveRunState({ ...state, paused: { reason, nextAccount: next } });
   await observe.runPaused(state.runId ?? null, reason, next); // the console shows what the user must do
-  await chrome.alarms.clear(STEP_ALARM);
-  await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
+  await chrome.alarms.clear(stepAlarm(state.siteId));
+  await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() }, state.siteId);
 }
 
 /** The site signed us out. Show its login page once and pause until the user clicks Resume — the
@@ -335,40 +362,46 @@ async function pauseForLogin(site: Site, state: RunState, ports: RunPorts): Prom
   const reason = `${NOT_LOGGED_IN} to ${site.label}`;
   await saveRunState({ ...state, paused: { reason, nextAccount: account } });
   await observe.runPaused(state.runId ?? null, reason, account);
-  await chrome.alarms.clear(STEP_ALARM);
-  await saveProgress({ done: state.cursor, total: state.queue.length, current: `Not logged in to ${site.label}. Log in${account ? ` as ${account}` : ''} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
+  await chrome.alarms.clear(stepAlarm(state.siteId));
+  await saveProgress({ done: state.cursor, total: state.queue.length, current: `Not logged in to ${site.label}. Log in${account ? ` as ${account}` : ''} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() }, state.siteId);
 }
 
 /** Popup -> background: the user logged the next account in. */
-export async function resumeRun(ports: RunPorts): Promise<void> {
-  const state = await getRunState();
-  if (!state?.paused) return;
-  await setAccount(state.paused.nextAccount);
-  await saveRunState({ ...state, paused: undefined });
-  await observe.runResumed(state.runId ?? null, `resumed as ${state.paused.nextAccount}`);
-  await saveProgress({ done: state.cursor, total: state.queue.length, current: `resumed as ${state.paused.nextAccount}`, phase: 'running', at: Date.now() });
-  await step(ports);
+export async function resumeRun(ports: RunPorts, siteId?: string): Promise<void> {
+  // No site named: resume every paused run (the popup's one Resume button).
+  const paused = (await listRunStates()).filter((s) => s.paused && (!siteId || s.siteId === siteId));
+  for (const state of paused) {
+    const nextAccount = state.paused!.nextAccount;
+    if (nextAccount) await setAccount(nextAccount);
+    await saveRunState({ ...state, paused: undefined });
+    await observe.runResumed(state.runId ?? null, `resumed${nextAccount ? ` as ${nextAccount}` : ''}`);
+    await saveProgress({ done: state.cursor, total: state.queue.length, current: `resumed${nextAccount ? ` as ${nextAccount}` : ''}`, phase: 'running', at: Date.now() }, state.siteId);
+    void step(ports, state.siteId);
+  }
 }
 
 /** Popup -> background: abandon the run. Whatever job is mid-flight in the worker tab is left as-is
  *  (Amazon auto-saves progress server-side, so a half-filled apply can be resumed by hand). */
-export async function stopRun(ports: RunPorts): Promise<void> {
-  if (!(await getRunState())) return void (await ports.cleanup()); // no worker run — just tidy the window
-  await finish(ports, 'stopped by you', 'stopped');
+export async function stopRun(ports: RunPorts, siteId?: string): Promise<void> {
+  // Stop with no site = stop EVERYTHING (the popup's Stop): every running site, and the queue.
+  const states = (await listRunStates()).filter((s) => !siteId || s.siteId === siteId);
+  if (!siteId) await chrome.storage.local.remove(RUN_QUEUE_KEY);
+  if (!states.length) return void (await ports.cleanup()); // no worker run — just tidy the window
+  for (const s of states) await finish(bound(ports, s.siteId), s.siteId, 'stopped by you', 'stopped');
 }
 
 /** Every exit goes through here, and every exit names its reason — a run that ends silently is
  *  exactly what the old UI did that hid failures. */
-async function finish(ports: RunPorts, reason: string, phase: 'done' | 'stopped' = 'done'): Promise<void> {
-  const state = await getRunState();
-  await chrome.alarms.clear(STEP_ALARM);
-  await chrome.alarms.clear(WATCHDOG_ALARM);
-  await clearRunState();
+async function finish(ports: RunPorts, siteId: string, reason: string, phase: 'done' | 'stopped' = 'done'): Promise<void> {
+  const state = await getRunState(siteId);
+  await chrome.alarms.clear(stepAlarm(siteId));
+  await clearRunState(siteId);
+  if (!(await listRunStates()).length) await chrome.alarms.clear(WATCHDOG_ALARM); // the last run out
   await ports.cleanup();
   await observe.runEnded(state?.runId ?? null, phase, reason); // only ever this run's id — another pack's may be active
-  const p = await getProgress();
-  await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: reason, phase: 'done', at: Date.now() });
-  await startNextQueued(ports, phase);
+  const p = await getProgress(siteId);
+  await saveProgress({ done: p?.done ?? 0, total: p?.total ?? 0, current: reason, phase: 'done', at: Date.now() }, siteId);
+  await startNextQueued(ports, phase, laneOf(siteId));
 }
 
 // ---- the run queue: Start while another site runs = "next", not an error ----------------------
@@ -397,20 +430,36 @@ async function enqueueRun(q: QueuedRun): Promise<void> {
   await chrome.storage.local.set({ [RUN_QUEUE_KEY]: [...rest, q] });
 }
 
-/** Stop means stop: it empties the queue too. Any other ending hands the worker to the next site. */
-async function startNextQueued(ports: RunPorts, phase: 'done' | 'stopped' | 'dead'): Promise<void> {
+/** Start every queued site whose lane is free. Runs on service-worker start: a site queued under the
+ *  one-run-at-a-time rule (before parallel runs) was queued behind a DIFFERENT lane, and nothing
+ *  would ever free its own. */
+export async function kickQueue(ports: RunPorts): Promise<void> {
+  const lanes = new Set<string>();
+  for (const q of await readQueue()) {
+    const lane = laneOf(q.siteId);
+    if (lanes.has(lane)) continue;
+    lanes.add(lane);
+    const busy = (await listRunStates()).some((s) => laneOf(s.siteId) === lane);
+    if (!busy) await startNextQueued(ports, 'done', lane);
+  }
+}
+
+/** A lane freed up → hand it to the next site queued for that lane. Stop drops that lane's queue
+ *  (stopRun with no site drops all of it). */
+async function startNextQueued(ports: RunPorts, phase: 'done' | 'stopped' | 'dead', lane: string): Promise<void> {
+  const queue = await readQueue();
   if (phase === 'stopped') {
-    await chrome.storage.local.remove(RUN_QUEUE_KEY);
+    await chrome.storage.local.set({ [RUN_QUEUE_KEY]: queue.filter((q) => laneOf(q.siteId) !== lane) });
     return;
   }
-  const [next, ...rest] = await readQueue();
+  const next = queue.find((q) => laneOf(q.siteId) === lane);
   if (!next) return;
-  await chrome.storage.local.set({ [RUN_QUEUE_KEY]: rest });
+  await chrome.storage.local.set({ [RUN_QUEUE_KEY]: queue.filter((q) => q !== next && q.siteId !== next.siteId) });
   try {
-    await startRun(next.siteId, next.profile, next.resume, ports, next.exclude, next.credentials, next.trigger, { detachFirstStep: true });
+    await startRun(next.siteId, next.profile, next.resume, bound(ports, next.siteId), next.exclude, next.credentials, next.trigger, { detachFirstStep: true });
   } catch (e) {
     // A queued site that cannot start (no boards, discovery down) must not block the ones behind it.
     await observe.event('warn', 'run', `queued ${next.siteId} could not start: ${(e as Error).message}`, undefined, { siteId: next.siteId });
-    await startNextQueued(ports, 'done');
+    await startNextQueued(ports, 'done', lane);
   }
 }

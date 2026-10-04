@@ -230,9 +230,13 @@ fixtures/    real captured data for offline tests
    `NOT_A_VETERAN`, `NO_DISABILITY`) that maps to each company's wording. No magic strings in config.
 7. Locations are **derived**, never typed: `resolveLocations` picks dropdown options ∩ (job's own
    location ∪ `want.locations`). One list drives both job selection and the cities answer.
-8. Apply runs **sequentially** in one worker window → only one OTP email pending at a time (the
-   email names no job, so parallelism would mismatch codes). This is also politeness/rate-limiting
-   (System Design Interview ch. 4 & 9): don't hammer the ATS.
+8. **Sites run in parallel, one run per lane** (2026-10-04, owner: "there should be parallelism").
+   Each site has its own `run_state:<site>`, step alarm (`jobbot-step:<site>`), lock and worker
+   window (`platform/worker-window.ts`, cascaded so none is fully occluded → throttled). Within a
+   site jobs stay sequential (politeness). Sites whose apply emails a one-time code to the shared
+   inbox — the Greenhouse family (Datadog + Greenhouse boards) — share ONE lane (`laneFor`): the
+   email names no job, so two at once could swap codes. A Start on a busy lane queues
+   (`run_queue`); a card's Stop stops its own site, the global Stop stops everything.
 9. `auto_submit:false` is the safe default — fill + enter code, then park for the user's click.
 10. **Stop must reach whatever is doing the work, and nothing may write run state after a cancel.**
     There are three Stop paths (worker stepper, LinkedIn, Instahyre) and each got this wrong in its

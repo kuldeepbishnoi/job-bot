@@ -9,6 +9,9 @@ import { selectJobs } from '../engine/select-jobs';
 // no chrome, no DOM, no network here, so it's unit-testable with fakes. Main (background)
 // supplies the concrete ports. This is the Dependency Rule: details plug into policy.
 export interface RunPorts {
+  /** The same ports bound to another site's worker lane — a finished run hands the worker on to a
+   *  queued site through this. Fakes may omit it (they reuse themselves). */
+  forSite?(siteId: string): RunPorts;
   discover(site: Site, profile: Profile): Promise<Job[]>;
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId

@@ -7,6 +7,7 @@ import { record, appliedIds, saveProgress, getProgress } from '../platform/store
 import { writeRecord } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
+import { siteById } from '../sites';
 import { NOT_LOGGED_IN } from '../sites/site';
 import type { Profile } from '../config/schema';
 import type { Job } from '../engine/types';
@@ -116,11 +117,21 @@ async function retryAfterFrameSwap(
 
 // Concrete ports, assembled from platform adapters. This is the "Main" seam (Ch26):
 // the dirty wiring that hands effects to the pure runner. Nothing else builds these.
-export function chromePorts(): RunPorts {
+/** Which worker a site applies in. Sites run in parallel, one lane each — except sites whose apply
+ *  emails a one-time code to the shared inbox: Greenhouse's code names no job, so two Greenhouse
+ *  sites at once could swap codes (invariant 8). They share the 'greenhouse' lane and take turns. */
+export function laneFor(siteId: string): string {
+  const site = siteById(siteId);
+  return site?.ats === 'greenhouse' ? 'greenhouse' : siteId;
+}
+
+export function chromePorts(siteId?: string): RunPorts {
+  const lane = siteId ? laneFor(siteId) : 'default';
   return {
+    forSite: (id: string) => chromePorts(id),
     discover: (site, profile) => site.discover(profile),
     appliedIds,
-    openJob,
+    openJob: (url) => openJob(url, lane),
     apply: async (site, tabId, profile, job, resume) => {
       const onLogin = async (): Promise<boolean> => !!site.isLoginPage?.((await chrome.tabs.get(tabId).catch(() => null))?.url ?? '');
       if (await onLogin()) throw new Error(`${NOT_LOGGED_IN}: ${site.label} sent the apply page to sign-in`);
@@ -213,12 +224,12 @@ export function chromePorts(): RunPorts {
     },
     progress: (done, total, current) => {
       void send({ t: 'progress', done, total, current }).catch(() => {}); // reaches the popup if open
-      void saveProgress({ done, total, current, phase: 'running', at: Date.now() }); // survives popup close
+      void saveProgress({ done, total, current, phase: 'running', at: Date.now() }, siteId); // survives popup close
     },
     cleanup: async () => {
-      await closeWorker();
-      const p = await getProgress();
-      if (p) await saveProgress({ ...p, phase: 'done', at: Date.now() });
+      await closeWorker(lane);
+      const p = await getProgress(siteId);
+      if (p) await saveProgress({ ...p, phase: 'done', at: Date.now() }, siteId);
       await send({ t: 'runDone' }).catch(() => {});
     },
     today: () => new Date().toISOString().slice(0, 10),

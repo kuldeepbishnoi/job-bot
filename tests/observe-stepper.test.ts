@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { installChromeRuntimeFake, type ChromeRuntimeFake } from './helpers/chrome-extras';
-import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP, queuedSites } from '@/app/stepper';
+import { startRun, step, stopRun, watchdog, runInProgress, QUEUE_CAP, queuedSites, kickQueue } from '@/app/stepper';
 import type { RunPorts } from '@/app/runner';
 import { listRuns } from '@/platform/data/runs';
 import { queryEvents, clearEvents } from '@/platform/data/events';
@@ -158,7 +158,7 @@ describe('worker run lifecycle (stepper → observe)', () => {
     const { ports } = fakePorts([job('1'), job('2')]);
     await startRun('datadog', profile, resume, ports);
     const now = Date.now();
-    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: now - 3 * 60 * 60 * 1000 });
+    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: now - 3 * 60 * 60 * 1000 }, 'datadog');
 
     await watchdog(ports, now);
 
@@ -172,7 +172,7 @@ describe('worker run lifecycle (stepper → observe)', () => {
     const { ports } = fakePorts([job('1'), job('2')]);
     await startRun('datadog', profile, resume, ports);
     const now = Date.now();
-    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: now - 10 * 60_000 });
+    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: now - 10 * 60_000 }, 'datadog');
 
     await watchdog(ports, now);
 
@@ -186,7 +186,7 @@ describe('worker run lifecycle (stepper → observe)', () => {
   it('runInProgress buries a stale run instead of leaving it "running" forever', async () => {
     const { ports } = fakePorts([job('1'), job('2')]);
     await startRun('datadog', profile, resume, ports);
-    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: Date.now() - 3 * 60 * 60 * 1000 });
+    await saveProgress({ done: 1, total: 2, current: 'Job 2', phase: 'running', at: Date.now() - 3 * 60 * 60 * 1000 }, 'datadog');
 
     expect(await runInProgress()).toBe(false);
     expect((await onlyRun()).phase).toBe('dead');
@@ -336,19 +336,51 @@ describe('Stop actually stops', () => {
     await watchdog(ports);
     expect(calls).toBe(1);
   });
-  it('a second Start never overwrites the run in progress (#regression 2026-10-04: Greenhouse clobbered Ashby\'s queue)', async () => {
+  it('different sites run in PARALLEL — a second Start never touches the first run (#2026-10-04: "there should be parallelism")', async () => {
     const { ports } = fakePorts([job('x1'), job('x2'), job('x3')]);
     await startRun('ashby', profile, resume, ports, [], undefined, 'manual');
-    await saveProgress({ done: 1, total: 3, current: 'Job x2', phase: 'running', at: Date.now() }); // what chromePorts().progress writes
-    const before = await getRunState();
-    await expect(startRun('greenhouse', profile, resume, ports, [], undefined, 'manual')).rejects.toThrow(/Ashby.*already running/i);
-    expect((await getRunState())?.siteId).toBe('ashby');
-    expect((await getRunState())?.queue).toEqual(before?.queue);
+    await saveProgress({ done: 1, total: 3, current: 'Job x2', phase: 'running', at: Date.now() }, 'ashby');
+    const before = await getRunState('ashby');
+    await startRun('lever', profile, resume, ports, [], undefined, 'manual');
+    expect((await getRunState('ashby'))?.queue).toEqual(before?.queue); // untouched
+    expect((await getRunState('lever'))?.siteId).toBe('lever'); // and Lever runs alongside it
+    expect((await listRuns()).filter((r) => r.phase === 'running').map((r) => r.siteId).sort()).toEqual(['ashby', 'lever']);
   });
+
+  it("a site's own Stop stops only that site; Stop with no site stops them all", async () => {
+    const { ports } = fakePorts([job('p1'), job('p2'), job('p3')]);
+    await startRun('ashby', profile, resume, ports, [], undefined, 'manual');
+    await startRun('lever', profile, resume, ports, [], undefined, 'manual');
+    await stopRun(ports, 'lever');
+    expect(await getRunState('lever')).toBeNull();
+    expect(await getRunState('ashby')).not.toBeNull(); // still applying
+    await stopRun(ports);
+    expect(await getRunState('ashby')).toBeNull();
+  });
+
+  it('a site queued by the old one-at-a-time rule starts as soon as its own lane is free', async () => {
+    const { ports } = fakePorts([job('k1'), job('k2')]);
+    await startRun('lever', profile, resume, ports, [], undefined, 'manual');
+    // What the previous build left behind: Greenhouse queued behind Lever (a different lane).
+    await chrome.storage.local.set({ run_queue: [{ siteId: 'greenhouse', profile, resume, exclude: [], trigger: 'manual' }] });
+    await kickQueue(ports);
+    expect((await getRunState('greenhouse'))?.siteId).toBe('greenhouse');
+    expect(await getRunState('lever')).not.toBeNull();
+    expect(await queuedSites()).toEqual([]);
+  });
+
+  it('two Greenhouse-family sites share one lane (their emailed codes name no job) — never at once', async () => {
+    const { ports } = fakePorts([job('g1'), job('g2')]);
+    await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
+    await saveProgress({ done: 1, total: 2, current: 'Job g2', phase: 'running', at: Date.now() }, 'datadog');
+    await expect(startRun('greenhouse', profile, resume, ports, [], undefined, 'manual')).rejects.toThrow(/Datadog.*already running.*same lane/i);
+    expect(await getRunState('greenhouse')).toBeNull();
+  });
+
   it('Start while another site runs QUEUES it, and it starts on its own when that run finishes (#2026-10-04: "Datadog is already running")', async () => {
     const { ports } = fakePorts([job('d1'), job('d2')]);
     await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
-    await saveProgress({ done: 1, total: 2, current: 'Job d2', phase: 'running', at: Date.now() });
+    await saveProgress({ done: 1, total: 2, current: 'Job d2', phase: 'running', at: Date.now() }, 'datadog');
 
     const r = await startRun('greenhouse', profile, resume, ports, [], undefined, 'manual', { queueIfBusy: true });
     expect(r.queuedBehind).toBe('Datadog');
@@ -364,8 +396,9 @@ describe('Stop actually stops', () => {
   it('Stop empties the queue too — stop means stop', async () => {
     const { ports } = fakePorts([job('s1'), job('s2')]);
     await startRun('datadog', profile, resume, ports, [], undefined, 'manual');
-    await saveProgress({ done: 1, total: 2, current: 'x', phase: 'running', at: Date.now() });
-    await startRun('lever', profile, resume, ports, [], undefined, 'manual', { queueIfBusy: true });
+    await saveProgress({ done: 1, total: 2, current: 'x', phase: 'running', at: Date.now() }, 'datadog');
+    await startRun('greenhouse', profile, resume, ports, [], undefined, 'manual', { queueIfBusy: true });
+    expect(await queuedSites()).toEqual(['greenhouse']);
     await stopRun(ports);
     expect(await getRunState()).toBeNull();
     expect(await queuedSites()).toEqual([]);

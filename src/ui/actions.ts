@@ -100,9 +100,10 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
   }
 }
 
-export async function stopRuns(): Promise<StartResult> {
+/** Stop one site (its card's button), or — with no site — everything. */
+export async function stopRuns(siteId?: string): Promise<StartResult> {
   try {
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'stop' });
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'stop', ...(siteId ? { siteId } : {}) });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -110,9 +111,9 @@ export async function stopRuns(): Promise<StartResult> {
 }
 
 /** Account rotation parked the run until the next login happened; the user says "go". */
-export async function resumeRun(): Promise<StartResult> {
+export async function resumeRun(siteId?: string): Promise<StartResult> {
   try {
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'resume' });
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'resume', ...(siteId ? { siteId } : {}) });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

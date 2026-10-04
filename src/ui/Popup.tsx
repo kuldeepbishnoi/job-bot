@@ -64,11 +64,11 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
           {run.current && <div class="tiny ellipsis">{run.current.title}</div>}
           {run.pause && <div class="tiny" style={{ color: 'var(--info)' }}>{run.pause.reason}</div>}
           <div class="row" style={{ gap: 6 }}>
-            <button class="sm" onClick={() => void stopRuns()}>
+            <button class="sm" onClick={() => void stopRuns(pack.id)}>
               Stop
             </button>
             {run.phase === 'paused' && (
-              <button class="sm primary" onClick={() => void resumeRun()}>
+              <button class="sm primary" onClick={() => void resumeRun(pack.id)}>
                 Resume
               </button>
             )}
@@ -79,7 +79,7 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
           <div class="tiny" style={{ color: 'var(--warn)' }}>
             Running, but this run wrote no progress record — the console cannot show its detail.
           </div>
-          <button class="sm" onClick={() => void stopRuns()}>
+          <button class="sm" onClick={() => void stopRuns(pack.id)}>
             Stop
           </button>
         </div>

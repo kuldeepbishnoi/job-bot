@@ -47,9 +47,9 @@ export type Msg =
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
   | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[]; credentials?: Credentials } // exclude = job ids any account applied to (registry)
   // popup -> background: abandon the current run (queue + alarm + worker tab)
-  | { t: 'stop' }
+  | { t: 'stop'; siteId?: string } // no site = stop EVERYTHING
   // popup -> background: the user logged the next account in — continue the paused run
-  | { t: 'resume' }
+  | { t: 'resume'; siteId?: string } // no site = resume every paused run
   // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window).
   // want = profile.want, so cards are filtered the same way every other pack filters jobs — Instahyre's
   // own "matching" queue is not a title filter, and the full search board has none at all.

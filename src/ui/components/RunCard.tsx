@@ -133,10 +133,10 @@ export function RunCard({ run }: { run: Run }): JSX.Element {
         </span>
         {run.endReason && <span class="small">ended: {run.endReason}</span>}
         <div class="right row">
-          <button class="danger" onClick={() => void act(stopRuns)}>
+          <button class="danger" onClick={() => void act(() => stopRuns(run.siteId))}>
             Stop
           </button>
-          {run.phase === 'paused' && <button onClick={() => void act(resumeRun)}>Resume</button>}
+          {run.phase === 'paused' && <button onClick={() => void act(() => resumeRun(run.siteId))}>Resume</button>}
           {(h === 'dead' || h === 'stalled') && <button onClick={() => void discard()}>Discard</button>}
         </div>
       </div>

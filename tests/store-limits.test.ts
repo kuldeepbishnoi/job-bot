@@ -13,14 +13,17 @@ const setQuota = (n: number): void => {
 (globalThis as unknown as { chrome: unknown }).chrome = {
   storage: {
     local: {
-      get: async (k: string | string[]) => {
-        const keys = Array.isArray(k) ? k : [k];
+      get: async (k: string | string[] | null) => {
+        const keys = k === null ? Object.keys(mem) : Array.isArray(k) ? k : [k];
         return Object.fromEntries(keys.filter((x) => x in mem).map((x) => [x, mem[x]]));
       },
       set: async (o: Record<string, unknown>) => {
-        const run = o['run_state'] as { queue?: unknown[] } | undefined;
+        const run = Object.entries(o).find(([key]) => key.startsWith('run_state'))?.[1] as { queue?: unknown[] } | undefined;
         if (run?.queue && run.queue.length > quotaJobs) throw new Error('QUOTA_BYTES quota exceeded');
         Object.assign(mem, o);
+      },
+      remove: async (k: string | string[]) => {
+        for (const key of Array.isArray(k) ? k : [k]) delete mem[key];
       },
     },
   },
