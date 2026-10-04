@@ -15,8 +15,67 @@ export function storageDir() {
 
 export function rawDump(dir) {
   let s = '';
-  for (const f of readdirSync(dir).filter((f) => /\.(log|ldb)$/.test(f)).sort((a, b) => statSync(join(dir, a)).mtimeMs - statSync(join(dir, b)).mtimeMs)) s += readFileSync(join(dir, f), 'latin1');
+  for (const f of readdirSync(dir).filter((f) => /\.(log|ldb)$/.test(f)).sort((a, b) => statSync(join(dir, a)).mtimeMs - statSync(join(dir, b)).mtimeMs)) {
+    const buf = readFileSync(join(dir, f));
+    // .ldb tables store their blocks snappy-compressed, so a raw read of a compacted table yields
+    // garbage — every log line older than the last compaction was unreadable (2026-10-04). Decode
+    // the table's blocks; fall back to the raw bytes if it is not a table we understand.
+    s += f.endsWith('.ldb') ? (tableText(buf) ?? buf.toString('latin1')) : buf.toString('latin1');
+  }
   return s.replace(/\\"/g, '"');
+}
+
+// ---- minimal LevelDB table reader: footer → index block → data blocks (snappy) ----------------
+function varint(b, o) {
+  let v = 0, shift = 0, i = o;
+  for (;;) { const x = b[i++]; v += (x & 0x7f) * 2 ** shift; if (x < 0x80) break; shift += 7; }
+  return [v, i];
+}
+function snappy(src) {
+  let [len, i] = varint(src, 0);
+  const out = Buffer.alloc(len); let o = 0;
+  while (i < src.length) {
+    const tag = src[i++]; const t = tag & 3;
+    if (t === 0) {
+      let n = tag >> 2;
+      if (n >= 60) { const k = n - 59; n = 0; for (let j = 0; j < k; j++) n |= src[i + j] << (8 * j); i += k; }
+      n += 1; src.copy(out, o, i, i + n); i += n; o += n;
+    } else {
+      let n, off;
+      if (t === 1) { n = ((tag >> 2) & 7) + 4; off = ((tag >> 5) << 8) | src[i++]; }
+      else if (t === 2) { n = (tag >> 2) + 1; off = src[i] | (src[i + 1] << 8); i += 2; }
+      else { n = (tag >> 2) + 1; off = src.readUInt32LE(i); i += 4; }
+      for (let j = 0; j < n; j++, o++) out[o] = out[o - off];
+    }
+  }
+  return out;
+}
+function block(buf, off, size) {
+  const raw = buf.subarray(off, off + size);
+  return buf[off + size] === 1 ? snappy(raw) : raw; // trailer byte: 0 = none, 1 = snappy
+}
+function tableText(buf) {
+  try {
+    if (buf.length < 48) return null;
+    const foot = buf.subarray(buf.length - 48);
+    let o = 0, mo, ms, io, is;
+    [mo, o] = varint(foot, o); [ms, o] = varint(foot, o); [io, o] = varint(foot, o); [is, o] = varint(foot, o);
+    const index = block(buf, io, is);
+    const restarts = index.readUInt32LE(index.length - 4);
+    const end = index.length - 4 - 4 * restarts;
+    let p = 0; let text = '';
+    while (p < end) {
+      let shared, nonShared, vlen;
+      [shared, p] = varint(index, p); [nonShared, p] = varint(index, p); [vlen, p] = varint(index, p);
+      p += nonShared;
+      let q = p, bo, bs; [bo, q] = varint(index, q); [bs, q] = varint(index, q);
+      p += vlen;
+      text += block(buf, bo, bs).toString('latin1');
+    }
+    return text;
+  } catch {
+    return null;
+  }
 }
 
 /** Every application record object found in the dump (all versions; last one per jobId+at wins). */
