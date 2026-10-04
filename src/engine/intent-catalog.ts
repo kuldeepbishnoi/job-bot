@@ -48,6 +48,7 @@ export const INTENT_CATALOG: Partial<Record<Intent, IntentMeta>> = {
   'answers.language_proficiency': { label: 'English proficiency', shape: 'text', group: 'Screening', help: 'Option text: Native | Professional | Conversational…' },
   'answers.how_did_you_hear': { label: 'How did you hear about us', shape: 'text', group: 'Screening', help: 'Single choice or free text; matched against the dropdown by substring.' },
   'answers.how_did_you_hear_detail': { label: 'How did you hear (detail)', shape: 'text', group: 'Screening' },
+  'answers.roles_of_interest': { label: 'Roles of interest', shape: 'text', group: 'Screening', help: '"Areas and/or specific roles of interest".' },
   'answers.cover_letter': { label: 'Cover letter / why us', shape: 'text', group: 'Screening', help: 'Free-text prompts get this verbatim.' },
   'answers.current_company': { label: 'Current employer', shape: 'text', group: 'Screening', help: 'Never guessed — a job that asks and has no answer parks instead.' },
   'answers.current_title': { label: 'Current job title', shape: 'text', group: 'Screening' },

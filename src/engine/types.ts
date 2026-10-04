@@ -94,6 +94,7 @@ export type Intent =
   | 'answers.language_proficiency' // "What is your level of proficiency in English?"
   | 'answers.drivers_license'
   | 'answers.security_clearance'
+  | 'answers.roles_of_interest' // "Areas and/or specific roles of interest" (free text)
   | 'answers.cover_letter' // free-text "why do you want to work here" / "include a message" prompts
   // Indian-market screening questions (LinkedIn Easy Apply, SmartRecruiters-powered forms).
   | 'answers.current_fixed_salary' // "What is your current fixed salary?" (annual, converted to the unit the label names)

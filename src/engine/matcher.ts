@@ -29,6 +29,8 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code', 'screen', 'interview', 'call you', 'call with', 'available for a phone', 'attend a phone'] },
   { intent: 'identity.email', any: ['email address', 'email'], not: ['consent', 'receive', 'agree', 'subscribe'] },
   { intent: 'identity.full_name', any: ['full name', 'full legal name'], not: ['first name', 'last name', 'company', 'employer', 'referr'] },
+  // "Preferred Name" (Affirm) matched nothing and was typed as "N/A" — under the applicant's name.
+  { intent: 'identity.preferred_name', any: ['preferred name', 'preferred first name', 'name you go by', 'name you prefer'] },
   { intent: 'identity.first_name', any: ['first name', 'given name'] },
   { intent: 'identity.last_name', any: ['last name', 'surname', 'family name'] },
   { intent: 'identity.linkedin', all: ['linkedin'] },
@@ -78,7 +80,10 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.work_setup', any: ['work setup do you prefer', 'preferred work setup', 'work mode do you prefer', 'preferred work mode', 'work arrangement do you prefer'] },
   { intent: 'answers.industry', any: ['which industry', 'what industry', 'industry did your last', 'industry did your current', 'industry does your current'] },
   { intent: 'answers.motivation', any: ['biggest motivation', 'motivation for choosing', 'what motivates you', 'primary motivation'] },
-  { intent: 'answers.current_company', any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
+  // "Are you subject to any employment agreements and/or post-employment restrictions with your
+  // current employer…" named "current employer", so it was read as "Current company" — must come first.
+  { intent: 'answers.non_compete', any: ['employment agreements', 'post employment restriction', 'restrictive covenant', 'non solicitation'] },
+  { intent: 'answers.current_company', not: ['relationship', 'conflict of interest', 'agreement', 'restriction'], any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
   { intent: 'answers.current_title', any: ['current designation', 'current title', 'current role', 'current job title', 'current position', 'present designation', 'present role'] },
   { intent: 'answers.github', any: ['github', 'git hub'] },
   { intent: 'answers.reason_for_change', any: ['reason for change', 'reason for job change', 'why are you looking', 'reason for leaving', 'looking for a change', 'why do you want to leave', 'reason to change', 'why are you leaving'] },
@@ -94,7 +99,7 @@ const RULES: readonly Rule[] = [
   { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you', 'office locations', 'office location', 'working out of'], not: ['authorised', 'authorized'] },
   { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized', 'prefer', 'cities'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
-  { intent: 'answers.how_did_you_hear', all: ['how did you hear'] },
+  { intent: 'answers.how_did_you_hear', any: ['how did you hear', 'how did you first learn', 'how did you learn about', 'where did you hear', 'how did you find out about', 'how did you find this', 'source of application'] },
   { intent: 'answers.how_did_you_hear_detail', any: ['please specify'] },
   { intent: 'answers.education_level', any: ['education level', 'highest degree', 'level of education', 'highest qualification', 'educational qualification', 'highest education'], not: ['bachelor', 'master s', 'masters'] },
   { intent: 'answers.school_name', any: ['school name', 'name of institution', 'university name', 'your school'] },
@@ -139,11 +144,14 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Free-text "why us" prompts (LinkedIn) — after the compliance rules so their "please provide
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
-  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your'] },
+  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
+  { intent: 'answers.roles_of_interest', any: ['roles of interest', 'areas of interest', 'specific roles', 'teams are you interested', 'what kind of role', 'type of role'] },
   // Screening questions.
   { intent: 'answers.exact_years_of_experience', any: ['exact years', 'exact number of years', 'precisely how many years', 'exactly how many years'] },
   { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in', 'total experience', 'overall experience', 'experience in years', 'exp in years', 'total exp', 'yrs of', 'yrs experience', 'no of years', 'number of years', 'how many experience', 'how much experience', 'how many year'] },
   { intent: 'answers.degree_bachelors', any: ['bachelor'] },
+  // A bare "Degree" box (Ashby/Greenhouse) — the "do you have a … degree" yes/no shapes stay above.
+  { intent: 'answers.education_level', word: ['degree'], not: ['do you', 'have you', 'are you', 'pursuing', 'field of', 'major', 'discipline', 'graduation', 'year'] },
   { intent: 'answers.degree_masters', any: ['master s degree', 'masters degree', 'master degree', 'graduate degree'] },
   { intent: 'answers.skills_experience', any: ['do you have experience', 'have you experience', 'do you have knowledge', 'do you have a working knowledge', 'are you proficient', 'do you have hands on', 'have you worked with', 'do you have exposure'] },
 ];

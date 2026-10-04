@@ -29,7 +29,7 @@ answers:
   needs_sponsorship: false        # yes/no
   acknowledge_true: true          # yes/no
   privacy_consent: true           # yes/no
-  how_did_you_hear: "Amazon Career Site"  # single choice / free text (Amazon options: Advertisement | Amazon Career Site | Job Posting | …)
+  how_did_you_hear: ["Company website", "Amazon Career Site"]  # single choice / free text (Amazon options: Advertisement | Amazon Career Site | Job Posting | …)
   languages: [English, Hindi]     # multi-select
   # Screening questions (Amazon "job-specific questions" and similar):
   years_of_experience: 6          # number -> the "N to less than M years" bucket containing it · MAX -> always the top bucket
@@ -79,6 +79,7 @@ answers:
   top_choice: false               # LinkedIn "Mark job as a top choice" (3/month; opens a required 20+ char message box) — keep off
   # "Are you currently located in <city>?" is answered from identity.city (Yes when the label names it).
   start_date: Immediately
+  roles_of_interest: "Backend and distributed-systems engineering"   # "Areas and/or specific roles of interest"
   cover_letter: "I'm a backend engineer with 6 years of experience building distributed systems and I'd love to bring that to your team."
   # First-time profile sections (a fresh account has these empty; answered from here, never typed):
   education_level: "Bachelor's"

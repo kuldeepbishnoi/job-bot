@@ -71,6 +71,12 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
 
   if (!intent) return { kind: 'unknown' };
 
+  // Pay asked for a job abroad with no currency named: our figures are the home currency, and a
+  // bare "7000000" in an Amsterdam form reads as euros. That is a claim the user never made — park.
+  if (/^answers\.(expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc)$/.test(intent) && !labelCurrency(field.label) && workCountryIsHome(field.label, job, profile) === false) {
+    return { kind: 'unknown' };
+  }
+
   // 3. derived answers: salary components in the unit the label names, notice period as days,
   // "are you located in <city>" from identity.city.
   const derived = resolveDerived(intent, field, profile, options);
@@ -524,12 +530,20 @@ export function isConsequential(label: string): boolean {
   return CONSEQUENTIAL.test(label);
 }
 
+const NEVER_GUESS_TEXT = /^(identity\.|answers\.(expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
+
 export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
   // Never guess a legal commitment — park it for the user, whatever the field's shape.
   if (isConsequential(field.label)) return null;
   // A required lone checkbox gates submit → tick it; an optional one is an opt-in extra → leave it off.
   if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
-  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
+  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {
+    // A box we RECOGNISED but cannot fill is a fact only the user holds: "N/A" typed as your salary,
+    // employer, notice or name is an answer sent in your name (invariant 13). Park those; "N/A"
+    // stays only for a box we could not place at all.
+    if (field.intent && NEVER_GUESS_TEXT.test(field.intent)) return null;
+    return { kind: 'text', value: 'N/A' };
+  }
   if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
   // WHERE the user is willing to work is theirs to state, like compensation or an experience
   // bucket (invariant 13). Seen live on Lever (Spotify): options "London | Stockholm" for a
