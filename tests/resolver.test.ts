@@ -94,13 +94,14 @@ describe('resolver', () => {
 
   it('maps a boolean answer onto the yes/no option', () => {
     const field = f({ kind: 'select', intent: 'answers.work_authorization' });
-    expect(resolve(field, profile, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+    const home = { ...job, locations: ['Bengaluru'] }; // abroad is tests/work-country.test.ts
+    expect(resolve(field, profile, home, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
   });
 
   it('maps boolean false onto the No option', () => {
     const p = parseProfile({ ...base, answers: { needs_sponsorship: false } });
     const field = f({ kind: 'select', intent: 'answers.needs_sponsorship' });
-    expect(resolve(field, p, job, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
+    expect(resolve(field, p, { ...job, locations: ['Bengaluru'] }, ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['No'] });
   });
 
   it('derives cities from job location + want.locations (multiselect)', () => {

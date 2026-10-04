@@ -95,11 +95,73 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     return opt ? { kind: 'choice', values: [opt] } : { kind: 'unknown' };
   }
 
-  // 4. intent answer from profile.answers (e.g. answers.work_authorization).
+  // 4. "authorized to work / need sponsorship" is true only WHERE you are authorized. The profile's
+  // answer describes the home country; asked about a job elsewhere, repeating it tells a US
+  // employer "authorized, no sponsorship needed" in the applicant's name — the board packs list
+  // jobs worldwide, so this is the common case, not an edge.
+  if (intent === 'answers.work_authorization' || intent === 'answers.needs_sponsorship') {
+    if (workCountryIsHome(field.label, job, profile) === false) {
+      return toAnswer(intent === 'answers.needs_sponsorship', field, options);
+    }
+  }
+
+  // 5. intent answer from profile.answers (e.g. answers.work_authorization).
   const key = intent.replace(/^answers\./, '');
   const val = profile.answers[key];
   if (val === undefined) return { kind: 'unknown' };
   return toAnswer(val, field, options);
+}
+
+// Countries a work-authorization question or a job location may name. India is matched through
+// the profile (identity.country / citizenship / authorized_countries), never from this list.
+const COUNTRIES: readonly (readonly [string, RegExp])[] = [
+  ['united states', /\b(united states|u\.?s\.?a?\.?|america)\b/i],
+  ['canada', /\bcanada\b/i],
+  ['united kingdom', /\b(united kingdom|u\.?k\.?|england|great britain|britain)\b/i],
+  ['ireland', /\bireland\b/i], ['germany', /\bgermany\b/i], ['france', /\bfrance\b/i],
+  ['netherlands', /\b(netherlands|holland)\b/i], ['spain', /\bspain\b/i], ['portugal', /\bportugal\b/i],
+  ['italy', /\bitaly\b/i], ['poland', /\bpoland\b/i], ['sweden', /\bsweden\b/i], ['switzerland', /\bswitzerland\b/i],
+  ['singapore', /\bsingapore\b/i], ['australia', /\baustralia\b/i], ['japan', /\bjapan\b/i],
+  ['israel', /\bisrael\b/i], ['united arab emirates', /\b(united arab emirates|uae|dubai|abu dhabi)\b/i],
+  ['brazil', /\bbrazil\b/i], ['mexico', /\bmexico\b/i],
+];
+// Places a job location names without saying "India" (CITY_ALIASES has the renamed cities).
+const INDIA_PLACES: readonly string[] = [
+  'hyderabad', 'ahmedabad', 'jaipur', 'chandigarh', 'mohali', 'indore', 'coimbatore', 'nagpur', 'lucknow',
+  'bhubaneswar', 'surat', 'visakhapatnam', 'ghaziabad', 'faridabad', 'thane', 'navi mumbai', 'gandhinagar',
+  'karnataka', 'maharashtra', 'telangana', 'haryana', 'tamil nadu', 'kerala', 'gujarat', 'uttar pradesh',
+  'rajasthan', 'west bengal', 'andhra pradesh', 'punjab', 'madhya pradesh', 'odisha',
+];
+// Region-wide or unplaced: says nothing about a country, so the profile's own answer stands.
+const NO_COUNTRY_WORDS = new Set(['remote', 'anywhere', 'worldwide', 'global', 'hybrid', 'apac', 'asia', 'south', 'emea', 'multiple', 'location', 'locations', 'various', 'work', 'from', 'home', 'wfh']);
+const noCountry = (place: string): boolean => place.toLowerCase().split(/[^a-z]+/).filter(Boolean).every((w) => NO_COUNTRY_WORDS.has(w));
+
+/** Is the work this question is about in a country the applicant is authorized in?
+ *  true = home, false = clearly elsewhere, null = cannot tell (the profile answer stands).
+ *  The label wins ("…authorized to work in the United States?"); else the job's own locations. */
+export function workCountryIsHome(label: string, job: Job, profile: Profile): boolean | null {
+  const a = profile.answers;
+  const extra = Array.isArray(a['authorized_countries']) ? (a['authorized_countries'] as string[]) : [];
+  const home = [profile.identity.country, typeof a['citizenship'] === 'string' ? a['citizenship'] : '', ...extra]
+    .map((x) => x.trim().toLowerCase())
+    .filter((x) => x.length > 1);
+  const homeCities = profile.identity.country.trim().toLowerCase() === 'india' ? [...CITY_ALIASES.flat(), ...INDIA_PLACES] : [];
+  const mentionsHome = (t: string): boolean => {
+    const l = t.toLowerCase();
+    return home.some((h) => l.includes(h)) || homeCities.some((c) => new RegExp(`\\b${c}\\b`).test(l)) || cityNames(profile.identity.city).some((c) => c && l.includes(c));
+  };
+  const foreign = (t: string): boolean => COUNTRIES.some(([name, re]) => re.test(t) && !home.includes(name));
+
+  if (mentionsHome(label)) return true;
+  if (foreign(label)) return false;
+
+  const places = job.locations.map((l) => l.trim()).filter(Boolean);
+  if (!places.length) return null;
+  if (places.some(mentionsHome)) return true;
+  if (places.every(noCountry)) return null;
+  // Placed, and not at home: a named foreign country, or a city we do not list (Paris, Austin…).
+  // A city at home is matched above, so anything left is abroad.
+  return false;
 }
 
 // One city, several names in circulation. "Are you currently located in Bangalore?" asked of

@@ -56,7 +56,9 @@ describe('lever extract (real apply-page fixture)', () => {
     await fill(doc, byId('name')!, resolve(byId('name')!, profile, job));
     expect((controlsNamed(doc, 'name')[0] as HTMLInputElement).value).toBe('Kuldeep Bishnoi');
     const visa = fields.find((f) => /visa sponsorship/i.test(f.label))!;
-    const ans = resolve(visa, profile, job, optionsFor(doc, visa));
+    // A home-country job: for this posting's own Kuala Lumpur an Indian applicant DOES need a visa
+    // (tests/work-country.test.ts) — here we are testing the radio mapping, not the country rule.
+    const ans = resolve(visa, profile, { ...job, locations: ['Bengaluru, India'] }, optionsFor(doc, visa));
     expect(ans).toEqual({ kind: 'choice', values: ['NO'] });
     await fill(doc, visa, ans);
     const radios = controlsNamed(doc, visa.id) as HTMLInputElement[];
