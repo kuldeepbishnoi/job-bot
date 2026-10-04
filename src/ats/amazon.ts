@@ -50,13 +50,19 @@ export function activeForm(doc: Document): HTMLElement | null {
   // 1. The progress rail is Amazon's own activeFormIndex — match its active title to a card
   //    heading. (During hydration every card is briefly visible with controls, which fooled the
   //    controls-only heuristic; the rail never lies.)
+  //    …but only a card that is actually showing. Live 2026-10-04: the rail AND the `active` class both
+  //    named "Work Eligibility", whose every question was hidden, while the page showed Job-specific
+  //    questions with empty dropdowns. Trusting the rail filled an invisible form, found no Continue
+  //    on it, and parked every Amazon job ("No Continue button on form5:Work Eligibility").
+  const editable = (f: HTMLElement) => questionNodes(f).some(hasControl);
   const railTitle = progress(doc).find((p) => p.state === 'active')?.title.toLowerCase();
   if (railTitle) {
     const byRail = cards.find((f) => cardTitle(f).toLowerCase().startsWith(railTitle));
-    if (byRail) return byRail;
+    // A card still mounting its dropdowns shows its questions without controls — keep waiting on it.
+    // A card whose questions are ALL hidden is not the step on screen, if some other card is.
+    if (byRail && (questionNodes(byRail).length > 0 || !cards.some(editable))) return byRail;
   }
-  // 2. Fallbacks: the flagged card with controls, then any card with controls.
-  const editable = (f: HTMLElement) => questionNodes(f).some(hasControl);
+  // 2. Fallbacks: the flagged card with VISIBLE controls, then any card with visible controls.
   return cards.find((f) => f.classList.contains('active') && editable(f)) ?? cards.find(editable) ?? null;
 }
 
