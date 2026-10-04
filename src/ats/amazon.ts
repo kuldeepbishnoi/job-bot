@@ -59,10 +59,12 @@ export function activeForm(doc: Document): HTMLElement | null {
   if (railTitle) {
     const byRail = cards.find((f) => cardTitle(f).toLowerCase().startsWith(railTitle));
     // A card still mounting its dropdowns shows its questions without controls — keep waiting on it.
-    // A card whose questions are ALL hidden is not the step on screen, if some other card is.
-    if (byRail && (questionNodes(byRail).length > 0 || !cards.some(editable))) return byRail;
+    // A card whose questions are ALL hidden is never the step on screen.
+    if (byRail && questionNodes(byRail).length > 0) return byRail;
   }
   // 2. Fallbacks: the flagged card with VISIBLE controls, then any card with visible controls.
+  // Nothing showing yet → null, and the caller's waitFor polls again: 1.5 s after load the visible
+  // step often has not mounted its dropdowns, and committing to the hidden card then parked the job.
   return cards.find((f) => f.classList.contains('active') && editable(f)) ?? cards.find(editable) ?? null;
 }
 

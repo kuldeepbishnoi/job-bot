@@ -305,6 +305,13 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         break;
       }
       if (!next) {
+        // The card we filled may not be the step on screen (it was picked mid-mount). If another
+        // card is now the visible one, go round again on it instead of parking the job.
+        const now = az.activeForm(document);
+        if (now && az.formKey(now) !== key && i < MAX_FORMS - 1) {
+          log('no continue on', key, '— the visible step is', az.formKey(now), '; switching');
+          continue;
+        }
         log('no continue button; form buttons:', [...form.querySelectorAll('button, a.btn')].map((b) => b.textContent?.trim()).join(' | '));
         return parked(`No Continue button on form ${key} — ${az.describeState(document)}`);
       }

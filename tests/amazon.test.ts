@@ -454,4 +454,15 @@ describe('activeForm — the step on screen, not the one Amazon flags (#regressi
     Object.defineProperty(doc.querySelector('.hidden-q'), 'offsetParent', { get: () => null });
     expect(formKey(activeForm(doc)!)).toBe('form4:Job-specific questions');
   });
+
+  it('while the visible step is still mounting its dropdowns, waits (null) instead of taking the hidden card', () => {
+    const doc = parse(`
+      <ul><li class="form-list-item active"><span class="form-link">Work Eligibility</span></li></ul>
+      <div class="card question-form form4"><div class="card-header">Job-specific questions</div>
+        <div data-questionid="SDE_EXP-AQ"><label>Do you have 5+ years of non-internship professional software development experience?</label></div></div>
+      <div class="card question-form form5 active"><div class="card-header">Work Eligibility</div>
+        <div data-questionid="REQUIRE_SPONSORSHIP_CAN" hidden><select><option>Yes</option></select></div></div>`);
+    visible(doc);
+    expect(activeForm(doc)).toBeNull(); // the caller's waitFor polls again until form4 has its select
+  });
 });
