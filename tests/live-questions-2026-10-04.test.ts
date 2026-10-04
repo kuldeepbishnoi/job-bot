@@ -21,6 +21,8 @@ describe('2026-10-04 board questions map to the right intent', () => {
     // Not "current company": a yes/no about relationships, left to the guess (No) — never "Blinkit".
     ['Do you have any close personal relationships (e.g. family members, domestic partners, friends, etc.) currently working at 1Password that might create a conflict of interest (or the perception of one)?', undefined],
     ['Current company', 'answers.current_company'],
+    ['Acknowledge/Confirm', 'answers.acknowledge_true'],
+    ['What is it about this job that appeals to you?', 'answers.cover_letter'],
     ['Do you have a Bachelor\'s degree?', 'answers.degree_bachelors'],
   ];
   for (const [label, intent] of cases) it(label.slice(0, 60), () => expect(matchIntent(label)).toBe(intent));
@@ -57,5 +59,12 @@ describe('2026-10-04 answers', () => {
     expect(ans('What are your salary expectations?', 'text', 'Amsterdam').kind).toBe('unknown');
     expect(guessAnswer(withIntent({ id: 'q', label: 'What are your salary expectations?', kind: 'text', required: true }), [], profile)).toBeNull();
     expect(ans('What are your salary expectations?', 'text', 'Bengaluru')).toEqual({ kind: 'text', value: '7000000' }); // home: as before
+  });
+
+  it('an "Acknowledge/Confirm" box Adyen requires is ticked; an arbitration acknowledgement never is', () => {
+    const p2 = parseProfile({ ...profile, answers: { ...profile.answers, acknowledge_true: true } });
+    const box = (label: string) => resolve(withIntent({ id: 'c', label, kind: 'checkbox', required: false }), p2, job('Amsterdam'), []);
+    expect(box('Acknowledge/Confirm')).toEqual({ kind: 'check', value: true });
+    expect(box('Please acknowledge the mutual arbitration agreement').kind).toBe('unknown');
   });
 });

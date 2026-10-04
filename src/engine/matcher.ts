@@ -107,7 +107,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.currently_student', any: ['currently a student', 'currently enrolled'] },
   { intent: 'answers.graduation', any: ['when did you graduate', 'graduation date', 'year of graduation'] },
   { intent: 'answers.relevant_experience', any: ['relevant non internship professional experience', 'relevant professional experience'] },
-  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above'] },
+  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above', 'acknowledge confirm', 'acknowledge and confirm', 'please acknowledge'] },
   { intent: 'answers.privacy_consent', any: ['candidate privacy', 'privacy policy', 'privacy notice', 'processed in accordance'] },
   { intent: 'answers.gender', all: ['gender'] },
   { intent: 'answers.hispanic_latino', any: ['hispanic', 'latino'] },
@@ -144,7 +144,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
   // Free-text "why us" prompts (LinkedIn) — after the compliance rules so their "please provide
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
-  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
+  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'appeals to you', 'excites you about', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
   { intent: 'answers.roles_of_interest', any: ['roles of interest', 'areas of interest', 'specific roles', 'teams are you interested', 'what kind of role', 'type of role'] },
   // Screening questions.
   { intent: 'answers.exact_years_of_experience', any: ['exact years', 'exact number of years', 'precisely how many years', 'exactly how many years'] },

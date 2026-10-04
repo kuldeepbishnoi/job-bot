@@ -59,6 +59,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   // submit gate (consent/acknowledgement) — checking it is the only way to proceed. Optional
   // ones we leave alone.
   if (field.kind === 'checkbox') {
+    // A legal commitment is never ticked — not even through an intent: "acknowledge" now matches
+    // acknowledge_true, and "I acknowledge the arbitration agreement" must still park.
+    if (isConsequential(field.label) && intent !== 'answers.top_choice') return { kind: 'unknown' };
     const key = intent?.replace(/^answers\./, '');
     const v = key ? profile.answers[key] : undefined;
     if (typeof v === 'boolean') return { kind: 'check', value: v };
