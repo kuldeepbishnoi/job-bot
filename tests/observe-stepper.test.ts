@@ -336,4 +336,13 @@ describe('Stop actually stops', () => {
     await watchdog(ports);
     expect(calls).toBe(1);
   });
+  it('a second Start never overwrites the run in progress (#regression 2026-10-04: Greenhouse clobbered Ashby\'s queue)', async () => {
+    const { ports } = fakePorts([job('x1'), job('x2'), job('x3')]);
+    await startRun('ashby', profile, resume, ports, [], undefined, 'manual');
+    await saveProgress({ done: 1, total: 3, current: 'Job x2', phase: 'running', at: Date.now() }); // what chromePorts().progress writes
+    const before = await getRunState();
+    await expect(startRun('greenhouse', profile, resume, ports, [], undefined, 'manual')).rejects.toThrow(/Ashby.*already running/i);
+    expect((await getRunState())?.siteId).toBe('ashby');
+    expect((await getRunState())?.queue).toEqual(before?.queue);
+  });
 });

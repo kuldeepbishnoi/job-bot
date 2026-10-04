@@ -64,10 +64,20 @@ export async function startRun(
   exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
   credentials?: RunState['credentials'],
   trigger: Run['trigger'] = 'manual',
+  opts: { readonly detachFirstStep?: boolean } = {},
 ): Promise<void> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
 
+  // ONE worker run at a time: there is one run_state, one worker window and one OTP inbox
+  // (invariant 8). Until 2026-10-04 a second Start simply overwrote the first run's queue — the
+  // user started Greenhouse and Lever while Ashby ran, Ashby's queue was replaced by Greenhouse's,
+  // and Ashby's card went on saying RUNNING over a run that no longer existed.
+  const existing = await getRunState();
+  if (existing && (await runInProgress())) {
+    const other = siteById(existing.siteId)?.label ?? existing.siteId;
+    throw new Error(`${other} is already running${existing.paused ? ' (paused)' : ''} — one worker run at a time; Stop it or let it finish first`);
+  }
 
   // Rotation identifies "the account we just tried" by getAccount(). If that does not actually
   // name one of this site's candidates, nextAccountWithRoom cannot tell the logged-in account from
@@ -138,7 +148,11 @@ export async function startRun(
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only
   // AFTER a step completes, so a step that dies leaves no alarm — the watchdog re-drives it.
   await chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: 1 });
-  await step(ports); // do the first one immediately (SW is alive during the click)
+  // Do the first one immediately (the SW is alive during the click). A UI caller detaches it: the
+  // Start button waits on this promise, and a first job takes minutes — it sat on "Starting…"
+  // for the whole of it. The run is fully persisted by now, so nothing is lost by not waiting.
+  if (opts.detachFirstStep) void step(ports);
+  else await step(ports);
 }
 
 
