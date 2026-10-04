@@ -178,11 +178,17 @@ async function drainSearch(budget: number, want: Want): Promise<{ applied: numbe
     if (stopped) break;
     const card = ih.openModalLinks(document).find((el) => !handled.has(ih.cardId(el)));
     if (!card) {
-      // Page exhausted — advance to the next page, or we're truly done.
+      // Page exhausted — advance to the next page, or we're truly done. A Next that does not bring
+      // a single unseen card is the end too: without this check a pager that stays clickable on
+      // the last page (or a page that did not load) kept the run alive forever.
       const next = ih.nextPageButton(document);
       if (!next) break;
       click(next);
-      await sleep(SETTLE_MS);
+      const fresh = await waitFor(() => (ih.openModalLinks(document).some((el) => !handled.has(ih.cardId(el))) ? true : null), 8000).catch(() => null);
+      if (!fresh) {
+        log('next page brought no new cards — done');
+        break;
+      }
       continue;
     }
 

@@ -25,7 +25,7 @@ import type { Field, Job } from '../src/engine/types.ts';
 
 interface Adapter {
   readonly extract: (doc: Document) => Field[];
-  readonly optionsFor: (doc: Document, f: Field) => string[];
+  readonly optionsFor: (doc: Document, f: Field) => string[] | Promise<string[]>;
 }
 
 const args = process.argv.slice(2);
@@ -109,8 +109,9 @@ try {
 const job: Job = { id: 'probe', title: doc.querySelector('h2')?.textContent?.trim() ?? '', team: '', department: '', url: target ?? '', locations: [doc.querySelector('.location')?.textContent?.trim() ?? ''].filter(Boolean), seniority: [] };
 
 const fields = chosen.a.extract(doc).map(withIntent);
-const rows = fields.map((f) => {
-  const options = chosen.a.optionsFor(doc, f);
+// Greenhouse's optionsFor is async (it opens a react-select); Lever's is not — await both.
+const rows = await Promise.all(fields.map(async (f) => {
+  const options = await chosen.a.optionsFor(doc, f);
   let answer;
   try {
     answer = resolveAnswer(f, profile, job, options);
@@ -119,13 +120,14 @@ const rows = fields.map((f) => {
   }
   const guessed = answer.kind === 'unknown' && profile.on_unknown === 'guess' ? guessAnswer(f, options, profile) : null;
   return { f, options, answer, guessed };
-});
+}));
 
 const show = (r: (typeof rows)[number]): string => {
   const a = r.guessed ?? r.answer;
   const via = r.guessed ? ' (GUESS)' : '';
   if (a.kind === 'text') return JSON.stringify(a.value.slice(0, 70)) + via;
   if (a.kind === 'choice') return a.values.join(' + ') + via;
+  if ((a.kind as string) === 'threw') return 'threw: ' + (a as never as { value: string }).value;
   if (a.kind === 'check') return String(a.value) + via;
   return a.kind + via;
 };

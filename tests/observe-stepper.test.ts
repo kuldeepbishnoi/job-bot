@@ -315,4 +315,34 @@ describe('Stop actually stops', () => {
     expect(await getRunState()).toBeNull();
     expect((await listRuns()).at(-1)?.phase).toBe('stopped');
   });
+  it('signed out: pauses ONCE on the login page instead of failing every job (#regression 2026-10-04: Amazon "kept restarting")', async () => {
+    let calls = 0;
+    const opened: string[] = [];
+    const { ports, recorded } = fakePorts([job('a1'), job('a2'), job('a3')], async () => {
+      calls++;
+      throw new Error('not logged in: Amazon sent the apply page to sign-in');
+    });
+    ports.openJob = async (url) => (opened.push(url), 1);
+    await startRun('amazon', profile, resume, ports, [], undefined, 'manual');
+
+    const state = await getRunState();
+    expect(state?.paused?.reason).toMatch(/not logged in/);
+    expect(state?.cursor).toBe(0); // the job is retried after Resume, not written off
+    expect(recorded).toHaveLength(0); // a sign-out is not a job outcome
+    expect(opened.at(-1)).toMatch(/applicant\/login/);
+    expect((await listRuns()).at(-1)?.phase).toBe('paused');
+
+    await step(ports); // a stray alarm/timer while paused does nothing
+    await watchdog(ports);
+    expect(calls).toBe(1);
+  });
+  it('a second Start never overwrites the run in progress (#regression 2026-10-04: Greenhouse clobbered Ashby\'s queue)', async () => {
+    const { ports } = fakePorts([job('x1'), job('x2'), job('x3')]);
+    await startRun('ashby', profile, resume, ports, [], undefined, 'manual');
+    await saveProgress({ done: 1, total: 3, current: 'Job x2', phase: 'running', at: Date.now() }); // what chromePorts().progress writes
+    const before = await getRunState();
+    await expect(startRun('greenhouse', profile, resume, ports, [], undefined, 'manual')).rejects.toThrow(/Ashby.*already running/i);
+    expect((await getRunState())?.siteId).toBe('ashby');
+    expect((await getRunState())?.queue).toEqual(before?.queue);
+  });
 });

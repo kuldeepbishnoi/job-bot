@@ -3,6 +3,7 @@ import { applyOne } from './runner';
 import { siteById } from '../sites';
 import type { Profile } from '../config/schema';
 import type { Site } from '../sites';
+import { NOT_LOGGED_IN } from '../sites/site';
 import type { RunState } from '../platform/store';
 import type { Application, Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
@@ -63,9 +64,20 @@ export async function startRun(
   exclude: readonly string[] = [], // job ids applied to by ANY account (shared registry)
   credentials?: RunState['credentials'],
   trigger: Run['trigger'] = 'manual',
+  opts: { readonly detachFirstStep?: boolean } = {},
 ): Promise<void> {
   const site = siteById(siteId);
   if (!site) throw new Error(`unknown site ${siteId}`);
+
+  // ONE worker run at a time: there is one run_state, one worker window and one OTP inbox
+  // (invariant 8). Until 2026-10-04 a second Start simply overwrote the first run's queue — the
+  // user started Greenhouse and Lever while Ashby ran, Ashby's queue was replaced by Greenhouse's,
+  // and Ashby's card went on saying RUNNING over a run that no longer existed.
+  const existing = await getRunState();
+  if (existing && (await runInProgress())) {
+    const other = siteById(existing.siteId)?.label ?? existing.siteId;
+    throw new Error(`${other} is already running${existing.paused ? ' (paused)' : ''} — one worker run at a time; Stop it or let it finish first`);
+  }
 
   // Rotation identifies "the account we just tried" by getAccount(). If that does not actually
   // name one of this site's candidates, nextAccountWithRoom cannot tell the logged-in account from
@@ -136,7 +148,11 @@ export async function startRun(
   // Backup driver: the owner's rule is "it never stops running". The step alarm is created only
   // AFTER a step completes, so a step that dies leaves no alarm — the watchdog re-drives it.
   await chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: 1 });
-  await step(ports); // do the first one immediately (SW is alive during the click)
+  // Do the first one immediately (the SW is alive during the click). A UI caller detaches it: the
+  // Start button waits on this promise, and a first job takes minutes — it sat on "Starting…"
+  // for the whole of it. The run is fully persisted by now, so nothing is lost by not waiting.
+  if (opts.detachFirstStep) void step(ports);
+  else await step(ports);
 }
 
 
@@ -227,6 +243,14 @@ export async function step(ports: RunPorts): Promise<void> {
       JOB_DEADLINE_MS,
       () => mkFailed(site, job, ports, `gave up after ${Math.round(JOB_DEADLINE_MS / 60_000)} min on this job — moving to the next`),
     );
+    // Signed out: every later job would bounce to the same login page, so failing them one by one
+    // reopened that page every few seconds for the whole queue ("it keeps restarting on its own").
+    // Not a job outcome — record nothing, keep the cursor on this job, and wait for the user.
+    if (result.status === 'failed' && result.note?.startsWith(NOT_LOGGED_IN)) {
+      const live = await getRunState();
+      if (!live || (live.runId ?? null) !== runId) return; // stopped meanwhile — stay stopped
+      return pauseForLogin(site, live, ports);
+    }
     await ports.record(result);
     await observe.runOutcome(runId, result.status);
 
@@ -294,6 +318,18 @@ async function rotateAccount(site: Site, state: RunState, ports: RunPorts, reaso
   await observe.runPaused(state.runId ?? null, reason, next); // the console shows what the user must do
   await chrome.alarms.clear(STEP_ALARM);
   await saveProgress({ done: state.cursor, total: state.queue.length, current: `${reason} for ${current || 'this account'}. Log in as ${next} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
+}
+
+/** The site signed us out. Show its login page once and pause until the user clicks Resume — the
+ *  same pause account rotation uses, so Resume (popup or console) continues from THIS job. */
+async function pauseForLogin(site: Site, state: RunState, ports: RunPorts): Promise<void> {
+  const account = await getAccount();
+  if (site.loginUrl) await ports.openJob(site.loginUrl).catch(() => {});
+  const reason = `${NOT_LOGGED_IN} to ${site.label}`;
+  await saveRunState({ ...state, paused: { reason, nextAccount: account } });
+  await observe.runPaused(state.runId ?? null, reason, account);
+  await chrome.alarms.clear(STEP_ALARM);
+  await saveProgress({ done: state.cursor, total: state.queue.length, current: `Not logged in to ${site.label}. Log in${account ? ` as ${account}` : ''} in the JobBot tab, then click Resume.`, phase: 'paused', at: Date.now() });
 }
 
 /** Popup -> background: the user logged the next account in. */

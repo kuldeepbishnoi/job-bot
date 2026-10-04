@@ -27,19 +27,52 @@ export function openModalLink(doc: Document): HTMLElement | null {
   return openModalLinks(doc)[0] ?? null;
 }
 
-/** Every still-visible card link that opens an apply modal. The "Search other jobs" results page
- *  lists 30 cards at once (each an `openApplyModal(opp)`), so the search loop walks this whole list
- *  and dedupes by `cardId`. */
+/** Every still-visible card that opens an apply modal — ONE opener per card. The search-results
+ *  layout (2026-10 screenshot) gives each card a title AND a "View job »" button; if both carry
+ *  `openApplyModal`, listing both would open every card twice. The search loop walks this list and
+ *  dedupes by `cardId`. */
 export function openModalLinks(doc: Document): HTMLElement[] {
-  return [
-    ...doc.querySelectorAll('.employer-block [ng-click*="openApplyModal"], [ng-click*="openApplyModal"]'),
-  ].filter((el) => shown(el)) as HTMLElement[];
+  const seen = new Set<Element>();
+  const out: HTMLElement[] = [];
+  for (const el of doc.querySelectorAll<HTMLElement>('.employer-block [ng-click*="openApplyModal"], [ng-click*="openApplyModal"]')) {
+    if (!shown(el)) continue;
+    const card = cardOf(el);
+    if (seen.has(card)) continue;
+    seen.add(card);
+    out.push(el);
+  }
+  return out;
+}
+
+/** A label that names no job ("View job »", "Apply") — useless as an identity or a title. */
+const GENERIC = /^(view( job)?|apply( now)?|details|open)\b/i;
+
+/** The card an opener belongs to: `.employer-block` when present, else the widest ancestor that is
+ *  still ONE card — at most one titled opener and one generic "View job »" opener. Every card's
+ *  ng-click is the same `openApplyModal(opp)`, so the attribute cannot tell cards apart. */
+function cardOf(el: Element): Element {
+  const block = el.closest('.employer-block');
+  if (block) return block;
+  const oneCard = (root: Element): boolean => {
+    const openers = [...root.querySelectorAll('[ng-click*="openApplyModal"]')];
+    const generic = openers.filter((o) => GENERIC.test(labelText(o))).length;
+    return generic <= 1 && openers.length - generic <= 1;
+  };
+  let cur: Element = el;
+  while (cur.parentElement && cur.parentElement !== el.ownerDocument.body && oneCard(cur.parentElement)) cur = cur.parentElement;
+  return cur;
 }
 
 /** Stable-enough identity for a search-result card ("<Company> - <Title>") so the loop never
- *  re-opens a card it already applied to / skipped on the current session. */
+ *  re-opens a card it already applied to / skipped on the current session. When the opener is a
+ *  generic "View job »" button, read the card's own heading instead — otherwise every card on a
+ *  page shares the id "View job »", the first is handled and the rest are skipped as duplicates. */
 export function cardId(el: Element): string {
-  return labelText(el).slice(0, 120);
+  const own = labelText(el);
+  if (own && !GENERIC.test(own)) return own.slice(0, 120);
+  const card = cardOf(el);
+  const heading = card.querySelector('h1, h2, h3, h4, .job-title, .company-name, [class*="title"]');
+  return (heading ? labelText(heading) : labelText(card)).slice(0, 120);
 }
 
 /** The Apply control inside the open modal (`submitChoice(opp, true)`) — a DIV, not a <button>. */
@@ -101,7 +134,11 @@ export function showResultsButton(doc: Document): HTMLElement | null {
 
 /** The "Next »" pager on the search-results list (`nextPage()`), to advance past the 30-per-page. */
 export function nextPageButton(doc: Document): HTMLElement | null {
-  return firstShown(doc, '[ng-click*="nextPage"]');
+  const el = firstShown(doc, '[ng-click*="nextPage"]');
+  // On the last page the pager is still rendered, just disabled — clicking it forever was a loop
+  // that never ended the run.
+  if (!el || el.matches('[disabled], .disabled, [aria-disabled="true"]') || el.closest('.disabled, [disabled]')) return null;
+  return el;
 }
 
 /** The open apply modal's close control (`closeApplyModal()`) — search modals don't auto-advance, so
