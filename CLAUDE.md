@@ -275,8 +275,12 @@ fixtures/    real captured data for offline tests
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)
-- **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity` — each used (alarms
-  steps the queue across SW restarts; identity fetches the read-only Gmail token for the OTP). No
+- **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity`, `downloads`,
+  `downloads.ui` — each used (alarms steps the queue across SW restarts; identity fetches the
+  read-only Gmail token for the OTP; downloads writes records, captures and the full log to
+  `~/Downloads/jobbot/` when the profile folder is not linked — its grant needs a click the owner
+  asked never to need — and downloads.ui keeps those saves off the download bar). `node
+  debug/outcomes.mjs` reads `~/Downloads/jobbot` when it is newer than `profile/applications`. No
   `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
   OTP read), not `*://*`. The one exception is **optional**: `optional_host_permissions: ['<all_urls>']`,
   requested by the popup when a LinkedIn run starts, because `chrome.tabs.captureVisibleTab` refuses

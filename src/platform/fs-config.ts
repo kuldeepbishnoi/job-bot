@@ -5,6 +5,7 @@ import { parseProfile, type Profile } from '../config/schema';
 import { serializeFile, type SerializedFile } from './serialized-file';
 import type { Application } from '../engine/types';
 import { parseCredentialsCsv, type Credentials } from './credentials';
+import { saveToDownloads, saveLogChunk } from './download-disk';
 
 const HANDLE_KEY = 'profileDirHandle';
 const RECORDS_DIR = 'applications';
@@ -134,9 +135,9 @@ export async function loadProfileAndResume(): Promise<{ profile: Profile; resume
 export async function writeRecord(app: Application): Promise<void> {
   try {
     const dir = await getHandle();
-    if (!dir) return;
-    if ((await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-      console.warn('[jobbot] no write permission for profile folder — skipping disk record');
+    if (!dir || (await dir.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+      // No folder link → the same record into ~/Downloads/jobbot, with no user step.
+      await persistToDownloads(app);
       return;
     }
     const records = await dir.getDirectoryHandle(RECORDS_DIR, { create: true });
@@ -332,7 +333,7 @@ export interface ReviewLine {
  *  popup flush catches up later, without the capture). */
 export async function persistApplication(app: Application): Promise<boolean> {
   const dir = await recordsDir();
-  if (!dir) return false;
+  if (!dir) return persistToDownloads(app); // no folder link: ~/Downloads/jobbot, no user step
   const key = `${app.jobId}@${app.at ?? app.date}`;
   const got = await chrome.storage.local.get(FLUSHED_KEY);
   const flushed = new Set((got[FLUSHED_KEY] as string[] | undefined) ?? []);
@@ -367,12 +368,27 @@ export async function persistApplication(app: Application): Promise<boolean> {
   return true;
 }
 
+/** No profile-folder grant: the same record, captures and review lines into ~/Downloads/jobbot/
+ *  (platform/download-disk.ts). One JSON file per attempt — downloads cannot append. */
+export async function persistToDownloads(app: Application): Promise<boolean> {
+  const { screenshot, capture, ...rec } = app;
+  const stamp = `${app.date}_${app.company}_${app.jobId}_${app.status}`.replace(/[^A-Za-z0-9._-]+/g, '-');
+  const files: string[] = [];
+  const shot = capture?.screenshot ?? screenshot;
+  if (shot) {
+    const ext = /image\/png/.test(shot.slice(0, 20)) ? 'png' : 'jpg';
+    if (await saveToDownloads(`captures/${stamp}.${ext}`, shot)) files.push(`captures/${stamp}.${ext}`);
+  }
+  if (capture?.html && (await saveToDownloads(`captures/${stamp}.html`, capture.html, 'text/html'))) files.push(`captures/${stamp}.html`);
+  return saveToDownloads(`records/${stamp}.json`, JSON.stringify({ ...rec, log: app.log ?? [], captureLabel: capture?.label, files }, null, 1), 'application/json');
+}
+
 /** Append debug-log lines to `applications/log-<yyyy-mm-dd>.txt` — the complete, uncapped run log
  *  (chrome.storage keeps only the last few thousand lines). No folder / permission = dropped. */
 export async function appendLogLines(lines: readonly string[]): Promise<boolean> {
   if (!lines.length) return true;
   const dir = await recordsDir();
-  if (!dir) return false;
+  if (!dir) return saveLogChunk(lines); // no folder link: ~/Downloads/jobbot/logs
   const byDay = new Map<string, string[]>();
   for (const l of lines) {
     const day = l.slice(0, 10);

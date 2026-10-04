@@ -4,7 +4,7 @@ import { getOtp, seenOtps, getLoginCode, seenLoginCodes } from '../platform/gmai
 import { isPassportUrl } from '../ats/passport';
 import type { LoginOutcome } from '../platform/messaging';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
-import { writeRecord } from '../platform/fs-config';
+import { writeRecord, appendLogLines } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
 import { siteById } from '../sites';
@@ -12,7 +12,7 @@ import { NOT_LOGGED_IN } from '../sites/site';
 import type { Profile } from '../config/schema';
 import type { Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
-import { dlog, elog } from '../platform/debug-log';
+import { dlog, elog, takePendingLines } from '../platform/debug-log';
 import * as observe from './observe';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -220,7 +220,8 @@ export function chromePorts(siteId?: string): RunPorts {
     },
     record: async (app) => {
       await record(app); // chrome.storage (store strips the screenshot dataURL)
-      await writeRecord(app); // full record to the profile folder on disk
+      await writeRecord(app); // full record to the profile folder on disk (else ~/Downloads/jobbot)
+      await appendLogLines(await takePendingLines()).catch(() => {}); // and the complete log so far
     },
     progress: (done, total, current) => {
       void send({ t: 'progress', done, total, current }).catch(() => {}); // reaches the popup if open

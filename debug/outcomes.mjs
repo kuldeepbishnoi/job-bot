@@ -33,8 +33,20 @@ function candidates() {
 }
 const dirs = candidates().sort((a, b) => statSync(join(b, 'applications.jsonl')).mtimeMs - statSync(join(a, 'applications.jsonl')).mtimeMs);
 const dir = dirs[0];
+// No profile-folder link → the extension writes ~/Downloads/jobbot/ itself (platform/download-disk.ts):
+// one JSON per attempt in records/, the log as chunks in logs/<day>/. Prefer it when it is newer.
+const dl = join(process.env.HOME ?? '', 'Downloads', 'jobbot');
+const dlNewer = existsSync(join(dl, 'records')) && (!dir || statSync(join(dl, 'records')).mtimeMs > statSync(join(dir, 'applications.jsonl')).mtimeMs);
 
-if (!dir) {
+if (dlNewer && !has('--profile-dir')) {
+  const recs = readdirSync(join(dl, 'records')).filter((f) => f.endsWith('.json')).sort()
+    .map((f) => { try { return JSON.parse(readFileSync(join(dl, 'records', f), 'utf8')); } catch { return null; } }).filter(Boolean);
+  const logLines = existsSync(join(dl, 'logs'))
+    ? readdirSync(join(dl, 'logs')).sort().flatMap((d) => readdirSync(join(dl, 'logs', d)).sort().flatMap((f) => readFileSync(join(dl, 'logs', d, f), 'utf8').split('\n').filter(Boolean)))
+    : [];
+  console.log(`records: ${dl}  (${recs.length} records, ${logLines.length} log lines) — written by the extension, no folder link`);
+  report(recs, [], logLines);
+} else if (!dir) {
   console.log('no on-disk records found (profile/applications/applications.jsonl) — set JOBBOT_PROFILE or open the popup once to flush; falling back to LevelDB');
   const { storageDir, rawDump, records } = await import('./storage.mjs');
   const sd = storageDir();

@@ -11,7 +11,7 @@
 // Only ever written to ~/.jobbot/extension (the unpacked copy Chrome loads) — never to .output/,
 // so `npm run build` / `npm run zip` can never package personal data.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +42,17 @@ const registryPath = join(profileDir, 'applications', 'registry.jsonl');
 const applied = existsSync(registryPath)
   ? [...new Set(readFileSync(registryPath, 'utf8').split('\n').flatMap((l) => { try { const r = JSON.parse(l); return r.status === 'applied' && r.jobId ? [String(r.jobId)] : []; } catch { return []; } }))]
   : [];
+// Records the extension wrote itself (no folder link → ~/Downloads/jobbot/records/*.json): an
+// applied one there is just as final as a registry line.
+const dlRecords = join(homedir(), 'Downloads', 'jobbot', 'records');
+if (existsSync(dlRecords)) {
+  for (const f of readdirSync(dlRecords).filter((x) => x.endsWith('.json'))) {
+    try {
+      const r = JSON.parse(readFileSync(join(dlRecords, f), 'utf8'));
+      if (r.status === 'applied' && r.jobId && !applied.includes(String(r.jobId))) applied.push(String(r.jobId));
+    } catch { /* a half-written file */ }
+  }
+}
 const hash = createHash('sha256').update(yaml).update(resume?.base64 ?? '').digest('hex').slice(0, 16);
 mkdirSync(join(target, 'seed'), { recursive: true });
 writeFileSync(join(target, 'seed', 'profile.json'), JSON.stringify({ hash, yaml, resume, applied, from: yamlPath }));
