@@ -11,6 +11,7 @@ import type { Msg } from '@/platform/messaging';
 import * as observe from '@/app/observe';
 import { appendEvents } from '@/platform/data/events';
 import { dlog } from '@/platform/debug-log';
+import { syncSeed } from '@/platform/data/profile-store';
 
 // Main: wires concrete ports to the alarm-driven stepper.
 // The run is NOT a single long await (MV3 would kill the SW) — each job is one alarm wake.
@@ -18,6 +19,10 @@ export default defineBackground(() => {
   // Every dlog line in this service worker also becomes a structured event (batched per flush),
   // so the console's Logs page shows everything without touching 40+ call sites.
   observe.mirrorLogsToEvents();
+
+  // profile.yaml → the extension, on every service-worker start (a reload included): the dashboard
+  // and every Start re-check too, so an edit never needs the folder link or a click in Chrome.
+  void syncSeed().then((r) => dlog('profile', 'seed', r.status, 'error' in r ? r.error : ''));
 
   chrome.runtime.onMessage.addListener((msg: Msg, _sender, sendResponse) => {
     if (msg.t === 'run') {
