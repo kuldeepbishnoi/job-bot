@@ -421,6 +421,24 @@ describe('linkedin adapter — modal + questions', () => {
     expect(attachResume(none, new File(['x'], 'cv.pdf'))).toBe(true);
   });
 
+  it('never reads a résumé card toggle as a question (#regression 2026-10-04: 3 jobs parked on "Select resume X.pdf")', () => {
+    // The live markup: untagged SDUI step, one card per saved résumé, each an Ember radio whose
+    // only label is its aria-label. The unselected card is an unchecked "required" radio.
+    const CARDS = `
+<div class="jobs-document-upload-redesign-card__container jobs-document-upload-redesign-card__container--selected"><h3 class="jobs-document-upload-redesign-card__file-name">Kuldeep_Bishnoi___SDE2___2026_04 (3).pdf</h3><input type="radio" id="jobsDocumentCardToggle-ember780" aria-label="Select resume Kuldeep_Bishnoi___SDE2___2026_04 (3).pdf" checked></div>
+<div class="jobs-document-upload-redesign-card__container"><h3 class="jobs-document-upload-redesign-card__file-name">Kuldeep_Bishnoi___SDE2___2026_04.pdf</h3><input type="radio" id="jobsDocumentCardToggle-ember781" aria-label="Select resume Kuldeep_Bishnoi___SDE2___2026_04.pdf"></div>
+<div class="jobs-document-upload__container"><label for="jobs-document-upload-file-input-upload-resume">Upload resume</label><input id="jobs-document-upload-file-input-upload-resume" type="file"></div>`;
+    const m = modal(load(MODAL(CARDS, REVIEW)))!;
+    expect(resumeSelected(m)).toBe(true);
+    const fields = extract(m);
+    expect(fields.filter((f) => f.kind !== 'file')).toEqual([]);
+    expect(fields.find((f) => f.kind === 'file')?.intent).toBe('resume');
+    // Same cards inside a tagged block (legacy layout) — still not a question.
+    const tagged = modal(load(MODAL(`<div data-test-form-element class="jobs-document-upload-redesign-card__container"><input type="radio" id="jobsDocumentCardToggle-ember9" aria-label="Select resume a.pdf"></div>${QUESTIONS}`, NEXT)))!;
+    expect(extract(tagged).map((f) => f.id)).not.toContain('jobsDocumentCardToggle-ember9');
+    expect(extract(tagged)[0]!.label).toBe('Email address');
+  });
+
   it('safety reminder → its "Continue applying" button', () => {
     const doc = load(`<div role="dialog" class="artdeco-modal"><h2>Job safety reminder</h2><p>…</p><button>Continue applying</button></div>`);
     expect(safetyContinueButton(doc)!.textContent).toBe('Continue applying');

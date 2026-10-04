@@ -357,10 +357,10 @@ export function validationErrors(m: Element): string[] {
  *  so fall back to "the closest ancestor that also holds the control's label". */
 export function questionBlocks(m: Element): HTMLElement[] {
   const tagged = [...m.querySelectorAll<HTMLElement>('[data-test-form-element], .fb-dash-form-element, .jobs-easy-apply-form-element')].filter((b) => !b.parentElement?.closest('[data-test-form-element], .fb-dash-form-element'));
-  if (tagged.length) return tagged.filter((b) => shown(b));
+  if (tagged.length) return tagged.filter((b) => shown(b) && !isResumePicker(b));
   const blocks: HTMLElement[] = [];
   for (const c of m.querySelectorAll<HTMLElement>('select, textarea, input:not([type="hidden"])')) {
-    if (c.id === 'follow-company-checkbox') continue;
+    if (c.id === 'follow-company-checkbox' || isResumePicker(c)) continue;
     const fs = c.closest<HTMLElement>('fieldset');
     let block: HTMLElement | null = fs?.parentElement ?? null;
     if (!block) {
@@ -371,6 +371,17 @@ export function questionBlocks(m: Element): HTMLElement[] {
     if (block && !blocks.includes(block) && shown(block)) blocks.push(block);
   }
   return blocks;
+}
+
+/** A résumé card's toggle (`jobsDocumentCardToggle-ember781`, aria "Select resume X.pdf"). One per
+ *  saved résumé, and every card but the selected one is an unchecked radio — read as a question it
+ *  is a required single-choice nobody can answer, which parked 3 of 4 jobs on 2026-10-04. The
+ *  résumé is handled by `resumeSelected`/`attachResume`, never by the question loop. */
+function isResumePicker(el: Element): boolean {
+  if (el instanceof HTMLInputElement && el.type === 'file') return false; // the upload box IS the résumé field
+  if (/^jobsDocumentCardToggle/i.test(el.id) || /^select resume\b/i.test(el.getAttribute('aria-label') ?? '')) return true;
+  const card = '.jobs-document-upload-redesign-card__container, [class*="document-upload-redesign-card"], [data-test-document-upload-item]';
+  return el.matches(card) ? !el.querySelector('input[type="file"]') : !!el.closest(card);
 }
 
 const PLACEHOLDER = /^(select an option|select|choose|please select|--)\b/i;
