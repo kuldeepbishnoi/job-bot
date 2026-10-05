@@ -125,7 +125,10 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.disability', any: ['disability', 'disabled'] },
   // Work eligibility / compliance.
   { intent: 'answers.previously_applied', any: ['previously applied'] },
-  { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked'] },
+  { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked', 'ever worked for', 'ever been employed by', 'ever been employed at'] },
+  // "Candidate AI Usage Attestation" (Airbnb): a promise not to use AI tools in interviews. A
+  // commitment in the user's name, so it is answered only from the profile — never guessed.
+  { intent: 'answers.ai_usage_attestation', any: ['ai usage attestation', 'ai tools attestation', 'use of generative artificial intelligence', 'generative ai tools'] },
   { intent: 'answers.non_compete', any: ['non competition', 'non compete', 'noncompete'] },
   // The follow-up list must be matched before the yes/no it depends on.
   { intent: 'answers.countries_lived', any: ['countries outside', 'which countries have you lived', 'countries you have lived'] },

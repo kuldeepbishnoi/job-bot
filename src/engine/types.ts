@@ -94,6 +94,7 @@ export type Intent =
   | 'answers.language_proficiency' // "What is your level of proficiency in English?"
   | 'answers.drivers_license'
   | 'answers.security_clearance'
+  | 'answers.ai_usage_attestation' // "I attest I will not use AI tools during interviews" — the user's own promise
   | 'answers.roles_of_interest' // "Areas and/or specific roles of interest" (free text)
   | 'answers.cover_letter' // free-text "why do you want to work here" / "include a message" prompts
   // Indian-market screening questions (LinkedIn Easy Apply, SmartRecruiters-powered forms).

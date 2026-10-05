@@ -553,11 +553,12 @@ function looksLikeSourceList(options: readonly string[]): boolean {
   return /\blinkedin\b/i.test(t) && /\b(friend|referral|recruiter|job board|indeed|glassdoor|advertisement)\b/i.test(t);
 }
 
-const NEVER_GUESS_TEXT = /^(identity\.|answers\.(expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
+const NEVER_GUESS_TEXT = /^(identity\.|answers\.(ai_usage_attestation|expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
 
 export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
   // Never guess a legal commitment — park it for the user, whatever the field's shape.
   if (isConsequential(field.label)) return null;
+  if (field.intent === 'answers.ai_usage_attestation') return null; // a promise only the user makes
   // A required lone checkbox gates submit → tick it; an optional one is an opt-in extra → leave it off.
   if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
   if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {

@@ -29,6 +29,10 @@ describe('2026-10-04 board questions map to the right intent', () => {
     ['What aspects of startup culture resonate with you, and how do you believe they align with your work style?', 'answers.cover_letter'],
     ['How did you hear about Alchemy?', 'answers.how_did_you_hear'],
     ['Acknowledged', 'answers.acknowledge_true'],
+    ['Are you currently or have you ever worked for Airbnb in any capacity? This could include, but is not limited to, a full-time employee, intern, apprentice, or contingent worker.', 'answers.previous_employment'],
+    ['Candidate AI Usage Attestation:', 'answers.ai_usage_attestation'],
+    ['O gênero com o qual você se identifica (The gender you identify with) - Brazil', 'answers.gender'],
+    ['O grupo étnico-racial com o qual você se identifica. Você se declara uma pessoa: (The ethnic-racial group you identify with. You declare yourself as:) - Brazil', 'answers.racial_identity'],
     ['What is your Current/Last drawn CTC(in LPA)?', 'answers.current_salary'],
     ['When could you start working?', 'answers.start_date'],
     ['What about Baseten and this role interests you?', 'answers.cover_letter'],
@@ -98,5 +102,19 @@ describe('2026-10-04 answers', () => {
   it('a REQUIRED Website with no personal site gets the GitHub profile', () => {
     const p2 = parseProfile({ ...profile, answers: { ...profile.answers, github: 'https://github.com/k' } });
     expect(resolve(withIntent({ id: 'w', label: 'Website', kind: 'text', required: true }), p2, job('Remote'), [])).toEqual({ kind: 'text', value: 'https://github.com/k' });
+  });
+
+  it('the AI-usage attestation is never guessed — only the profile can make that promise', () => {
+    const f = withIntent({ id: 'ai', label: 'Candidate AI Usage Attestation:', kind: 'select', required: true });
+    expect(resolve(f, profile, job('Remote'), ['Yes', 'No']).kind).toBe('unknown');
+    expect(guessAnswer(f, ['Yes', 'No'], profile)).toBeNull();
+    const p2 = parseProfile({ ...profile, answers: { ...profile.answers, ai_usage_attestation: true } });
+    expect(resolve(f, p2, job('Remote'), ['Yes', 'No'])).toEqual({ kind: 'choice', values: ['Yes'] });
+  });
+
+  it('Brazil self-ID options in Portuguese still reach the decline answer', () => {
+    const p2 = parseProfile({ ...profile, answers: { ...profile.answers, gender: 'DECLINE' } });
+    const opts = ['Feminino (Female)', 'Masculino (Male)', 'Não-binário (non-binary)', 'Prefiro não responder (Decline to self-identify)'];
+    expect(resolve(withIntent({ id: 'g', label: 'O gênero com o qual você se identifica (The gender you identify with) - Brazil', kind: 'select', required: true }), p2, job('São Paulo, Brazil'), opts)).toEqual({ kind: 'choice', values: ['Prefiro não responder (Decline to self-identify)'] });
   });
 });
