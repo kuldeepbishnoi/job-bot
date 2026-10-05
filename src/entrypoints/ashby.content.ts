@@ -119,17 +119,28 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
     const btn = ab.submitButton(document);
     if (!btn) return parked(`no submit button — ${ab.describeState(document)}`);
-    log('clicking submit');
-    click(btn);
-    const outcome = await waitFor(() => {
-      if (ab.confirmed(document)) return 'submitted' as const;
+    // Wait for Ashby to finish saving (résumé upload + field saves) — a click before that is dropped.
+    const resumeExpected = filled.some(({ answer }) => answer.kind === 'file');
+    const settled = await waitFor(() => (ab.savesSettled(document, resumeExpected) ? true : null), 40_000).catch(() => false);
+    log('saves settled', settled, ab.describeState(document));
+    const verdict = (): string | null => {
+      if (ab.confirmed(document)) return 'submitted';
       const f = ab.failureMessage(document);
-      if (f) return `failure:${f}` as const;
+      if (f) return `failure:${f}`;
       const fix = ab.correctionsNeeded(document);
-      if (fix) return `corrections:${fix.join(' | ')}` as const;
-      if (ab.captchaChallenge(document)) return 'captcha' as const;
+      if (fix) return `corrections:${fix.join(' | ')}`;
+      if (ab.captchaChallenge(document)) return 'captcha';
       return null;
-    }, 45_000).catch(() => null);
+    };
+    // Click, and if Ashby sent nothing, click again — up to 3 times. A sent submit is never re-clicked.
+    let outcome: string | null = null;
+    for (let attempt = 1; attempt <= 3 && !outcome; attempt++) {
+      log('clicking submit, attempt', attempt);
+      click(ab.submitButton(document) ?? btn);
+      outcome = await waitFor(() => verdict() ?? (ab.submitSent() ? null : null), 12_000).catch(() => null);
+      if (!outcome && ab.submitSent()) outcome = await waitFor(verdict, 40_000).catch(() => null); // sent: wait for Ashby's answer
+      if (!outcome && ab.submitSent()) break;
+    }
     if (outcome === 'captcha') {
       log('reCAPTCHA challenge after Submit —', ab.describeState(document));
       return parked('reCAPTCHA challenge after Submit — solve it in the JobBot window, then click Submit');
