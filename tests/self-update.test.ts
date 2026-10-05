@@ -27,6 +27,17 @@ describe('self-update', () => {
     expect(reloads).toBe(1);
   });
 
+  it('a pending update drains: the stepper starts no new job until the reload', async () => {
+    const su = await import('@/app/self-update');
+    const { step } = await import('@/app/stepper');
+    await su.initSelfUpdate();
+    await chrome.storage.local.set({ 'run_state:lever': { siteId: 'lever', queue: [{ id: 'j' }], cursor: 0 }, update_pending_since: Date.now() });
+    let applied = 0;
+    await step({ apply: async () => (applied++, { status: 'submitted' }) } as never, 'lever');
+    expect(applied).toBe(0);
+    expect(chrome.calls.alarmsCreated['jobbot-step:lever']).toBeDefined(); // comes back after the reload
+  });
+
   it('waits while LinkedIn is mid-job', async () => {
     const su = await import('@/app/self-update');
     await su.initSelfUpdate();

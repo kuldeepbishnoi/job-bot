@@ -36,6 +36,15 @@ let stopped = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const report = (msg: Msg) => chrome.runtime.sendMessage(msg).catch(() => {});
+// The console marks a run "stalled" when its heartbeat stops, and the only heartbeat used to be an
+// APPLY — a loop busy skipping filtered cards or paging looked dead (2026-10-05). Beat on every card
+// and page, at most every 15 s.
+let lastBeat = 0;
+const alive = (where: string): void => {
+  if (Date.now() - lastBeat < 15_000) return;
+  lastBeat = Date.now();
+  void report({ t: 'instahyre-alive', where });
+};
 
 export default defineContentScript({
   matches: ['https://www.instahyre.com/candidate/opportunities*'],
@@ -111,6 +120,7 @@ async function drainMatching(budget: number, want: Want): Promise<{ applied: num
 
   while (applied < budget) {
     if (stopped) break;
+    alive('matching queue');
     // External jobs can't be completed inside Instahyre — advance past them.
     if (ih.isExternal(document)) {
       const next = ih.nextButton(document);
@@ -178,6 +188,7 @@ async function drainSearch(budget: number, want: Want): Promise<{ applied: numbe
 
   while (applied < budget) {
     if (stopped) break;
+    alive('search list');
     const card = ih.openModalLinks(document).find((el) => !handled.has(ih.cardId(el)));
     if (!card) {
       // Page exhausted — advance to the next page, or we're truly done. A Next that does not bring

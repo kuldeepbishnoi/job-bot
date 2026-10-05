@@ -1,7 +1,7 @@
 import { defineBackground } from 'wxt/sandbox';
 import { startRun, step, stopRun, resumeRun, runInProgress, watchdog, kickQueue, runAgain, STEP_ALARM, WATCHDOG_ALARM, siteFromStepAlarm, siteFromAgainAlarm } from '@/app/stepper';
 import { chromePorts } from '@/app/ports';
-import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre, instahyreAgain, INSTAHYRE_AGAIN_ALARM } from '@/app/instahyre-run';
+import { startInstahyre, stopInstahyre, recordInstahyreApplied, finishInstahyre, instahyreAgain, instahyreAlive, INSTAHYRE_AGAIN_ALARM } from '@/app/instahyre-run';
 import {
   startLinkedin, stopLinkedin, onLinkedinResult, onLinkedinHandled, onLinkedinPageDone, onLinkedinTabUpdated, onLinkedinWarning, onLinkedinAlive,
   linkedinWatchdog, LINKEDIN_WATCHDOG_ALARM,
@@ -118,6 +118,10 @@ export default defineBackground(() => {
     if (msg.t === 'instahyre-applied') {
       void recordInstahyreApplied(msg.job);
       return; // fire-and-forget
+    }
+    if (msg.t === 'instahyre-alive') {
+      void instahyreAlive();
+      return;
     }
     if (msg.t === 'instahyre-done') {
       void finishInstahyre(msg.applied, msg.skipped, msg.stopped);

@@ -255,6 +255,12 @@ export async function step(ports: RunPorts, siteId?: string): Promise<void> {
     await chrome.alarms.clear(stepAlarm(sid)); // whichever driver got here first owns this step
     const state = await getRunState(sid);
     if (!state) return;
+    // A new build is waiting to load (app/self-update.ts): start no new job, just come back after
+    // the reload — resumeAfterRestart re-arms this alarm in the new build.
+    if ((await chrome.storage.local.get('update_pending_since'))['update_pending_since'] !== undefined) {
+      await chrome.alarms.create(stepAlarm(sid), { delayInMinutes: GAP_MINUTES });
+      return;
+    }
     if (state.paused) return; // waiting for the user to log the next account in (popup → resume)
     // A new SW generation: re-attach to the Run this queue belongs to before writing anything.
     const runId = state.runId ?? null;

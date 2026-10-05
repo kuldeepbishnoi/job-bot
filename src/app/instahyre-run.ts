@@ -104,6 +104,11 @@ export async function stopInstahyre(): Promise<void> {
   await saveProgress({ done: p?.done ?? 0, total: p?.done ?? 0, current: 'Instahyre', phase: 'done', at: Date.now() });
 }
 
+/** The page loop is alive (skipping, paging): keep the Run's heartbeat fresh. */
+export async function instahyreAlive(): Promise<void> {
+  await observe.runStep(await currentRunId());
+}
+
 /** Persist one applied opportunity + nudge the popup's live counter. */
 export async function recordInstahyreApplied(job: { id: string; title: string; company: string }): Promise<void> {
   const app: Application = {

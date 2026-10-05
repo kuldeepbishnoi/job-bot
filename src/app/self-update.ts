@@ -28,23 +28,29 @@ export async function initSelfUpdate(): Promise<void> {
   await chrome.alarms.create(SELF_UPDATE_ALARM, { periodInMinutes: 1 });
 }
 
-/** A job is mid-flight: a worker step, or LinkedIn acted in the last 45 s (its modal may be open). */
-async function busy(): Promise<boolean> {
-  if (isStepping()) return true;
-  const li = await getLinkedinRun().catch(() => null);
-  return !!li && Date.now() - li.lastActivityAt < 45_000;
-}
+/** Set while a new build waits: the stepper finishes the job in flight but starts no new one, so
+ *  parallel sites drain to a gap instead of never having one (2026-10-05: "waiting — a job is
+ *  mid-flight" every minute for an hour with four sites running). */
+export const UPDATE_PENDING_KEY = 'update_pending_since';
+const LINKEDIN_GRACE_MS = 3 * 60_000; // LinkedIn's page loop never pauses; its recovery resumes it
 
 export async function checkForUpdate(): Promise<void> {
   const now = await readStamp();
   if (!now || !loaded || now === loaded) return;
-  if (await busy()) return void dlog('self-update', 'new build waiting — a job is mid-flight');
+  const got = await chrome.storage.local.get(UPDATE_PENDING_KEY);
+  const since = (got[UPDATE_PENDING_KEY] as number | undefined) ?? Date.now();
+  if (got[UPDATE_PENDING_KEY] === undefined) await chrome.storage.local.set({ [UPDATE_PENDING_KEY]: since });
+  if (isStepping()) return void dlog('self-update', 'new build waiting — draining the worker job in flight');
+  const li = await getLinkedinRun().catch(() => null);
+  if (li && Date.now() - li.lastActivityAt < 45_000 && Date.now() - since < LINKEDIN_GRACE_MS) return void dlog('self-update', 'new build waiting — LinkedIn mid-job');
   dlog('self-update', 'new build installed — reloading', { from: loaded, to: now });
+  await chrome.storage.local.remove(UPDATE_PENDING_KEY);
   chrome.runtime.reload();
 }
 
 /** After a (re)start: re-arm each run's driver and the page loops. Idempotent. */
 export async function resumeAfterRestart(): Promise<void> {
+  await chrome.storage.local.remove(UPDATE_PENDING_KEY); // this IS the new build
   const states = await listRunStates();
   if (states.length) await chrome.alarms.create(WATCHDOG_ALARM, { periodInMinutes: 1 });
   for (const s of states) {
