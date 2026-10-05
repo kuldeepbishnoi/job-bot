@@ -48,6 +48,7 @@ const VALID: Profile = {
   accounts: [],
   max_per_run: 50,
   repeat_every_minutes: 0,
+  skills: {},
   greenhouse: { boards: [], include_defaults: false },
   lever: { boards: [], include_defaults: false },
   ashby: { boards: [], include_defaults: false },

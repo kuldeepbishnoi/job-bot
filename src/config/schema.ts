@@ -78,6 +78,9 @@ export const ProfileSchema = z.object({
   resume: z.string().min(1),
   want: WantSchema.default({}),
   answers: AnswersSchema.default({}),
+  // Years per technology, from the résumé's dated roles — "How many years with <X>?" reads these
+  // (engine/skills.ts); a technology not listed is answered 0, never the career total.
+  skills: z.record(z.number().nonnegative()).default({}),
   // Exact-question-text → answer, for rare one-offs the intent rules don't cover.
   overrides: z.record(AnswerValue).default({}),
   // park = stop and ask; skip = leave it (submit may fail); guess = pick the safe obvious option

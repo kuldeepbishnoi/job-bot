@@ -2,6 +2,7 @@ import type { Answer, Field, Intent, Job } from './types';
 import type { AnswerValue, Profile } from '../config/schema';
 import { isAnswerToken, optionForToken } from './answer-tokens';
 import { pickYearsOption } from './years';
+import { skillYears, hasSkill } from './skills';
 
 // A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no —
 // matched as whole words, so "no" never hits "North Korea", "Not applicable" or "I choose not to".
@@ -87,6 +88,12 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     }
   }
 
+  // "Have you used / Do you have experience with <X>?" yes/no from the same table.
+  if ((!intent || intent === 'answers.skills_experience' || intent === 'answers.years_of_experience') && Object.keys(profile.skills).length && YESNO(options)) {
+    const has = hasSkill(field.label, profile.skills);
+    if (has !== null && !/\d+\s*\+?\s*(?:or more\s+)?years?/i.test(field.label)) return toAnswer(has, field, options);
+  }
+
   if (!intent) return { kind: 'unknown' };
 
   // Pay asked for a job abroad with no currency named: our figures are the home currency, and a
@@ -95,6 +102,11 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     return { kind: 'unknown' };
   }
 
+  // "How many years WITH <X>?" — that skill's years, not the career total (engine/skills.ts).
+  if ((intent === 'answers.years_of_experience' || intent === 'answers.exact_years_of_experience') && Object.keys(profile.skills).length) {
+    const y = skillYears(field.label, profile.skills);
+    if (y !== null) return toAnswer(y, { ...field, intent: 'answers.exact_years_of_experience' }, options);
+  }
   // 3. derived answers: salary components in the unit the label names, notice period as days,
   // "are you located in <city>" from identity.city.
   const derived = resolveDerived(intent, field, profile, options);
@@ -109,6 +121,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     if (!v) return { kind: 'unknown' };
     const picked = matchOptions(options, [v]);
     if (picked.length) return { kind: 'choice', values: picked.slice(0, 1) };
+    // "Country you reside in: Belgium | Germany | … | Other" — the honest pick is the not-listed one.
+    const notListed = options.find((o) => /\b(not listed|other|none of the above|not in (the )?list|rest of (the )?world)\b/i.test(o));
+    if (notListed && intent === 'identity.country') return { kind: 'choice', values: [notListed] };
     return options.length ? { kind: 'unknown' } : { kind: 'choice', values: [v] };
   }
 
@@ -127,6 +142,32 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     if (workCountryIsHome(field.label, job, profile) === false) {
       return toAnswer(intent === 'answers.needs_sponsorship', field, options);
     }
+  }
+
+  if (intent === 'answers.headline' && profile.answers['headline'] === undefined) {
+    const t = profile.answers['current_title'], c = profile.answers['current_company'];
+    if (typeof t === 'string' && t) return { kind: 'text', value: typeof c === 'string' && c ? `${t} at ${c}` : t };
+  }
+  if (intent === 'answers.experience_months') {
+    const y = num(profile.answers['exact_years_of_experience']) ?? num(profile.answers['years_of_experience']);
+    if (y !== undefined) return toAnswer(Math.floor(y * 12), field, options);
+  }
+  if (intent === 'answers.secondary_education' && profile.answers['secondary_education'] === undefined && profile.answers['degree_bachelors'] === true) {
+    return toAnswer(true, field, options); // a bachelor's degree implies it
+  }
+  // A list of places / schools that does not include the user's own: its "not listed / other"
+  // option is the honest answer (a US-only School list, "Karnataka | Maharashtra | State Not Listed").
+  if ((intent === 'answers.state' || intent === 'answers.school_name') && options.length) {
+    const own = profile.answers[intent.slice('answers.'.length)];
+    if (typeof own === 'string' && own && !matchOptions(options, [own]).length) {
+      const other = options.find((o) => /\b(not listed|other|none of the above|not in (the )?list)\b/i.test(o));
+      if (other) return { kind: 'choice', values: [other] };
+    }
+  }
+
+  // "Primary motivation for exploring new opportunities" — the reason for change, when no separate one.
+  if (intent === 'answers.motivation' && profile.answers['motivation'] === undefined && typeof profile.answers['reason_for_change'] === 'string') {
+    return toAnswer(profile.answers['reason_for_change'], field, options);
   }
 
   // A signature line's date is today. The engine has no clock (pure), so it answers a token the
@@ -530,7 +571,7 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
 // "Would you be willing to …?" — a question an applicant answers Yes to. PHRASES, not bare words:
 // a bare /agree/ also matches "arbitration agreement", which is how guess mode came to accept
 // binding legal terms on the applicant's behalf.
-const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bare you (comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bwilling to\b|\bcomfortable (with|working|commuting)\b/i;
+const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bcomfortable to\b|\bare you (comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bwilling to\b|\bcomfortable (with|working|commuting)\b/i;
 
 // Questions whose "yes" surrenders a legal right or makes a commitment the applicant alone can
 // make. NEVER guessed — not even to keep a run moving, and not even when the box is required:
