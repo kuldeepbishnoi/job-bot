@@ -30,6 +30,8 @@ export const WATCHDOG_ALARM = 'jobbot-watchdog';
 const GAP_MINUTES = 0.5; // alarm backup between jobs (30s is the chrome.alarms minimum)
 const PACE_MS = 6_000; // the real gap: a timer drives the next job while the SW is still awake
 const stepping = new Set<string>(); // one step at a time PER SITE — the timer and the backup alarm can both fire
+/** A worker job is mid-flight right now (self-update waits for it). */
+export const isStepping = (): boolean => stepping.size > 0;
 
 /** A lane = the worker a site applies in; same rule as app/ports.ts#laneFor (kept pure here). */
 function laneOf(siteId: string): string {

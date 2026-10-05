@@ -12,6 +12,7 @@ import * as observe from '@/app/observe';
 import { appendEvents } from '@/platform/data/events';
 import { dlog } from '@/platform/debug-log';
 import { syncSeed } from '@/platform/data/profile-store';
+import { initSelfUpdate, checkForUpdate, resumeAfterRestart, SELF_UPDATE_ALARM } from '@/app/self-update';
 
 // Main: wires concrete ports to the alarm-driven stepper.
 // The run is NOT a single long await (MV3 would kill the SW) — each job is one alarm wake.
@@ -23,6 +24,9 @@ export default defineBackground(() => {
   // profile.yaml → the extension, on every service-worker start (a reload included): the dashboard
   // and every Start re-check too, so an edit never needs the folder link or a click in Chrome.
   void syncSeed().then((r) => dlog('profile', 'seed', r.status, 'error' in r ? r.error : ''));
+  // A new build loads itself between jobs; after any restart every run picks up where it was.
+  void initSelfUpdate();
+  void resumeAfterRestart().catch((e: Error) => dlog('self-update', 'resume failed', e.message));
   // Sites queued behind another lane (or by an older build) start now that lanes run in parallel.
   void kickQueue(chromePorts()).catch((e: Error) => dlog('run', 'kickQueue failed', e.message));
 
@@ -133,6 +137,10 @@ export default defineBackground(() => {
 
   chrome.alarms.onAlarm.addListener((alarm) => {
     // Each site's run has its own step alarm (`jobbot-step:<site>`) — sites apply in parallel.
+    if (alarm.name === SELF_UPDATE_ALARM) {
+      void checkForUpdate();
+      return;
+    }
     const againSite = siteFromAgainAlarm(alarm.name);
     if (againSite) {
       void runAgain(chromePorts(againSite), againSite);
