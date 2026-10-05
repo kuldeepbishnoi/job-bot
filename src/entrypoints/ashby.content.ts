@@ -127,8 +127,13 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       if (f) return `failure:${f}` as const;
       const fix = ab.correctionsNeeded(document);
       if (fix) return `corrections:${fix.join(' | ')}` as const;
+      if (ab.captchaChallenge(document)) return 'captcha' as const;
       return null;
-    }, 30_000).catch(() => null);
+    }, 45_000).catch(() => null);
+    if (outcome === 'captcha') {
+      log('reCAPTCHA challenge after Submit —', ab.describeState(document));
+      return parked('reCAPTCHA challenge after Submit — solve it in the JobBot window, then click Submit');
+    }
     if (outcome === 'submitted') return { status: 'submitted', filled: records() };
     if (outcome?.startsWith('corrections:')) {
       log('Ashby rejected the submit', outcome.slice(12));

@@ -250,5 +250,23 @@ export function blockedMessage(doc: Document): string | null {
 
 /** One line for logs/park notes: what the page looks like right now. */
 export function describeState(doc: Document): string {
-  return `container=${!!doc.querySelector(C.container)} fields=${doc.querySelectorAll(C.entry).length} submit=${!!submitButton(doc)} success=${confirmed(doc)} failure=${!!doc.querySelector(C.failure)} blocked=${!!doc.querySelector(C.blocked)}`;
+  return `container=${!!doc.querySelector(C.container)} fields=${doc.querySelectorAll(C.entry).length} submit=${!!submitButton(doc)} success=${confirmed(doc)} failure=${!!doc.querySelector(C.failure)} blocked=${!!doc.querySelector(C.blocked)} captcha=${captchaChallenge(doc)} sent=${submitSent()}`;
+}
+
+/** reCAPTCHA's image challenge is open. Ashby runs invisible reCAPTCHA on Submit and, when Google is
+ *  unsure, pops a "select all images" challenge — the submit then waits on it, so neither success
+ *  nor failure ever renders (13 Ashby jobs on 2026-10-04: "no success container", no POST seen by
+ *  Ashby, no confirmation email). Solving it is the user's; the bot only names it. */
+export function captchaChallenge(doc: Document): boolean {
+  return [...doc.querySelectorAll<HTMLIFrameElement>('iframe[src*="recaptcha"][src*="bframe"], iframe[title*="challenge" i]')].some((f) => {
+    const box = f.getBoundingClientRect();
+    const hidden = f.closest('[style*="visibility: hidden"], [style*="visibility:hidden"]');
+    return !hidden && box.width > 100 && box.height > 100;
+  });
+}
+
+/** Did the page actually send Ashby's submit request? (Resource timing records fetch/XHR URLs.) */
+export function submitSent(): boolean {
+  if (typeof performance === 'undefined' || !performance.getEntriesByType) return false;
+  return performance.getEntriesByType('resource').some((e) => /ApiSubmitSingleApplicationFormAction/.test(e.name));
 }

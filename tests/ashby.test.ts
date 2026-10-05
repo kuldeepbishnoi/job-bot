@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { extract, fill, optionsFor, submitButton, confirmed, entryFor, correctionsNeeded } from '@/ats/ashby';
+import { extract, fill, optionsFor, submitButton, confirmed, entryFor, correctionsNeeded, captchaChallenge } from '@/ats/ashby';
 import { formFieldsFromSchema, parseApplicationUrl } from '@/sources/ashby';
 import { withIntent } from '@/engine/matcher';
 import { resolve } from '@/engine/resolver';
@@ -131,5 +131,17 @@ describe('ashby — a rejected submit says why (#regression 2026-10-04: 6 jobs "
     const doc = new DOMParser().parseFromString(`<form><div role="alert" aria-live="assertive"><h3>Your form needs corrections</h3><ul><li><p>Missing entry for required field: How did you hear about Alchemy?</p></li></ul></div></form>`, 'text/html');
     expect(correctionsNeeded(doc)).toEqual(['Missing entry for required field: How did you hear about Alchemy?']);
     expect(correctionsNeeded(new DOMParser().parseFromString('<form><div role="alert">Saved</div></form>', 'text/html'))).toBeNull();
+  });
+});
+
+describe('ashby — a reCAPTCHA challenge after Submit is named, not timed out (#2026-10-04: 13 jobs, no POST, no email)', () => {
+  const doc = (style: string) => {
+    const d = new DOMParser().parseFromString(`<div style="${style}"><iframe title="recaptcha challenge expires in two minutes" src="https://www.google.com/recaptcha/api2/bframe?k=x"></iframe></div>`, 'text/html');
+    (d.querySelector('iframe') as HTMLElement).getBoundingClientRect = () => ({ width: 400, height: 580 }) as DOMRect;
+    return d;
+  };
+  it('an open challenge is seen; the pre-mounted hidden one is not', () => {
+    expect(captchaChallenge(doc('visibility: visible'))).toBe(true);
+    expect(captchaChallenge(doc('visibility: hidden'))).toBe(false);
   });
 });
