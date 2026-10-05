@@ -54,3 +54,11 @@ export function describeAnswer(answer: Answer, resumeName = ''): string {
 export function labelText(el: Element): string {
   return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
+
+/** Turn answer tokens that need the clock into real values at fill time (the engine is pure):
+ *  `{{today}}` → MM/DD/YYYY, the format US self-ID signature lines expect. */
+export function materialize<A extends { kind: string; value?: unknown }>(answer: A, now = new Date()): A {
+  if (answer.kind !== 'text' || answer.value !== '{{today}}') return answer;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return { ...answer, value: `${p(now.getMonth() + 1)}/${p(now.getDate())}/${now.getFullYear()}` };
+}

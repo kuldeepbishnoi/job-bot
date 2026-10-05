@@ -55,3 +55,11 @@ describe('self-update', () => {
     expect(chrome.calls.alarmsCreated['jobbot-step:amazon']).toBeUndefined(); // paused waits for the user
   });
 });
+
+describe('materialize', () => {
+  it('turns the {{today}} token into MM/DD/YYYY at fill time, and leaves everything else alone', async () => {
+    const { materialize } = await import('@/ats/dom');
+    expect(materialize({ kind: 'text', value: '{{today}}' }, new Date(2026, 9, 5))).toEqual({ kind: 'text', value: '10/05/2026' });
+    expect(materialize({ kind: 'text', value: 'Kuldeep' })).toEqual({ kind: 'text', value: 'Kuldeep' });
+  });
+});

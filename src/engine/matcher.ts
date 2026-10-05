@@ -19,6 +19,7 @@ interface Rule {
   readonly any?: readonly string[]; // at least one must be present
   readonly not?: readonly string[]; // none may be present
   readonly word?: readonly string[]; // at least one must appear as a whole word ("city", not "capacity")
+  readonly exact?: readonly string[]; // the WHOLE normalized label is one of these (a bare "Name" / "Date")
 }
 
 // Identity fields are matched by DOM id in the adapter; these rules cover custom questions.
@@ -28,6 +29,10 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.phone_country', any: ['phone country code', 'country code'] },
   { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code', 'screen', 'interview', 'call you', 'call with', 'available for a phone', 'attend a phone'] },
   { intent: 'identity.email', any: ['email address', 'email'], not: ['consent', 'receive', 'agree', 'subscribe'] },
+  // The US disability self-ID form's signature line is a bare "Name" + "Date" — required once the
+  // form is answered. "N/A" in Date failed Lever's native validation and blocked 5 Palantir submits.
+  { intent: 'identity.full_name', exact: ['name', 'your name', 'signature', 'full name signature'] },
+  { intent: 'answers.signature_date', exact: ['date', 'today s date', 'todays date', 'signature date', 'date signed', 'today date'] },
   { intent: 'identity.full_name', any: ['full name', 'full legal name'], not: ['first name', 'last name', 'company', 'employer', 'referr'] },
   // "Preferred Name" (Affirm) matched nothing and was typed as "N/A" — under the applicant's name.
   { intent: 'identity.preferred_name', any: ['preferred name', 'preferred first name', 'name you go by', 'name you prefer'] },
@@ -171,6 +176,7 @@ function hasWord(text: string, phrase: string): boolean {
 export function matchIntent(label: string): Intent | undefined {
   const t = normalize(label);
   for (const r of RULES) {
+    if (r.exact && !r.exact.includes(t.trim())) continue;
     if (r.all && !r.all.every((p) => has(t, p))) continue;
     if (r.any && !r.any.some((p) => has(t, p))) continue;
     if (r.word && !r.word.some((p) => hasWord(t, p))) continue;

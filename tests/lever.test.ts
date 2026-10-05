@@ -185,3 +185,12 @@ describe('lever: the Anchorage apply page answers every required question', () =
     expect(unanswered).toEqual([]);
   });
 });
+
+describe('lever — the browser refusing a field is named, not "no confirmation" (#2026-10-05 Palantir)', () => {
+  it('names an invalid required control by its question', async () => {
+    const { invalidFields } = await import('@/ats/lever');
+    const doc = new DOMParser().parseFromString(`<form id="application-form"><li class="application-question"><div class="application-label">Date ✱</div><input name="eeo[date]" required></li><li class="application-question"><div class="application-label">Name</div><input name="eeo[name]" value="K B" required></li></form>`, 'text/html');
+    expect(invalidFields(doc)[0]).toMatch(/^Date/);
+    expect(invalidFields(doc)).toHaveLength(1);
+  });
+});

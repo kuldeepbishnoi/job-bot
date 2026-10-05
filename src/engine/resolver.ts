@@ -129,6 +129,10 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     }
   }
 
+  // A signature line's date is today. The engine has no clock (pure), so it answers a token the
+  // content script turns into the date when it types it (ats/dom.ts#materialize).
+  if (intent === 'answers.signature_date') return { kind: 'text', value: TODAY_TOKEN };
+
   // 5. intent answer from profile.answers (e.g. answers.work_authorization).
   const key = intent.replace(/^answers\./, '');
   const val = profile.answers[key];
@@ -552,6 +556,9 @@ function looksLikeSourceList(options: readonly string[]): boolean {
   const t = options.join(' | ');
   return /\blinkedin\b/i.test(t) && /\b(friend|referral|recruiter|job board|indeed|glassdoor|advertisement)\b/i.test(t);
 }
+
+/** Replaced with today's date by ats/dom.ts#materialize at fill time. */
+export const TODAY_TOKEN = '{{today}}';
 
 const NEVER_GUESS_TEXT = /^(identity\.|answers\.(ai_usage_attestation|expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
 

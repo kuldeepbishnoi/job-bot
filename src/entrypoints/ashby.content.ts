@@ -3,7 +3,7 @@ import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as ab from '@/ats/ashby';
 import { fetchAshbyForm, parseApplicationUrl, type AshbyFormField } from '@/sources/ashby';
-import { click, waitFor, describeAnswer } from '@/ats/dom';
+import { materialize, click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
@@ -95,7 +95,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         continue;
       }
       try {
-        await ab.fill(document, field, answer, resume);
+        await ab.fill(document, field, materialize(answer), resume);
         filled.push({ field, answer });
       } catch (e) {
         log('fill FAILED', field.id, (e as Error).message);
@@ -107,7 +107,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     await sleep(1500);
     for (const { field, answer } of filled.filter(({ field, answer }) => !ab.textFilled(document, field, answer))) {
       log('re-filling reverted field', field.id);
-      await ab.fill(document, field, answer, resume).catch(() => {});
+      await ab.fill(document, field, materialize(answer), resume).catch(() => {});
     }
     const stuck = failed.find(({ field }) => field.required);
     if (stuck) return parked(`Could not fill required "${stuck.field.label}": ${stuck.note}`);

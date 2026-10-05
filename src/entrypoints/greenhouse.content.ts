@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as gh from '@/ats/greenhouse';
-import { click, waitFor, describeAnswer } from '@/ats/dom';
+import { materialize, click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg, OtpOutcome } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
@@ -101,7 +101,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         return null; // skip optional/unknown
       }
       try {
-        await gh.fill(document, field, answer, resume);
+        await gh.fill(document, field, materialize(answer), resume);
         filled.push({ field, answer });
         log('filled', field.id);
       } catch (e) {
@@ -132,7 +132,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       for (const { field, answer } of reverted) {
         log('re-filling reverted field', field.id);
         try {
-          await gh.fill(document, field, answer, resume);
+          await gh.fill(document, field, materialize(answer), resume);
         } catch (e) {
           log('re-fill FAILED', field.id, (e as Error).message);
         }
@@ -142,7 +142,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         const answer = resolve(field, msg.profile, msg.job, await gh.optionsFor(document, field));
         if (answer.kind === 'unknown') continue;
         try {
-          await gh.fill(document, field, answer, resume);
+          await gh.fill(document, field, materialize(answer), resume);
           filled.push({ field, answer });
           failed.splice(i, 1);
           log('recovered previously-failed field', field.id);
