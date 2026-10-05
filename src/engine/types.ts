@@ -94,6 +94,11 @@ export type Intent =
   | 'answers.language_proficiency' // "What is your level of proficiency in English?"
   | 'answers.drivers_license'
   | 'answers.security_clearance'
+  | 'answers.headline' // LinkedIn-style "Headline" → current title at current company
+  | 'answers.experience_months' // "months of experience" → years × 12, rounded down
+  | 'answers.secondary_education' // "Have you completed secondary education?"
+  | 'answers.state' // "What state are you currently located in?"
+  | 'answers.holding_offer' // "Are you holding any offer?" — the user's to state
   | 'answers.signature_date' // a form's "Date" signature line → today, filled in at fill time
   | 'answers.ai_usage_attestation' // "I attest I will not use AI tools during interviews" — the user's own promise
   | 'answers.roles_of_interest' // "Areas and/or specific roles of interest" (free text)

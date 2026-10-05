@@ -218,6 +218,12 @@ export function submitButton(doc: Document): HTMLButtonElement | null {
   return doc.querySelector('button[type="submit"]');
 }
 
+/** The button on the emailed-code step. It is not always type=submit (Algolia, 2026-10-05: the
+ *  code was typed, then click(null) threw "reading 'dispatchEvent'" and the application was lost). */
+export function otpSubmitButton(doc: Document): HTMLButtonElement | null {
+  return submitButton(doc) ?? Array.from(doc.querySelectorAll<HTMLButtonElement>('button')).find((b) => /\b(submit|verify|confirm|continue)\b/i.test(b.textContent ?? '') && !b.disabled) ?? null;
+}
+
 /** The email-verification step: 8 boxes + a "verification code" prompt. */
 export function otpBoxes(doc: Document): HTMLInputElement[] {
   const wantsCode = /verification code|security code|8-character/i.test(doc.body?.textContent ?? '');

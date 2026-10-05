@@ -210,7 +210,9 @@ async function doOtp(code: string, autoSubmit: boolean): Promise<OtpOutcome> {
   try {
     await gh.fillOtp(document, code);
     if (!autoSubmit) return { status: 'ready' };
-    click(gh.submitButton(document)!);
+    // Some code steps submit by themselves once the 8th character lands; else press their button.
+    const btn = await waitFor(() => gh.otpSubmitButton(document) ?? (gh.confirmed(document) ? ('done' as const) : null), 5000).catch(() => null);
+    if (btn && btn !== 'done') click(btn);
     const ok = await waitForConfirm();
     return ok ? { status: 'submitted' } : { status: 'error', note: 'no confirmation after OTP submit' };
   } catch (e) {
