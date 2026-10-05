@@ -6,6 +6,7 @@ import {
   extract, optionsFor, isNumeric, currentAnswer, isAnswered, fill, isTypeaheadField, resumeSelected, attachResume,
   applicationSent, dismissButton, discardButton, limitReached, rateLimited, describeState, describeQuestions,
   openDialogs, strayDialog, snapshotHtml, resumeName, conflictingExtensions, loggedOut,
+  controlCount,
 } from '@/ats/linkedin';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer, pickPhoneCountry } from '@/engine/resolver';
@@ -437,6 +438,14 @@ describe('linkedin adapter — modal + questions', () => {
     const tagged = modal(load(MODAL(`<div data-test-form-element class="jobs-document-upload-redesign-card__container"><input type="radio" id="jobsDocumentCardToggle-ember9" aria-label="Select resume a.pdf"></div>${QUESTIONS}`, NEXT)))!;
     expect(extract(tagged).map((f) => f.id)).not.toContain('jobsDocumentCardToggle-ember9');
     expect(extract(tagged)[0]!.label).toBe('Email address');
+  });
+
+  it('a read-only "Work experience" step has no controls — it is passed with Next, not parked (#2026-10-05 Jitterbit)', () => {
+    const m = modal(load(MODAL(`<h3>Work experience</h3><div><span>Your title *</span> SDE 2 <span>Company</span> Blinkit <span>Dates of employment *</span> Aug 2025 – Present <span>Description</span> Backend engineer…</div>`, NEXT, 38)))!;
+    expect(extract(m)).toEqual([]);
+    expect(controlCount(m)).toBe(0);
+    const withQuestion = modal(load(MODAL(QUESTIONS, NEXT)))!;
+    expect(controlCount(withQuestion)).toBeGreaterThan(0); // a step with controls still counts as a misread when extract finds none
   });
 
   it('safety reminder → its "Continue applying" button', () => {

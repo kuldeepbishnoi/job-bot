@@ -412,7 +412,12 @@ async function driveModal(profile: Profile, resume: Resume, runId: string): Prom
       await pause(400);
       questions = li.extract(m);
     }
-    if (questions.length === 0 && action.kind === 'next' && !li.resumeInput(m) && !li.resumeSelected(m) && progress > 0) {
+    // A step with NO controls at all is a read-only review card — "Work experience" / "Education"
+    // pre-filled from the LinkedIn profile (Jitterbit, Hitachi on 2026-10-05: parked here twice).
+    // That is not a parse failure: just press Next. Only a step whose controls we cannot read parks.
+    const readOnly = questions.length === 0 && li.controlCount(m) === 0;
+    if (readOnly && action.kind === 'next') log('read-only step', step, '— nothing to answer, continuing');
+    if (!readOnly && questions.length === 0 && action.kind === 'next' && !li.resumeInput(m) && !li.resumeSelected(m) && progress > 0) {
       recordPrefilled(m, filled);
       const capture = await captureNow('no-questions-found');
       await discard();
