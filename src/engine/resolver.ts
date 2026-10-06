@@ -45,7 +45,20 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
 // bucket to pick, so type the threshold the question names ("5+ years" → 5) or this many.
 const MAX_YEARS_TEXT = 10;
 
+/** The owner's explicit, standing consent (2026-10-06: "for all jobs agree") to arbitration-agreement
+ *  acknowledgements — and ONLY those. Every other legal commitment (non-compete, NDA, waivers,
+ *  export control, credit/drug consent) still parks. Off unless answers.arbitration_agreement: true. */
+function arbitrationAccepted(label: string, profile: Profile): boolean {
+  return profile.answers['arbitration_agreement'] === true && /arbitrat/i.test(label) && !/non-?compete|non-?disclosure|\bnda\b|export|sanction|credit|drug|security clearance/i.test(label);
+}
+
 export function resolve(field: Field, profile: Profile, job: Job, options: readonly string[] = []): Answer {
+  if (arbitrationAccepted(field.label, profile)) {
+    if (field.kind === 'checkbox') return { kind: 'check', value: true };
+    const yes = options.find((o) => /\b(i acknowledge|acknowledge|i agree|agree|accept|i have read|yes)\b/i.test(o) && !/\b(not|do not|don't|decline)\b/i.test(o));
+    if (yes) return { kind: 'choice', values: [yes] };
+    if (!options.length && field.kind === 'text') return { kind: 'text', value: 'I acknowledge' };
+  }
   // A referral-source list under a label that names nothing ("Please check all that apply:" on
   // Hive's Lever form) is still "how did you hear" — the options say so.
   if (!field.intent && looksLikeSourceList(options)) field = { ...field, intent: 'answers.how_did_you_hear' };

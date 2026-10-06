@@ -136,3 +136,20 @@ describe('2026-10-04 answers', () => {
     expect(resolve(withIntent({ id: 'g', label: 'O gênero com o qual você se identifica (The gender you identify with) - Brazil', kind: 'select', required: true }), p2, job('São Paulo, Brazil'), opts)).toEqual({ kind: 'choice', values: ['Prefiro não responder (Decline to self-identify)'] });
   });
 });
+
+describe('arbitration agreements — only with the owner\'s explicit setting, and nothing broader', () => {
+  const base = parseProfile({ identity: { first_name: 'K', last_name: 'B', email: 'k@x.com', phone: '1', country: 'India' }, resume: 'r', on_unknown: 'guess' });
+  const on = parseProfile({ ...base, answers: { arbitration_agreement: true } });
+  const job = { id: '1', title: '', team: '', department: '', url: '', locations: ['Remote'], seniority: [] };
+  const q = (label: string, p: typeof base, kind: 'select' | 'checkbox', options: string[] = []) => resolve(withIntent({ id: 'a', label, kind, required: true }), p, job, options);
+  const opts = ['I acknowledge that I have opened, read, and understood the Arbitration Agreement'];
+  it('parks without the setting; acknowledges with it', () => {
+    expect(q('Applicant Arbitration Agreement Acknowledgement', base, 'select', opts).kind).toBe('unknown');
+    expect(q('Applicant Arbitration Agreement Acknowledgement', on, 'select', opts)).toEqual({ kind: 'choice', values: opts });
+    expect(q('I agree to the mutual arbitration agreement', on, 'checkbox')).toEqual({ kind: 'check', value: true });
+  });
+  it('never widens to other legal terms', () => {
+    expect(q('I agree to the non-compete agreement', on, 'checkbox').kind).toBe('unknown');
+    expect(q('I acknowledge the non-disclosure agreement', on, 'checkbox').kind).toBe('unknown');
+  });
+});
