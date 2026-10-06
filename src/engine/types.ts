@@ -12,6 +12,9 @@ export interface Job {
   /** The employer, for multi-company sites (Greenhouse boards / Lever / Ashby): the board slug or
    *  company name. Single-company sites (Datadog, Amazon) leave it unset — the site id says it. */
   readonly company?: string;
+  /** Where to apply if \`url\` never shows a form — Greenhouse's standalone embed for a company that
+   *  hosts its own careers page (Roblox, Stripe, Coinbase… 420 jobs "frame never became ready"). */
+  readonly fallbackUrl?: string;
 }
 
 /** A single input rendered in an application form. */

@@ -115,6 +115,7 @@ async function pickOptions(
   control: Element,
   fieldId: string,
   values: readonly string[],
+  fallbacks: readonly string[] = [],
 ): Promise<void> {
   const options = (): Element[] => Array.from(doc.querySelectorAll('.select__menu .select__option'));
   const match = (opts: Element[], lc: string): Element | undefined =>
@@ -132,10 +133,21 @@ async function pickOptions(
         if (opt) break;
       }
     }
+    // A long searchable list without the user's own entry (School: thousands of US colleges):
+    // its "Other / not listed" entry is the honest pick — found the same way, by searching for it.
+    for (const fb of opt ? [] : fallbacks) {
+      await typeSearch(control, fb);
+      opt = await waitForOption(() => match(options(), fb.toLowerCase()), 5000);
+      if (opt) break;
+    }
     if (!opt) throw new Error(`option "${value}" not found for ${fieldId}`);
     click(opt);
   }
 }
+
+/** Intents whose list may simply not contain the user's answer — fall back to its "other" entry. */
+const OTHER_FALLBACK = new Set(['answers.school_name', 'answers.state', 'identity.country', 'answers.how_did_you_hear', 'answers.education_level']);
+const OTHER_QUERIES = ['Other', 'Not listed', 'None of the above'];
 
 /** Type into a react-select's search input the way a keystroke would (native setter + input event,
  *  no blur — a blur closes the menu before the async options arrive). */
@@ -184,7 +196,7 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
     // selection, so a required field would submit empty. Route through option-picking.
     const control = reactSelectControl(el);
     if (control) {
-      await pickOptions(doc, control, field.id, [answer.value]);
+      await pickOptions(doc, control, field.id, [answer.value], OTHER_FALLBACK.has(field.intent ?? '') ? OTHER_QUERIES : []);
       return;
     }
     setReactValue(el, answer.value);
@@ -196,7 +208,7 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
       setReactValue(el, answer.values[0] ?? '');
       return;
     }
-    await pickOptions(doc, control, field.id, answer.values);
+    await pickOptions(doc, control, field.id, answer.values, field.kind === 'select' && OTHER_FALLBACK.has(field.intent ?? '') ? OTHER_QUERIES : []);
   }
 }
 

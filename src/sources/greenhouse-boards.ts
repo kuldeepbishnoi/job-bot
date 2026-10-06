@@ -113,12 +113,14 @@ export function applyUrl(board: string, j: RawJob): string {
 }
 
 export function rawToJob(board: string, j: RawJob): Job {
+  const url = applyUrl(board, j);
   return {
     id: String(j.id),
     title: j.title,
     team: '',
     department: j.departments?.[0]?.name ?? '',
-    url: applyUrl(board, j),
+    url,
+    ...(url.includes('greenhouse.io') ? {} : { fallbackUrl: `https://job-boards.greenhouse.io/embed/job_app?for=${encodeURIComponent(board)}&token=${j.id}` }),
     locations: parseLocationName(j.location?.name),
     seniority: [],
     company: j.company_name || board,
