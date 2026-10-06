@@ -265,25 +265,9 @@ export function captchaChallenge(doc: Document): boolean {
   });
 }
 
-/** Ashby saves every field to its server as it changes (ApiSetFormValue, ApiSetFormValueToFile for
- *  the résumé) and submits what the SERVER holds. Clicking Submit while those saves are in flight
- *  sent nothing (15 jobs on 2026-10-04/05: sent=false) or was rejected for fields the server did not
- *  have yet (Cohere: "Missing entry for required field: Name"). Settled = the résumé is attached
- *  and saved, and no field save happened in the last 1.5 s. */
-export function savesSettled(doc: Document, resumeExpected: boolean, now = Date.now()): boolean {
-  const saves = resourceNames().filter((n) => /op=ApiSetFormValue/.test(n.name));
-  if (resumeExpected) {
-    const attached = !!doc.querySelector('.ashby-application-form-input-file-item-name, .ashby-application-form-input-file-item');
-    const fileSaved = saves.some((n) => /ApiSetFormValueToFile/.test(n.name));
-    if (!attached || !fileSaved) return false;
-  }
-  const last = Math.max(0, ...saves.map((n) => n.end));
-  return now - (performance.timeOrigin + last) > 1500;
-}
-
-function resourceNames(): { name: string; end: number }[] {
-  if (typeof performance === 'undefined' || !performance.getEntriesByType) return [];
-  return (performance.getEntriesByType('resource') as PerformanceResourceTiming[]).map((e) => ({ name: e.name, end: e.responseEnd || e.startTime }));
+/** The résumé shows as attached (its file item rendered) — Ashby's upload has been accepted. */
+export function resumeAttached(doc: Document): boolean {
+  return !!doc.querySelector('.ashby-application-form-input-file-item-name, .ashby-application-form-input-file-item');
 }
 
 /** Did the page actually send Ashby's submit request? (Resource timing records fetch/XHR URLs.) */
