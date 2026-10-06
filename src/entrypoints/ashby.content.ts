@@ -3,7 +3,7 @@ import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as ab from '@/ats/ashby';
 import { fetchAshbyForm, parseApplicationUrl, type AshbyFormField } from '@/sources/ashby';
-import { click, waitFor, describeAnswer } from '@/ats/dom';
+import { materialize, click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
@@ -16,6 +16,7 @@ import { dlog } from '@/platform/debug-log';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let currentJobId = '';
 const log = (...a: unknown[]) => dlog('ashby', currentJobId ? `[${currentJobId}]` : '', ...a);
+const SAVE_QUIET_MS = 5000; // well past Ashby's ~1.5 s field / résumé save latency (measured 2026-10-06)
 
 export default defineContentScript({
   matches: ['https://jobs.ashbyhq.com/*'],
@@ -95,7 +96,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         continue;
       }
       try {
-        await ab.fill(document, field, answer, resume);
+        await ab.fill(document, field, materialize(answer), resume);
         filled.push({ field, answer });
       } catch (e) {
         log('fill FAILED', field.id, (e as Error).message);
@@ -107,7 +108,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     await sleep(1500);
     for (const { field, answer } of filled.filter(({ field, answer }) => !ab.textFilled(document, field, answer))) {
       log('re-filling reverted field', field.id);
-      await ab.fill(document, field, answer, resume).catch(() => {});
+      await ab.fill(document, field, materialize(answer), resume).catch(() => {});
     }
     const stuck = failed.find(({ field }) => field.required);
     if (stuck) return parked(`Could not fill required "${stuck.field.label}": ${stuck.note}`);
@@ -119,15 +120,52 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
 
     const btn = ab.submitButton(document);
     if (!btn) return parked(`no submit button — ${ab.describeState(document)}`);
-    log('clicking submit');
-    click(btn);
-    const outcome = await waitFor(() => {
-      if (ab.confirmed(document)) return 'submitted' as const;
+    // Ashby saves each field to its server ~0.5-1.5 s after it changes (the résumé ~1.5 s after its
+    // upload) and SUBMITS WHAT THE SERVER HOLDS. Clicking sooner got "Missing entry for required
+    // field: Name | Email | Phone…" for fields we had filled (every Ashby job, 2026-10-05/06). The
+    // network timing list is not visible from a content script, so wait on what IS: the résumé shown
+    // as attached, then a quiet period well past Ashby's save latency.
+    const resumeExpected = filled.some(({ answer }) => answer.kind === 'file');
+    if (resumeExpected) await waitFor(() => (ab.resumeAttached(document) ? true : null), 30_000).catch(() => null);
+    await sleep(SAVE_QUIET_MS);
+    log('saves settled', ab.describeState(document));
+    const verdict = (): string | null => {
+      if (ab.confirmed(document)) return 'submitted';
       const f = ab.failureMessage(document);
-      if (f) return `failure:${f}` as const;
+      if (f) return `failure:${f}`;
+      const fix = ab.correctionsNeeded(document);
+      if (fix) return `corrections:${fix.join(' | ')}`;
+      if (ab.captchaChallenge(document)) return 'captcha';
       return null;
-    }, 30_000).catch(() => null);
+    };
+    const filledLabels = new Set(filled.map(({ field }) => field.label.trim().toLowerCase()));
+    // Click; if Ashby says a field WE filled is missing, its save had not landed yet — re-type those
+    // fields (a fresh save), wait, and submit again. Up to 4 attempts.
+    let outcome: string | null = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      log('clicking submit, attempt', attempt);
+      click(ab.submitButton(document) ?? btn);
+      await sleep(1500); // let a stale alert from the previous attempt be replaced
+      outcome = await waitFor(verdict, 40_000).catch(() => null);
+      if (!outcome?.startsWith('corrections:') || attempt === 4) break;
+      const missing = outcome.slice(12).split(' | ').map((m) => m.replace(/^missing entry for required field:\s*/i, '').trim().toLowerCase());
+      const ours = missing.filter((m) => [...filledLabels].some((l) => l.startsWith(m.slice(0, 40)) || m.startsWith(l.slice(0, 40))));
+      if (!ours.length) break; // Ashby wants something we never had an answer for — a real gap
+      log('Ashby had not saved', ours.length, 'filled field(s) yet — re-saving and retrying');
+      for (const { field, answer } of filled.filter(({ field }) => ours.some((m) => field.label.trim().toLowerCase().startsWith(m.slice(0, 40))))) {
+        if (answer.kind !== 'file') await ab.fill(document, field, materialize(answer), resume).catch(() => {});
+      }
+      await sleep(SAVE_QUIET_MS);
+    }
+    if (outcome === 'captcha') {
+      log('reCAPTCHA challenge after Submit —', ab.describeState(document));
+      return parked('reCAPTCHA challenge after Submit — solve it in the JobBot window, then click Submit');
+    }
     if (outcome === 'submitted') return { status: 'submitted', filled: records() };
+    if (outcome?.startsWith('corrections:')) {
+      log('Ashby rejected the submit', outcome.slice(12));
+      return parked(`Ashby rejected the submit: ${outcome.slice(12, 400)}`);
+    }
     if (outcome?.startsWith('failure:')) return parked(`Ashby could not submit: ${outcome.slice(8, 300)}`);
     return { status: 'error', note: `no success container after submit — ${ab.describeState(document)}`, filled: records() };
   } catch (e) {

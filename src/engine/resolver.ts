@@ -2,6 +2,7 @@ import type { Answer, Field, Intent, Job } from './types';
 import type { AnswerValue, Profile } from '../config/schema';
 import { isAnswerToken, optionForToken } from './answer-tokens';
 import { pickYearsOption } from './years';
+import { skillYears, hasSkill } from './skills';
 
 // A boolean answer means "pick the yes/no option". These are the labels we accept as yes/no —
 // matched as whole words, so "no" never hits "North Korea", "Not applicable" or "I choose not to".
@@ -30,11 +31,13 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
   'identity.last_name': (p) => p.identity.last_name,
   'identity.full_name': (p) => `${p.identity.first_name} ${p.identity.last_name}`.trim(),
   'identity.preferred_name': (p) => p.identity.preferred_name || p.identity.first_name,
+  // No personal site: the GitHub profile is the honest "website" (a REQUIRED Website box parked a
+  // LinkedIn job on 2026-10-04 with nothing to put in it).
+  'identity.website': (p) => p.identity.website || (typeof p.answers['github'] === 'string' ? (p.answers['github'] as string) : ''),
   'identity.email': (p) => p.identity.email,
   'identity.phone': (p) => p.identity.phone,
   'identity.country': (p) => p.identity.country,
   'identity.linkedin': (p) => p.identity.linkedin,
-  'identity.website': (p) => p.identity.website,
   'identity.city': (p) => p.identity.city,
 };
 
@@ -43,6 +46,9 @@ const IDENTITY: Partial<Record<Intent, (p: Profile) => string>> = {
 const MAX_YEARS_TEXT = 10;
 
 export function resolve(field: Field, profile: Profile, job: Job, options: readonly string[] = []): Answer {
+  // A referral-source list under a label that names nothing ("Please check all that apply:" on
+  // Hive's Lever form) is still "how did you hear" — the options say so.
+  if (!field.intent && looksLikeSourceList(options)) field = { ...field, intent: 'answers.how_did_you_hear' };
   // Only fill file inputs when we know they want the resume — otherwise (cover letter,
   // transcripts, portfolio uploads) leave them alone. Any file field without resume intent
   // was previously getting the resume attached, which is wrong.
@@ -59,6 +65,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   // submit gate (consent/acknowledgement) — checking it is the only way to proceed. Optional
   // ones we leave alone.
   if (field.kind === 'checkbox') {
+    // A legal commitment is never ticked — not even through an intent: "acknowledge" now matches
+    // acknowledge_true, and "I acknowledge the arbitration agreement" must still park.
+    if (isConsequential(field.label) && intent !== 'answers.top_choice') return { kind: 'unknown' };
     const key = intent?.replace(/^answers\./, '');
     const v = key ? profile.answers[key] : undefined;
     if (typeof v === 'boolean') return { kind: 'check', value: v };
@@ -69,8 +78,35 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     return field.required ? { kind: 'check', value: true } : { kind: 'unknown' };
   }
 
+  // "Are you an EU citizen?" / "Are you a citizen of the United States?" — a fact the profile holds
+  // (answers.citizenship). Yes only when the place named IS that citizenship; Affirm parked on it.
+  if (!intent && /\bcitizens?\b/i.test(field.label) && !/\bsince obtaining\b/i.test(field.label)) {
+    const yn = YESNO(options);
+    const citizenship = typeof profile.answers['citizenship'] === 'string' ? (profile.answers['citizenship'] as string).toLowerCase() : '';
+    if (yn && citizenship && /\b(are|is) you\b|\bare you a\b|\bcitizen of\b|\beu citizen\b/i.test(field.label)) {
+      return { kind: 'choice', values: [field.label.toLowerCase().includes(citizenship) ? yn.yes : yn.no] };
+    }
+  }
+
+  // "Have you used / Do you have experience with <X>?" yes/no from the same table.
+  if ((!intent || intent === 'answers.skills_experience' || intent === 'answers.years_of_experience') && Object.keys(profile.skills ?? {}).length && YESNO(options)) {
+    const has = hasSkill(field.label, profile.skills ?? {});
+    if (has !== null && !/\d+\s*\+?\s*(?:or more\s+)?years?/i.test(field.label)) return toAnswer(has, field, options);
+  }
+
   if (!intent) return { kind: 'unknown' };
 
+  // Pay asked for a job abroad with no currency named: our figures are the home currency, and a
+  // bare "7000000" in an Amsterdam form reads as euros. That is a claim the user never made — park.
+  if (/^answers\.(expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc)$/.test(intent) && !labelCurrency(field.label) && workCountryIsHome(field.label, job, profile) === false) {
+    return { kind: 'unknown' };
+  }
+
+  // "How many years WITH <X>?" — that skill's years, not the career total (engine/skills.ts).
+  if ((intent === 'answers.years_of_experience' || intent === 'answers.exact_years_of_experience') && Object.keys(profile.skills ?? {}).length) {
+    const y = skillYears(field.label, profile.skills ?? {});
+    if (y !== null) return toAnswer(y, { ...field, intent: 'answers.exact_years_of_experience' }, options);
+  }
   // 3. derived answers: salary components in the unit the label names, notice period as days,
   // "are you located in <city>" from identity.city.
   const derived = resolveDerived(intent, field, profile, options);
@@ -85,6 +121,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     if (!v) return { kind: 'unknown' };
     const picked = matchOptions(options, [v]);
     if (picked.length) return { kind: 'choice', values: picked.slice(0, 1) };
+    // "Country you reside in: Belgium | Germany | … | Other" — the honest pick is the not-listed one.
+    const notListed = options.find((o) => /\b(not listed|other|none of the above|not in (the )?list|rest of (the )?world)\b/i.test(o));
+    if (notListed && intent === 'identity.country') return { kind: 'choice', values: [notListed] };
     return options.length ? { kind: 'unknown' } : { kind: 'choice', values: [v] };
   }
 
@@ -95,11 +134,106 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     return opt ? { kind: 'choice', values: [opt] } : { kind: 'unknown' };
   }
 
-  // 4. intent answer from profile.answers (e.g. answers.work_authorization).
+  // 4. "authorized to work / need sponsorship" is true only WHERE you are authorized. The profile's
+  // answer describes the home country; asked about a job elsewhere, repeating it tells a US
+  // employer "authorized, no sponsorship needed" in the applicant's name — the board packs list
+  // jobs worldwide, so this is the common case, not an edge.
+  if (intent === 'answers.work_authorization' || intent === 'answers.needs_sponsorship') {
+    if (workCountryIsHome(field.label, job, profile) === false) {
+      return toAnswer(intent === 'answers.needs_sponsorship', field, options);
+    }
+  }
+
+  if (intent === 'answers.headline' && profile.answers['headline'] === undefined) {
+    const t = profile.answers['current_title'], c = profile.answers['current_company'];
+    if (typeof t === 'string' && t) return { kind: 'text', value: typeof c === 'string' && c ? `${t} at ${c}` : t };
+  }
+  if (intent === 'answers.experience_months') {
+    const y = num(profile.answers['exact_years_of_experience']) ?? num(profile.answers['years_of_experience']);
+    if (y !== undefined) return toAnswer(Math.floor(y * 12), field, options);
+  }
+  if (intent === 'answers.secondary_education' && profile.answers['secondary_education'] === undefined && profile.answers['degree_bachelors'] === true) {
+    return toAnswer(true, field, options); // a bachelor's degree implies it
+  }
+  // A list of places / schools that does not include the user's own: its "not listed / other"
+  // option is the honest answer (a US-only School list, "Karnataka | Maharashtra | State Not Listed").
+  if ((intent === 'answers.state' || intent === 'answers.school_name') && options.length) {
+    const own = profile.answers[intent.slice('answers.'.length)];
+    if (typeof own === 'string' && own && !matchOptions(options, [own]).length) {
+      const other = options.find((o) => /\b(not listed|other|none of the above|not in (the )?list)\b/i.test(o));
+      if (other) return { kind: 'choice', values: [other] };
+      // A long searchable list (Greenhouse School: thousands, the first page shown) — hand the
+      // adapter our value; it searches for it, then for the list's "Other" entry.
+      if (options.length >= 25) return { kind: 'choice', values: [own] };
+    }
+  }
+
+  // "Primary motivation for exploring new opportunities" — the reason for change, when no separate one.
+  if (intent === 'answers.motivation' && profile.answers['motivation'] === undefined && typeof profile.answers['reason_for_change'] === 'string') {
+    return toAnswer(profile.answers['reason_for_change'], field, options);
+  }
+
+  // A signature line's date is today. The engine has no clock (pure), so it answers a token the
+  // content script turns into the date when it types it (ats/dom.ts#materialize).
+  if (intent === 'answers.signature_date') return { kind: 'text', value: TODAY_TOKEN };
+
+  // 5. intent answer from profile.answers (e.g. answers.work_authorization).
   const key = intent.replace(/^answers\./, '');
   const val = profile.answers[key];
   if (val === undefined) return { kind: 'unknown' };
   return toAnswer(val, field, options);
+}
+
+// Countries a work-authorization question or a job location may name. India is matched through
+// the profile (identity.country / citizenship / authorized_countries), never from this list.
+const COUNTRIES: readonly (readonly [string, RegExp])[] = [
+  ['united states', /\b(united states|u\.?s\.?a?\.?|america)\b/i],
+  ['canada', /\bcanada\b/i],
+  ['united kingdom', /\b(united kingdom|u\.?k\.?|england|great britain|britain)\b/i],
+  ['ireland', /\bireland\b/i], ['germany', /\bgermany\b/i], ['france', /\bfrance\b/i],
+  ['netherlands', /\b(netherlands|holland)\b/i], ['spain', /\bspain\b/i], ['portugal', /\bportugal\b/i],
+  ['italy', /\bitaly\b/i], ['poland', /\bpoland\b/i], ['sweden', /\bsweden\b/i], ['switzerland', /\bswitzerland\b/i],
+  ['singapore', /\bsingapore\b/i], ['australia', /\baustralia\b/i], ['japan', /\bjapan\b/i],
+  ['israel', /\bisrael\b/i], ['united arab emirates', /\b(united arab emirates|uae|dubai|abu dhabi)\b/i],
+  ['brazil', /\bbrazil\b/i], ['mexico', /\bmexico\b/i],
+];
+// Places a job location names without saying "India" (CITY_ALIASES has the renamed cities).
+const INDIA_PLACES: readonly string[] = [
+  'hyderabad', 'ahmedabad', 'jaipur', 'chandigarh', 'mohali', 'indore', 'coimbatore', 'nagpur', 'lucknow',
+  'bhubaneswar', 'surat', 'visakhapatnam', 'ghaziabad', 'faridabad', 'thane', 'navi mumbai', 'gandhinagar',
+  'karnataka', 'maharashtra', 'telangana', 'haryana', 'tamil nadu', 'kerala', 'gujarat', 'uttar pradesh',
+  'rajasthan', 'west bengal', 'andhra pradesh', 'punjab', 'madhya pradesh', 'odisha',
+];
+// Region-wide or unplaced: says nothing about a country, so the profile's own answer stands.
+const NO_COUNTRY_WORDS = new Set(['remote', 'anywhere', 'worldwide', 'global', 'hybrid', 'apac', 'asia', 'south', 'emea', 'multiple', 'location', 'locations', 'various', 'work', 'from', 'home', 'wfh']);
+const noCountry = (place: string): boolean => place.toLowerCase().split(/[^a-z]+/).filter(Boolean).every((w) => NO_COUNTRY_WORDS.has(w));
+
+/** Is the work this question is about in a country the applicant is authorized in?
+ *  true = home, false = clearly elsewhere, null = cannot tell (the profile answer stands).
+ *  The label wins ("…authorized to work in the United States?"); else the job's own locations. */
+export function workCountryIsHome(label: string, job: Job, profile: Profile): boolean | null {
+  const a = profile.answers;
+  const extra = Array.isArray(a['authorized_countries']) ? (a['authorized_countries'] as string[]) : [];
+  const home = [profile.identity.country, typeof a['citizenship'] === 'string' ? a['citizenship'] : '', ...extra]
+    .map((x) => x.trim().toLowerCase())
+    .filter((x) => x.length > 1);
+  const homeCities = profile.identity.country.trim().toLowerCase() === 'india' ? [...CITY_ALIASES.flat(), ...INDIA_PLACES] : [];
+  const mentionsHome = (t: string): boolean => {
+    const l = t.toLowerCase();
+    return home.some((h) => l.includes(h)) || homeCities.some((c) => new RegExp(`\\b${c}\\b`).test(l)) || cityNames(profile.identity.city).some((c) => c && l.includes(c));
+  };
+  const foreign = (t: string): boolean => COUNTRIES.some(([name, re]) => re.test(t) && !home.includes(name));
+
+  if (mentionsHome(label)) return true;
+  if (foreign(label)) return false;
+
+  const places = job.locations.map((l) => l.trim()).filter(Boolean);
+  if (!places.length) return null;
+  if (places.some(mentionsHome)) return true;
+  if (places.every(noCountry)) return null;
+  // Placed, and not at home: a named foreign country, or a city we do not list (Paris, Austin…).
+  // A city at home is matched above, so anything left is abroad.
+  return false;
 }
 
 // One city, several names in circulation. "Are you currently located in Bangalore?" asked of
@@ -440,7 +574,7 @@ function resolveLocations(options: readonly string[], profile: Profile, job: Job
 // "Would you be willing to …?" — a question an applicant answers Yes to. PHRASES, not bare words:
 // a bare /agree/ also matches "arbitration agreement", which is how guess mode came to accept
 // binding legal terms on the applicant's behalf.
-const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bare you (comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bwilling to\b|\bcomfortable (with|working|commuting)\b/i;
+const AGREEABLE = /\b(do|would|are|can|will)\s+you\b.{0,40}\b(agree|comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bcomfortable to\b|\bare you (comfortable|willing|able|open|available|ok|okay|fine|interested|prepared|ready)\b|\bwilling to\b|\bcomfortable (with|working|commuting)\b/i;
 
 // Questions whose "yes" surrenders a legal right or makes a commitment the applicant alone can
 // make. NEVER guessed — not even to keep a run moving, and not even when the box is required:
@@ -462,12 +596,29 @@ export function isConsequential(label: string): boolean {
   return CONSEQUENTIAL.test(label);
 }
 
+function looksLikeSourceList(options: readonly string[]): boolean {
+  const t = options.join(' | ');
+  return /\blinkedin\b/i.test(t) && /\b(friend|referral|recruiter|job board|indeed|glassdoor|advertisement)\b/i.test(t);
+}
+
+/** Replaced with today's date by ats/dom.ts#materialize at fill time. */
+export const TODAY_TOKEN = '{{today}}';
+
+const NEVER_GUESS_TEXT = /^(identity\.|answers\.(ai_usage_attestation|expected_salary|current_salary|current_fixed_salary|current_variable_salary|total_ctc|current_company|current_title|current_company_years|years_of_experience|exact_years_of_experience|notice_period|education_level|school_name|cover_letter|roles_of_interest)$)/;
+
 export function guessAnswer(field: Field, options: readonly string[], profile?: Profile): Answer | null {
   // Never guess a legal commitment — park it for the user, whatever the field's shape.
   if (isConsequential(field.label)) return null;
+  if (field.intent === 'answers.ai_usage_attestation') return null; // a promise only the user makes
   // A required lone checkbox gates submit → tick it; an optional one is an opt-in extra → leave it off.
   if (field.kind === 'checkbox') return { kind: 'check', value: field.required };
-  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') return { kind: 'text', value: 'N/A' };
+  if (field.kind === 'text' || field.kind === 'email' || field.kind === 'tel') {
+    // A box we RECOGNISED but cannot fill is a fact only the user holds: "N/A" typed as your salary,
+    // employer, notice or name is an answer sent in your name (invariant 13). Park those; "N/A"
+    // stays only for a box we could not place at all.
+    if (field.intent && NEVER_GUESS_TEXT.test(field.intent)) return null;
+    return { kind: 'text', value: 'N/A' };
+  }
   if (field.kind !== 'select' && field.kind !== 'multiselect') return null;
   // WHERE the user is willing to work is theirs to state, like compensation or an experience
   // bucket (invariant 13). Seen live on Lever (Spotify): options "London | Stockholm" for a

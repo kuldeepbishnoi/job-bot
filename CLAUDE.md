@@ -230,9 +230,13 @@ fixtures/    real captured data for offline tests
    `NOT_A_VETERAN`, `NO_DISABILITY`) that maps to each company's wording. No magic strings in config.
 7. Locations are **derived**, never typed: `resolveLocations` picks dropdown options ∩ (job's own
    location ∪ `want.locations`). One list drives both job selection and the cities answer.
-8. Apply runs **sequentially** in one worker window → only one OTP email pending at a time (the
-   email names no job, so parallelism would mismatch codes). This is also politeness/rate-limiting
-   (System Design Interview ch. 4 & 9): don't hammer the ATS.
+8. **Sites run in parallel, one run per lane** (2026-10-04, owner: "there should be parallelism").
+   Each site has its own `run_state:<site>`, step alarm (`jobbot-step:<site>`), lock and worker
+   window (`platform/worker-window.ts`, cascaded so none is fully occluded → throttled). Within a
+   site jobs stay sequential (politeness). Sites whose apply emails a one-time code to the shared
+   inbox — the Greenhouse family (Datadog + Greenhouse boards) — share ONE lane (`laneFor`): the
+   email names no job, so two at once could swap codes. A Start on a busy lane queues
+   (`run_queue`); a card's Stop stops its own site, the global Stop stops everything.
 9. `auto_submit:false` is the safe default — fill + enter code, then park for the user's click.
 10. **Stop must reach whatever is doing the work, and nothing may write run state after a cancel.**
     There are three Stop paths (worker stepper, LinkedIn, Instahyre) and each got this wrong in its
@@ -271,8 +275,13 @@ fixtures/    real captured data for offline tests
 
 ## Chrome Web Store best practices honored
 (https://developer.chrome.com/docs/webstore/best-practices)
-- **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity` — each used (alarms
-  steps the queue across SW restarts; identity fetches the read-only Gmail token for the OTP). No
+- **Least privilege**: permissions are `storage`, `tabs`, `alarms`, `identity`, `nativeMessaging`
+  — each used (alarms steps the queue across SW restarts; identity fetches the read-only Gmail
+  token for the OTP; nativeMessaging lets JobBot's own local host — `scripts/native-host/`,
+  registered by `npm run install:chrome` — write records, captures and the full log into
+  `profile/applications` when the profile folder is not linked: that grant needs a click the owner
+  asked never to need. chrome.downloads was tried first and opened a Save dialog per file on a
+  Chrome with "Ask where to save" on). No
   `scripting`. host_permissions are the specific hosts we touch (incl. `gmail.googleapis.com` for the
   OTP read), not `*://*`. The one exception is **optional**: `optional_host_permissions: ['<all_urls>']`,
   requested by the popup when a LinkedIn run starts, because `chrome.tabs.captureVisibleTab` refuses

@@ -17,6 +17,7 @@ function today(): string {
 function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const run = activeRuns.value.find((r) => r.siteId === pack.id);
   // A run can exist without a Run record (observability is best-effort). Stop must still be offered,
   // or a run whose record failed to write can only be killed by reloading the extension.
@@ -29,9 +30,11 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
   const start = async (): Promise<void> => {
     setBusy(true);
     setError(null);
+    setNote(null);
     const res = await startSite(pack);
     setBusy(false);
     if (!res.ok) setError(res.error ?? 'could not start');
+    else if (res.note) setNote(res.note);
   };
 
   return (
@@ -61,11 +64,11 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
           {run.current && <div class="tiny ellipsis">{run.current.title}</div>}
           {run.pause && <div class="tiny" style={{ color: 'var(--info)' }}>{run.pause.reason}</div>}
           <div class="row" style={{ gap: 6 }}>
-            <button class="sm" onClick={() => void stopRuns()}>
+            <button class="sm" onClick={() => void stopRuns(pack.id)}>
               Stop
             </button>
             {run.phase === 'paused' && (
-              <button class="sm primary" onClick={() => void resumeRun()}>
+              <button class="sm primary" onClick={() => void resumeRun(pack.id)}>
                 Resume
               </button>
             )}
@@ -76,7 +79,7 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
           <div class="tiny" style={{ color: 'var(--warn)' }}>
             Running, but this run wrote no progress record — the console cannot show its detail.
           </div>
-          <button class="sm" onClick={() => void stopRuns()}>
+          <button class="sm" onClick={() => void stopRuns(pack.id)}>
             Stop
           </button>
         </div>
@@ -89,6 +92,11 @@ function SiteRow({ pack }: { pack: SitePack }): JSX.Element {
           <button class="sm primary" disabled={busy} onClick={() => void start()}>
             {busy ? 'Starting…' : `Apply on ${pack.label}`}
           </button>
+        </div>
+      )}
+      {note && !run && (
+        <div class="small muted" style={{ marginTop: 6 }}>
+          ⏳ {note}
         </div>
       )}
       {error && (

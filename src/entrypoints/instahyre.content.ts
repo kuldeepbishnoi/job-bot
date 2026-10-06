@@ -16,7 +16,9 @@ import type { Want } from '@/config/schema';
 //      when a page runs out. Dedupe by card identity so an already-handled card is never reopened.
 // The whole loop lives here in the page (not a background long-runner, which MV3 would kill).
 
-const MAX_APPLIES = 200; // safety cap so a runaway loop can't hammer the ATS
+// No cap (owner, 2026-10-04: "there won't be any limit … it should not stop ever"). The title
+// filter decides WHAT is applied to; Stop ends it; the background re-runs it for new postings.
+const MAX_APPLIES = Number.POSITIVE_INFINITY;
 const SETTLE_MS = 1400; // let AngularJS run its digest + load the next opportunity
 const GAP_MS = 800; // human-like pause between applies
 // FAIL CLOSED on a missing want. Until 2026-09-15 this loop had no title filter at all and applied
@@ -34,6 +36,15 @@ let stopped = false;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const report = (msg: Msg) => chrome.runtime.sendMessage(msg).catch(() => {});
+// The console marks a run "stalled" when its heartbeat stops, and the only heartbeat used to be an
+// APPLY — a loop busy skipping filtered cards or paging looked dead (2026-10-05). Beat on every card
+// and page, at most every 15 s.
+let lastBeat = 0;
+const alive = (where: string): void => {
+  if (Date.now() - lastBeat < 15_000) return;
+  lastBeat = Date.now();
+  void report({ t: 'instahyre-alive', where });
+};
 
 export default defineContentScript({
   matches: ['https://www.instahyre.com/candidate/opportunities*'],
@@ -109,6 +120,7 @@ async function drainMatching(budget: number, want: Want): Promise<{ applied: num
 
   while (applied < budget) {
     if (stopped) break;
+    alive('matching queue');
     // External jobs can't be completed inside Instahyre — advance past them.
     if (ih.isExternal(document)) {
       const next = ih.nextButton(document);
@@ -176,6 +188,7 @@ async function drainSearch(budget: number, want: Want): Promise<{ applied: numbe
 
   while (applied < budget) {
     if (stopped) break;
+    alive('search list');
     const card = ih.openModalLinks(document).find((el) => !handled.has(ih.cardId(el)));
     if (!card) {
       // Page exhausted — advance to the next page, or we're truly done. A Next that does not bring

@@ -1,5 +1,6 @@
 import type { Answer, Field, FieldKind, Intent } from '../engine/types';
 import { click, labelText, setFile, setReactValue } from './dom';
+import { cityNames } from '../engine/resolver';
 
 // Greenhouse embedded application form (job-boards.greenhouse.io iframe).
 // Verified against fixtures/greenhouse-form.html.
@@ -67,7 +68,7 @@ export function extract(doc: Document): Field[] {
  * (a fresh apply fires ~1s after load). Retries the open click a few times. If a menu is
  * already open (multi-select keeps it open between picks), returns that one.
  */
-async function openMenu(doc: Document, control: Element): Promise<Element> {
+async function openMenu(doc: Document, control: Element, tries = 30): Promise<Element> {
   // react-select flips the combobox's aria-expanded to "true" while its menu is open.
   // Gate the open-click on that flag: a second click on a hydrated, already-open control
   // toggles the menu shut, and clicks fired before the widget hydrates are harmless no-ops.
@@ -78,7 +79,7 @@ async function openMenu(doc: Document, control: Element): Promise<Element> {
     const menu = doc.querySelector('.select__menu');
     return menu?.querySelector('.select__option') ? menu : null;
   };
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < tries; i++) {
     const menu = openMenuEl();
     if (menu) return menu;
     if (combobox?.getAttribute('aria-expanded') !== 'true') click(control);
@@ -114,16 +115,58 @@ async function pickOptions(
   control: Element,
   fieldId: string,
   values: readonly string[],
+  fallbacks: readonly string[] = [],
 ): Promise<void> {
+  const options = (): Element[] => Array.from(doc.querySelectorAll('.select__menu .select__option'));
+  const match = (opts: Element[], lc: string): Element | undefined =>
+    opts.find((o) => labelText(o).toLowerCase() === lc) ?? opts.find((o) => labelText(o).toLowerCase().includes(lc));
   for (const value of values) {
-    const menu = await openMenu(doc, control);
-    const opts = Array.from(menu.querySelectorAll('.select__option'));
-    const lc = value.toLowerCase();
-    const opt =
-      opts.find((o) => labelText(o).toLowerCase() === lc) ??
-      opts.find((o) => labelText(o).toLowerCase().includes(lc));
+    // A static list opens with its options. An ASYNC one ("Location (City)" — place suggestions)
+    // opens empty and only offers matches for what is typed: it used to fail every time with
+    // "select menu did not open" (2026-10-04, Airbnb + others), leaving a required box blank.
+    const menu = await openMenu(doc, control, 8).catch(() => null);
+    let opt = menu ? match(Array.from(menu.querySelectorAll('.select__option')), value.toLowerCase()) : undefined;
+    if (!opt) {
+      for (const query of [value, ...cityNames(value).filter((n) => n !== value.toLowerCase())]) {
+        await typeSearch(control, query);
+        opt = await waitForOption(() => match(options(), query.toLowerCase()), 8000);
+        if (opt) break;
+      }
+    }
+    // A long searchable list without the user's own entry (School: thousands of US colleges):
+    // its "Other / not listed" entry is the honest pick — found the same way, by searching for it.
+    for (const fb of opt ? [] : fallbacks) {
+      await typeSearch(control, fb);
+      opt = await waitForOption(() => match(options(), fb.toLowerCase()), 5000);
+      if (opt) break;
+    }
     if (!opt) throw new Error(`option "${value}" not found for ${fieldId}`);
     click(opt);
+  }
+}
+
+/** Intents whose list may simply not contain the user's answer — fall back to its "other" entry. */
+const OTHER_FALLBACK = new Set(['answers.school_name', 'answers.state', 'identity.country', 'answers.how_did_you_hear', 'answers.education_level']);
+const OTHER_QUERIES = ['Other', 'Not listed', 'None of the above'];
+
+/** Type into a react-select's search input the way a keystroke would (native setter + input event,
+ *  no blur — a blur closes the menu before the async options arrive). */
+async function typeSearch(control: Element, query: string): Promise<void> {
+  const input = control.querySelector<HTMLInputElement>('input');
+  if (!input) return;
+  input.focus();
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, query);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+}
+
+async function waitForOption(find: () => Element | undefined, ms: number): Promise<Element | undefined> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const o = find();
+    if (o || Date.now() > end) return o;
+    await new Promise((r) => setTimeout(r, 200));
   }
 }
 
@@ -153,7 +196,7 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
     // selection, so a required field would submit empty. Route through option-picking.
     const control = reactSelectControl(el);
     if (control) {
-      await pickOptions(doc, control, field.id, [answer.value]);
+      await pickOptions(doc, control, field.id, [answer.value], OTHER_FALLBACK.has(field.intent ?? '') ? OTHER_QUERIES : []);
       return;
     }
     setReactValue(el, answer.value);
@@ -165,7 +208,7 @@ export async function fill(doc: Document, field: Field, answer: Answer, resume?:
       setReactValue(el, answer.values[0] ?? '');
       return;
     }
-    await pickOptions(doc, control, field.id, answer.values);
+    await pickOptions(doc, control, field.id, answer.values, field.kind === 'select' && OTHER_FALLBACK.has(field.intent ?? '') ? OTHER_QUERIES : []);
   }
 }
 
@@ -185,6 +228,12 @@ export function textFilled(doc: Document, field: Field, answer: Answer): boolean
 
 export function submitButton(doc: Document): HTMLButtonElement | null {
   return doc.querySelector('button[type="submit"]');
+}
+
+/** The button on the emailed-code step. It is not always type=submit (Algolia, 2026-10-05: the
+ *  code was typed, then click(null) threw "reading 'dispatchEvent'" and the application was lost). */
+export function otpSubmitButton(doc: Document): HTMLButtonElement | null {
+  return submitButton(doc) ?? Array.from(doc.querySelectorAll<HTMLButtonElement>('button')).find((b) => /\b(submit|verify|confirm|continue)\b/i.test(b.textContent ?? '') && !b.disabled) ?? null;
 }
 
 /** The email-verification step: 8 boxes + a "verification code" prompt. */

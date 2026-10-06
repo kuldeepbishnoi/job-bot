@@ -7,8 +7,13 @@ import { appliedJobIds, computeStats, type Stats } from '../engine/stats';
 // Repository adapter: the only place that touches chrome.storage.
 // Pure computation lives in engine/stats.ts; this file just supplies data + clock.
 const KEY = 'applications';
-const STATE_KEY = 'run_state';
+// One run per site, so sites run in PARALLEL (2026-10-04, owner: "there should be parallelism").
+// `run_state` (no suffix) is the pre-parallel key; it is read as its own site's run and migrated.
+const LEGACY_STATE_KEY = 'run_state';
+const STATE_PREFIX = 'run_state:';
 const PROGRESS_KEY = 'run_progress';
+const stateKey = (siteId: string): string => `${STATE_PREFIX}${siteId}`;
+const progressKey = (siteId?: string): string => (siteId ? `${PROGRESS_KEY}:${siteId}` : PROGRESS_KEY);
 
 // Live run status, persisted so the (ephemeral MV3) popup can show what's happening even after it
 // closes — the worker tab activating closes the popup, so in-memory progress would otherwise be lost.
@@ -20,13 +25,17 @@ export interface RunProgress {
   readonly at: number; // epoch ms of last update
 }
 
-export async function saveProgress(p: RunProgress): Promise<void> {
-  await chrome.storage.local.set({ [PROGRESS_KEY]: p });
+/** Progress for one site's run (`siteId`), or the shared slot the in-page packs and the popup use.
+ *  A site's progress is mirrored into the shared slot too, so the popup's "last thing happening"
+ *  keeps working. */
+export async function saveProgress(p: RunProgress, siteId?: string): Promise<void> {
+  await chrome.storage.local.set(siteId ? { [progressKey(siteId)]: p, [PROGRESS_KEY]: p } : { [PROGRESS_KEY]: p });
 }
 
-export async function getProgress(): Promise<RunProgress | null> {
-  const got = await chrome.storage.local.get(PROGRESS_KEY);
-  return (got[PROGRESS_KEY] as RunProgress | undefined) ?? null;
+export async function getProgress(siteId?: string): Promise<RunProgress | null> {
+  const k = progressKey(siteId);
+  const got = await chrome.storage.local.get(k);
+  return (got[k] as RunProgress | undefined) ?? null;
 }
 
 /** Persisted run state, so an alarm-driven step survives service-worker termination. */
@@ -54,7 +63,7 @@ export async function saveRunState(s: RunState): Promise<void> {
   let state = s;
   for (let attempt = 0; ; attempt++) {
     try {
-      await chrome.storage.local.set({ [STATE_KEY]: state });
+      await chrome.storage.local.set({ [stateKey(state.siteId)]: state });
       return;
     } catch (e) {
       const half = Math.floor(state.queue.length / 2);
@@ -65,13 +74,38 @@ export async function saveRunState(s: RunState): Promise<void> {
   }
 }
 
-export async function getRunState(): Promise<RunState | null> {
-  const got = await chrome.storage.local.get(STATE_KEY);
-  return (got[STATE_KEY] as RunState | undefined) ?? null;
+/** That site's run, or — with no site — the first run in progress (for callers that predate
+ *  parallel runs and only ever had one). */
+export async function getRunState(siteId?: string): Promise<RunState | null> {
+  await migrateLegacyState();
+  if (!siteId) return (await listRunStates())[0] ?? null;
+  const k = stateKey(siteId);
+  const got = await chrome.storage.local.get(k);
+  return (got[k] as RunState | undefined) ?? null;
 }
 
-export async function clearRunState(): Promise<void> {
-  await chrome.storage.local.remove(STATE_KEY);
+/** Every site's run in progress (paused ones included). */
+export async function listRunStates(): Promise<RunState[]> {
+  await migrateLegacyState();
+  const all = await chrome.storage.local.get(null);
+  return Object.entries(all)
+    .filter(([k]) => k.startsWith(STATE_PREFIX))
+    .map(([, v]) => v as RunState)
+    .filter((s) => !!s?.siteId);
+}
+
+export async function clearRunState(siteId?: string): Promise<void> {
+  if (siteId) return void (await chrome.storage.local.remove([stateKey(siteId), progressKey(siteId)]));
+  const all = await listRunStates();
+  await chrome.storage.local.remove(all.flatMap((s) => [stateKey(s.siteId), progressKey(s.siteId)]));
+}
+
+async function migrateLegacyState(): Promise<void> {
+  const got = await chrome.storage.local.get(LEGACY_STATE_KEY);
+  const old = got[LEGACY_STATE_KEY] as RunState | undefined;
+  if (!old) return;
+  if (old.siteId) await chrome.storage.local.set({ [stateKey(old.siteId)]: old });
+  await chrome.storage.local.remove(LEGACY_STATE_KEY);
 }
 
 async function readAll(): Promise<Application[]> {
@@ -153,8 +187,27 @@ export async function allRecords(): Promise<Application[]> {
   return readAll();
 }
 
+/** Every job id never to apply to again: this browser's applied records, plus the on-disk
+ *  registry's (every account, every machine) that `npm run install:chrome` ships in the profile
+ *  seed under `seed_applied_ids` (profile-seed.ts) — readable here without the folder grant. */
 export async function appliedIds(): Promise<Set<string>> {
-  return appliedJobIds(await readAll());
+  const ids = appliedJobIds(await readAll());
+  const got = await chrome.storage.local.get('seed_applied_ids');
+  for (const id of (got['seed_applied_ids'] as string[] | undefined) ?? []) ids.add(id);
+  return ids;
+}
+
+/** Jobs this site PARKED after \`since\` (epoch ms): they wait on an answer only the user can give,
+ *  so a repeat run that re-fills them every 30 min just repeats the park (Lever: the same 139 jobs,
+ *  all night, 2026-10-05). Failed ones are not here — a failure is usually transient, retry it. */
+export async function parkedSince(siteId: string, since: number): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const a of await readAll()) {
+    if (a.company !== siteId || a.status !== 'parked') continue;
+    const at = Date.parse(a.at ?? a.date);
+    if (Number.isFinite(at) && at > since) out.add(a.jobId);
+  }
+  return out;
 }
 
 export async function parked(): Promise<Application[]> {

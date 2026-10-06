@@ -7,6 +7,7 @@ import { loadProfileAndResume, readProfileYaml } from '../fs-config';
 import type { SerializedFile } from '../serialized-file';
 import { changes } from './idb';
 import { getResume, resumeAsSerialized } from './resumes';
+import { importSeed, readSeed, type SeedResult } from './profile-seed';
 
 const PROFILE_KEY = 'profile_v1';
 const META_KEY = 'profile_meta';
@@ -30,6 +31,7 @@ export async function loadStoredProfile(): Promise<{ profile: Profile; meta: Pro
  *  source a user with a working setup opens the console and is told nothing is set up, which is
  *  both wrong and the opposite of reassuring. Silent: no picker, no gesture, no prompt. */
 export async function resolveProfile(): Promise<{ profile: Profile; meta: ProfileMeta; source: 'ui' | 'folder' } | null> {
+  await syncSeed();
   const stored = await loadStoredProfile();
   if (stored) return { ...stored, source: 'ui' };
   const text = await readProfileYaml().catch(() => '');
@@ -67,6 +69,12 @@ export function profileFromYaml(text: string): Profile {
   return parseProfile(parse(text));
 }
 
+/** Import profile.yaml if `npm run install:chrome` shipped a newer one (profile-seed.ts). Never
+ *  throws: a missing or broken seed leaves the stored profile exactly as it was. */
+export async function syncSeed(): Promise<SeedResult> {
+  return importSeed(await readSeed()).catch((e: Error) => ({ status: 'invalid', error: e.message }) as const);
+}
+
 export interface RunInputs {
   profile: Profile;
   resume: SerializedFile;
@@ -80,6 +88,7 @@ export interface RunInputs {
  * because that needs an extension page with a user gesture (never the SW).
  */
 export async function resolveRunInputs(opts: { allowFolder: boolean; resumeId?: string }): Promise<RunInputs> {
+  await syncSeed(); // a profile.yaml edited since the last look reaches THIS run, not the next one
   const stored = await loadStoredProfile();
   if (stored) {
     const id = opts.resumeId ?? stored.profile.resume;

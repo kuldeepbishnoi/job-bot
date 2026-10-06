@@ -812,3 +812,9 @@ export function describeQuestions(m: Element): string {
 }
 
 export { click };
+
+/** Fillable controls on the current step (excluding the follow-company box and hidden inputs). A
+ *  step with none is a read-only review card (Work experience / Education pulled from the profile). */
+export function controlCount(m: Element): number {
+  return Array.from(m.querySelectorAll('input:not([type="hidden"]), select, textarea, [role="combobox"], [role="radio"], [role="checkbox"]')).filter((el) => (el as HTMLElement).id !== 'follow-company-checkbox').length;
+}

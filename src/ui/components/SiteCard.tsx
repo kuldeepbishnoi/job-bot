@@ -84,11 +84,14 @@ export function StartButton({
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
   const start = async (): Promise<void> => {
     setBusy(true);
     setErr('');
+    setNote('');
     const res = await startSite(pack, { dryRun }); // first await of the click — keeps the gesture for permissions
     if (!res.ok) setErr(res.error ?? 'the background did not say why');
+    else if (res.note) setNote(res.note);
     setBusy(false);
   };
   const label = dryRun ? 'Dry run one job' : 'Start';
@@ -97,6 +100,7 @@ export function StartButton({
       <button class={dryRun ? '' : 'primary'} disabled={disabled || busy} title={title} onClick={() => void start()}>
         {busy ? 'Starting…' : label}
       </button>
+      {note && <span class="small muted">⏳ {note}</span>}
       {err && (
         <span class="small" style={{ color: 'var(--err)' }}>
           {err}
@@ -268,11 +272,11 @@ export function SiteCard({ pack }: { pack: SitePack }): JSX.Element {
         <StartButton pack={pack} disabled={!!active} title={block ?? `start ${pack.label}`} />
         {offersDryRun(pack) && <StartButton pack={pack} dryRun disabled={!!active} title={DRY_RUN_HELP} />}
         {pack.supports.stop && (
-          <button class="danger" disabled={!active} onClick={() => void act(stopRuns)}>
+          <button class="danger" disabled={!active} onClick={() => void act(() => stopRuns(pack.id))}>
             Stop
           </button>
         )}
-        {pack.supports.resume && active?.phase === 'paused' && <button onClick={() => void act(resumeRun)}>Resume</button>}
+        {pack.supports.resume && active?.phase === 'paused' && <button onClick={() => void act(() => resumeRun(pack.id))}>Resume</button>}
         {block && !active && <span class="small muted">{block}</span>}
         {note && (
           <span class="small" style={{ color: 'var(--err)' }}>

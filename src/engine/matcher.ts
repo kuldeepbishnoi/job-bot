@@ -19,6 +19,7 @@ interface Rule {
   readonly any?: readonly string[]; // at least one must be present
   readonly not?: readonly string[]; // none may be present
   readonly word?: readonly string[]; // at least one must appear as a whole word ("city", not "capacity")
+  readonly exact?: readonly string[]; // the WHOLE normalized label is one of these (a bare "Name" / "Date")
 }
 
 // Identity fields are matched by DOM id in the adapter; these rules cover custom questions.
@@ -28,7 +29,14 @@ const RULES: readonly Rule[] = [
   { intent: 'identity.phone_country', any: ['phone country code', 'country code'] },
   { intent: 'identity.phone', any: ['phone number', 'mobile number', 'mobile phone', 'phone'], not: ['country code', 'screen', 'interview', 'call you', 'call with', 'available for a phone', 'attend a phone'] },
   { intent: 'identity.email', any: ['email address', 'email'], not: ['consent', 'receive', 'agree', 'subscribe'] },
+  // The US disability self-ID form's signature line is a bare "Name" + "Date" — required once the
+  // form is answered. "N/A" in Date failed Lever's native validation and blocked 5 Palantir submits.
+  { intent: 'identity.full_name', exact: ['name', 'your name', 'signature', 'full name signature'] },
+  { intent: 'answers.signature_date', exact: ['date', 'today s date', 'todays date', 'signature date', 'date signed', 'today date'] },
   { intent: 'identity.full_name', any: ['full name', 'full legal name'], not: ['first name', 'last name', 'company', 'employer', 'referr'] },
+  // "Preferred Name" (Affirm) matched nothing and was typed as "N/A" — under the applicant's name.
+  { intent: 'identity.preferred_name', any: ['preferred name', 'preferred first name', 'name you go by', 'name you prefer'] },
+  { intent: 'identity.country', any: ['country in which you currently reside', 'country you currently live', 'country of residence', 'country do you currently live', 'country do you reside'] },
   { intent: 'identity.first_name', any: ['first name', 'given name'] },
   { intent: 'identity.last_name', any: ['last name', 'surname', 'family name'] },
   { intent: 'identity.linkedin', all: ['linkedin'] },
@@ -39,7 +47,7 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.work_authorization', any: ['legally authorised', 'legally authorized', 'right to work', 'authorized to work', 'authorised to work', 'eligible to work'] },
   // LinkedIn Easy Apply screening questions — before the generic location / years rules.
   { intent: 'answers.top_choice', any: ['top choice'] },
-  { intent: 'answers.shifts_ok', any: ['night shift', 'rotational shift', 'shift timing', 'us shift', 'uk shift', 'work in shifts', 'evening shift', 'in shifts'] },
+  { intent: 'answers.shifts_ok', any: ['night shift', 'rotational shift', 'shift timing', 'us shift', 'uk shift', 'work in shifts', 'evening shift', 'in shifts', 'consistently work', 'work approximately', 'working hours of', 'work timings', 'shift timings', 'ist monday'] },
   // "…we require all new employees to onboard in-person. Can you commit to onboarding in-person
   // during your first week?" (Anchorage/Lever). Must precede commute_ok: that rule is guarded with
   // not:['remote'], and this question introduces itself with "a remote/hybrid work culture", so the
@@ -49,18 +57,26 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.commute_ok', any: ['comfortable commuting', 'commute to', 'commuting to', 'work from office', 'work from the office', 'from office', 'in office', 'in the office', 'on site', 'onsite', 'wfo'], not: ['remote'] },
   { intent: 'answers.remote_ok', any: ['remote setting', 'working remotely', 'hybrid setting', 'work from home', 'comfortable working remote', 'remote work', 'remotely'] },
   // Salary: the specific components first ("current fixed salary" must not become current_salary).
-  { intent: 'answers.expected_salary', any: ['expected salary', 'expected ctc', 'salary expectation', 'desired salary', 'expected compensation', 'expected annual', 'salary you are looking', 'expected pay', 'expected package', 'salary expectations', 'expectation in', 'expected fixed', 'expected variable', 'expected total', 'expected gross'] },
+  { intent: 'answers.expected_salary', any: ['expected salary', 'expected ctc', 'salary expectation', 'desired salary', 'expected compensation', 'expected annual', 'salary you are looking', 'expected pay', 'expected package', 'salary expectations', 'expectation in', 'expected fixed', 'expected variable', 'expected total', 'expected gross', 'compensation expectation', 'pay expectation', 'ctc expectation', 'salary requirement', 'desired compensation', 'desired pay', 'ectc', 'expected monthly', 'expected take home'] },
   // Longer phrasings (Lever: "Expected Monthly Fixed (Base) Salary in …") — anything with "expected" is never a current_* answer.
   { intent: 'answers.expected_salary', all: ['expected'], any: ['salary', 'ctc', 'compensation', 'pay', 'package'] },
   { intent: 'answers.current_variable_salary', any: ['variable salary', 'variable pay', 'variable component', 'current variable', 'variable ctc'], not: ['expected'] },
   { intent: 'answers.current_fixed_salary', any: ['fixed salary', 'fixed ctc', 'fixed pay', 'fixed component', 'current fixed', 'base salary', 'fixed compensation'], not: ['expected'] },
   { intent: 'answers.total_ctc', any: ['total ctc', 'fixed variable', 'total compensation', 'total salary', 'overall ctc', 'current total', 'gross salary', 'gross ctc', 'annual package', 'current package'], not: ['expected'] },
-  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary', 'cost to company', 'how much do you earn', 'how much are you earning', 'your salary', 'salary you are drawing', 'current remuneration', 'current emoluments'], not: ['expected'] },
-  { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice'] },
+  // Indian shorthand: CTC / CCTC (current CTC) / ECTC (expected), and monthly salary boxes.
+  { intent: 'answers.expected_salary', exact: ['ectc', 'what is your ectc', 'your ectc', 'expected monthly salary'] },
+  { intent: 'answers.current_salary', exact: ['ctc', 'what is your ctc', 'what is your cctc', 'cctc', 'your ctc', 'your cctc', 'current monthly salary', 'monthly salary'] },
+  { intent: 'answers.headline', exact: ['headline', 'professional headline', 'your headline'] },
+  { intent: 'answers.experience_months', any: ['months of software', 'months of experience', 'months of professional', 'experience in months'] },
+  { intent: 'answers.secondary_education', any: ['secondary education', 'high school diploma', 'completed high school', 'ged or equivalent'] },
+  { intent: 'answers.state', any: ['what state are you', 'state are you currently', 'state of residence', 'current state', 'which state do you'] },
+  { intent: 'answers.holding_offer', any: ['holding any offer', 'holding an offer', 'have any offer', 'other offers in hand', 'offer in hand'] },
+  { intent: 'answers.current_salary', any: ['current salary', 'current ctc', 'last drawn', 'drawn ctc', 'current last drawn', 'present drawn', 'current compensation', 'present ctc', 'current annual', 'present salary', 'currently drawing', 'current pay', 'in hand salary', 'cost to company', 'how much do you earn', 'how much are you earning', 'your salary', 'salary you are drawing', 'current remuneration', 'current emoluments'], not: ['expected'] },
+  { intent: 'answers.notice_serving', any: ['serving notice', 'serving your notice', 'on notice period', 'currently serving', 'serving the notice', 'serving your np', 'serving np', 'your lwd', 'last working day', 'lwd is'], not: ['what is your notice period', 'option ('] },
   { intent: 'answers.immediate_joiner', any: ['immediate joiner', 'join immediately', 'can you join within', 'join us within', 'join within', 'immediately available', 'available immediately'] },
   // NEVER a bare 'notice': "Do you agree to our privacy notice?" was answered with "30".
-  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join', 'how soon you can join', 'how soon can you join'], not: ['privacy', 'policy', 'agree'] },
-  { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining'] },
+  { intent: 'answers.notice_period', any: ['notice period', 'days of notice', 'joining time', 'time to join', 'notice to serve', 'notice required', 'availability to join', 'availability to start', 'how soon could you join', 'how soon you can join', 'how soon can you join', 'your np', 'official np', 'what is your notice', 'your notice?', 'np in days', 'np mention'], not: ['privacy', 'policy', 'agree'] },
+  { intent: 'answers.start_date', any: ['when can you start', 'how soon can you start', 'earliest start', 'start date', 'available to start', 'date of joining', 'earliest joining', 'could you start', 'can you start', 'start working', 'notice before starting'] },
   // Termgrid (Lever) asks six questions about the shape of the applicant's career that nothing in
   // the profile answered, so the form parked with six required blanks — "it didn't even fill the
   // form". These are facts only the owner holds; the rules exist so ONE line in profile.yaml
@@ -78,32 +94,36 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.work_setup', any: ['work setup do you prefer', 'preferred work setup', 'work mode do you prefer', 'preferred work mode', 'work arrangement do you prefer'] },
   { intent: 'answers.industry', any: ['which industry', 'what industry', 'industry did your last', 'industry did your current', 'industry does your current'] },
   { intent: 'answers.motivation', any: ['biggest motivation', 'motivation for choosing', 'what motivates you', 'primary motivation'] },
-  { intent: 'answers.current_company', any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
+  // "Are you subject to any employment agreements and/or post-employment restrictions with your
+  // current employer…" named "current employer", so it was read as "Current company" — must come first.
+  { intent: 'answers.non_compete', any: ['employment agreements', 'post employment restriction', 'restrictive covenant', 'non solicitation'] },
+  { intent: 'answers.current_company', not: ['relationship', 'conflict of interest', 'agreement', 'restriction'], any: ['current company', 'current employer', 'current organization', 'current organisation', 'present company', 'present employer', 'last company', 'last employer', 'currently working at', 'currently employed at'] },
   { intent: 'answers.current_title', any: ['current designation', 'current title', 'current role', 'current job title', 'current position', 'present designation', 'present role'] },
   { intent: 'answers.github', any: ['github', 'git hub'] },
-  { intent: 'answers.reason_for_change', any: ['reason for change', 'reason for job change', 'why are you looking', 'reason for leaving', 'looking for a change', 'why do you want to leave', 'reason to change', 'why are you leaving'] },
+  { intent: 'answers.reason_for_change', any: ['reason for change', 'reason for job change', 'why are you looking', 'reason for leaving', 'looking for a change', 'why do you want to leave', 'reason to change', 'why are you leaving', 'reasons for your job change', 'reason for your job change', 'motivation for exploring', 'exploring new opportunities', 'why change'] },
   { intent: 'answers.in_city', any: ['located in', 'based in', 'based out of', 'residing in', 'staying in', 'living in', 'reside in', 'currently in', 'located at'], not: ['relocat', 'willing', 'open to', 'comfortable', 'work from', 'sanction', 'countr'] },
   { intent: 'answers.background_check', any: ['background check', 'background verification'] },
-  { intent: 'answers.over_18', any: ['18 years', 'at least 18', 'over 18', 'legal age'] },
+  // "Are you over the age of 18?" (Gopuff) slipped past these and the guess answered No — a minor.
+  { intent: 'answers.over_18', any: ['18 years', 'at least 18', 'over 18', 'legal age', 'age of 18', '18 or older', '18 years of age', 'eighteen'] },
   { intent: 'answers.language_proficiency', any: ['level of proficiency', 'proficiency in', 'proficient in english', 'english proficiency', 'level of english'] },
   { intent: 'answers.drivers_license', any: ['driver s license', 'drivers license', 'driving license', 'driving licence', 'driver s licence'] },
   { intent: 'answers.security_clearance', any: ['security clearance', 'clearance'] },
   { intent: 'identity.city', any: ['current city', 'current location', 'city you live', 'where are you located', 'where do you live', 'your city'] },
   // Plural / "where would you work" phrasing is the LOCATIONS question (a multi-choice of cities),
   // never "what city do you live in" — it must be tested BEFORE the bare-word city rule.
-  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you', 'office locations', 'office location', 'working out of'], not: ['authorised', 'authorized'] },
+  { intent: 'locations', any: ['which cities', 'what cities', 'cities are you available', 'city or cities', 'cities would you', 'cities do you', 'preferred location', 'work location', 'available to work', 'prefer to work', 'willing to work in', 'open to working in', 'locations are you', 'office locations', 'office location', 'working out of'], not: ['authorised', 'authorized', 'relocat'] },
   { intent: 'identity.city', word: ['city'], not: ['which cities', 'what cities', 'cities are you', 'authorised', 'authorized', 'prefer', 'cities'] },
   { intent: 'answers.languages', any: ['languages you speak', 'languages do you speak', 'fluent'] },
-  { intent: 'answers.how_did_you_hear', all: ['how did you hear'] },
+  { intent: 'answers.how_did_you_hear', any: ['how did you hear', 'how you heard', 'hear about this', 'hear about us', 'how did you first learn', 'how did you learn about', 'where did you hear', 'how did you find out about', 'how did you find this', 'source of application'] },
   { intent: 'answers.how_did_you_hear_detail', any: ['please specify'] },
   { intent: 'answers.education_level', any: ['education level', 'highest degree', 'level of education', 'highest qualification', 'educational qualification', 'highest education'], not: ['bachelor', 'master s', 'masters'] },
-  { intent: 'answers.school_name', any: ['school name', 'name of institution', 'university name', 'your school'] },
+  { intent: 'answers.school_name', any: ['school name', 'name of institution', 'university name', 'your school', 'school', 'which university', 'college name', 'university attended'] },
   { intent: 'answers.area_of_study', any: ['area of study', 'areas of study', 'area s of study', 'field of study', 'major'] },
   { intent: 'answers.currently_student', any: ['currently a student', 'currently enrolled'] },
   { intent: 'answers.graduation', any: ['when did you graduate', 'graduation date', 'year of graduation'] },
   { intent: 'answers.relevant_experience', any: ['relevant non internship professional experience', 'relevant professional experience'] },
-  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above'] },
-  { intent: 'answers.privacy_consent', any: ['candidate privacy', 'privacy policy', 'privacy notice', 'processed in accordance'] },
+  { intent: 'answers.acknowledge_true', any: ['information provided in this application is true', 'certify that the information', 'true and correct', 'i acknowledge the above', 'acknowledge confirm', 'acknowledge and confirm', 'please acknowledge', 'acknowledged', 'accurate and truthful', 'true and complete'] },
+  { intent: 'answers.privacy_consent', any: ['candidate privacy', 'privacy policy', 'privacy notice', 'processed in accordance', 'processing my responses', 'demographic data survey', 'responses to the demographic'] },
   { intent: 'answers.gender', all: ['gender'] },
   { intent: 'answers.hispanic_latino', any: ['hispanic', 'latino'] },
   // Canada Employment Equity Act self-ID (Amazon) — before the US veteran/disability rules.
@@ -119,7 +139,10 @@ const RULES: readonly Rule[] = [
   { intent: 'answers.disability', any: ['disability', 'disabled'] },
   // Work eligibility / compliance.
   { intent: 'answers.previously_applied', any: ['previously applied'] },
-  { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked'] },
+  { intent: 'answers.previous_employment', any: ['previously been employed', 'previously employed', 'previously worked', 'ever worked for', 'ever been employed by', 'ever been employed at'] },
+  // "Candidate AI Usage Attestation" (Airbnb): a promise not to use AI tools in interviews. A
+  // commitment in the user's name, so it is answered only from the profile — never guessed.
+  { intent: 'answers.ai_usage_attestation', any: ['ai usage attestation', 'ai tools attestation', 'use of generative artificial intelligence', 'generative ai tools'] },
   { intent: 'answers.non_compete', any: ['non competition', 'non compete', 'noncompete'] },
   // The follow-up list must be matched before the yes/no it depends on.
   { intent: 'answers.countries_lived', any: ['countries outside', 'which countries have you lived', 'countries you have lived'] },
@@ -136,14 +159,17 @@ const RULES: readonly Rule[] = [
   // compliance question when the profile says India. `not` keeps the sanctioned-country and
   // permanent-resident-elsewhere rules above from being swallowed.
   { intent: 'answers.citizenship', any: ['do you have citizenship', 'country of citizenship', 'citizenship country', 'countries of which you are a citizen', 'country of which you are a citizen', 'citizen or legal permanent resident'], not: ['sanction', 'since obtaining'] },
-  { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat'] },
+  { intent: 'answers.willing_to_relocate', any: ['willing to relocate', 'open to relocat', 'relocating to', 'relocate to', 'ready to relocate', 'comfortable in relocating', 'comfortable relocating'] },
   // Free-text "why us" prompts (LinkedIn) — after the compliance rules so their "please provide
   // additional information" follow-ups (Amazon) are never answered with the cover-letter paragraph.
-  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your'] },
+  { intent: 'answers.cover_letter', any: ['cover letter', 'why do you want', 'why are you interested', 'why should we', 'tell us about yourself', 'tell us why', 'describe your', 'include a message', 'message with your application', 'message to the hiring', 'message for the recruiter', 'anything else you', 'additional information', 'brief summary', 'about yourself', 'summary of your', 'motivation for', 'your motivations', 'appeals to you', 'appeal to you', 'resonate with you', 'excites you about', 'interests you about', 'interests you', 'drew you to', 'motivated you', 'why do you believe you', 'good fit for', 'why this role', 'why us'] },
+  { intent: 'answers.roles_of_interest', any: ['roles of interest', 'areas of interest', 'specific roles', 'teams are you interested', 'what kind of role', 'type of role'] },
   // Screening questions.
   { intent: 'answers.exact_years_of_experience', any: ['exact years', 'exact number of years', 'precisely how many years', 'exactly how many years'] },
-  { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in', 'total experience', 'overall experience', 'experience in years', 'exp in years', 'total exp', 'yrs of', 'yrs experience', 'no of years', 'number of years', 'how many experience', 'how much experience', 'how many year'] },
+  { intent: 'answers.years_of_experience', any: ['years of experience', 'best describes your total', 'how many years', 'years of professional', 'years of non internship', 'years experience', 'years of', 'year of', 'years in', 'total experience', 'overall experience', 'experience in years', 'exp in years', 'total exp', 'yrs of', 'yrs experience', 'no of years', 'number of years', 'how many experience', 'how much experience', 'how many year', 'what is your experience in', 'your experience in the'] },
   { intent: 'answers.degree_bachelors', any: ['bachelor'] },
+  // A bare "Degree" box (Ashby/Greenhouse) — the "do you have a … degree" yes/no shapes stay above.
+  { intent: 'answers.education_level', word: ['degree'], not: ['do you', 'have you', 'are you', 'pursuing', 'field of', 'major', 'discipline', 'graduation', 'year'] },
   { intent: 'answers.degree_masters', any: ['master s degree', 'masters degree', 'master degree', 'graduate degree'] },
   { intent: 'answers.skills_experience', any: ['do you have experience', 'have you experience', 'do you have knowledge', 'do you have a working knowledge', 'are you proficient', 'do you have hands on', 'have you worked with', 'do you have exposure'] },
 ];
@@ -159,6 +185,7 @@ function hasWord(text: string, phrase: string): boolean {
 export function matchIntent(label: string): Intent | undefined {
   const t = normalize(label);
   for (const r of RULES) {
+    if (r.exact && !r.exact.includes(t.trim())) continue;
     if (r.all && !r.all.every((p) => has(t, p))) continue;
     if (r.any && !r.any.some((p) => has(t, p))) continue;
     if (r.word && !r.word.some((p) => hasWord(t, p))) continue;

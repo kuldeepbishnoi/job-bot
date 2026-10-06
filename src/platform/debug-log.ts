@@ -110,6 +110,10 @@ function flush(): void {
       const write: Record<string, string[]> = { [KEY]: all };
       if (OWNS_PENDING) write[PENDING_KEY] = ((got[PENDING_KEY] as string[] | undefined) ?? []).concat(lines).slice(-CAP);
       await chrome.storage.local.set(write);
+      // A page script cannot touch the pending list (it would race takePendingLines), so it hands
+      // its lines to the service worker, which appends them. Until 2026-10-06 they never reached
+      // log-<day>.txt at all: every Ashby/Greenhouse/Lever page detail was missing from disk.
+      if (!OWNS_PENDING) await chrome.runtime.sendMessage({ t: 'debug-lines', lines }).catch(() => {});
     })
     .catch(() => {});
   if (sink && toMirror.length) {
@@ -119,6 +123,18 @@ function flush(): void {
       /* the mirror is best-effort; the flat log above already has the line */
     }
   }
+}
+
+/** Service worker: lines a page script logged — append them to the on-disk pending list. */
+export function appendPendingLines(lines: readonly string[]): Promise<void> {
+  if (!OWNS_PENDING || !lines.length) return Promise.resolve();
+  queue = queue
+    .then(async () => {
+      const got = await chrome.storage.local.get(PENDING_KEY);
+      await chrome.storage.local.set({ [PENDING_KEY]: ((got[PENDING_KEY] as string[] | undefined) ?? []).concat(lines).slice(-CAP) });
+    })
+    .catch(() => {});
+  return queue;
 }
 
 /** Write the pending batch now and wait for it (tests, and before reading the flat log back). */

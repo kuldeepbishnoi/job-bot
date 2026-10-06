@@ -65,13 +65,16 @@ export const reviewCount = computed(
 );
 
 async function refreshStorageKeys(): Promise<void> {
-  const got = await chrome.storage.local.get(['applications', 'account', 'linkedin_run', 'run_state']);
+  const got = await chrome.storage.local.get(null);
   applications.value = (got['applications'] as Application[] | undefined) ?? [];
   account.value = (got['account'] as string | undefined) ?? '';
   const raw: string[] = [];
   if (got['linkedin_run']) raw.push('linkedin');
-  const worker = got['run_state'] as { siteId?: string } | undefined;
-  if (worker?.siteId) raw.push(worker.siteId);
+  // One run_state:<site> per running worker site — they run in parallel.
+  for (const [k, v] of Object.entries(got)) {
+    const siteId = (v as { siteId?: string } | undefined)?.siteId;
+    if ((k === 'run_state' || k.startsWith('run_state:')) && siteId && !raw.includes(siteId)) raw.push(siteId);
+  }
   rawRunSites.value = raw;
 }
 
@@ -110,7 +113,7 @@ export async function initStore(): Promise<void> {
 
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area !== 'local') return;
-    if (ch['applications'] || ch['account'] || ch['linkedin_run'] || ch['run_state']) void refreshStorageKeys();
+    if (ch['applications'] || ch['account'] || ch['linkedin_run'] || Object.keys(ch).some((k) => k.startsWith('run_state'))) void refreshStorageKeys();
     if (ch['runs']) void refreshRuns();
     if (ch['profile_v1'] || ch['profile_meta']) void refreshProfile();
   });

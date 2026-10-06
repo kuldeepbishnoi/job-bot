@@ -6,7 +6,7 @@ export interface Run {
   readonly runId: string;
   readonly siteId: string;
   readonly kind: 'worker' | 'in-page';
-  readonly trigger: 'manual' | 'daily' | 'retry' | 'resume';
+  readonly trigger: 'manual' | 'daily' | 'retry' | 'resume' | 'repeat';
   readonly account: string;
   readonly startedAt: number; // epoch ms
   readonly endedAt?: number;

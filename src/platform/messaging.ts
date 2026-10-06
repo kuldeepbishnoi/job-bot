@@ -47,13 +47,15 @@ export type Msg =
   // popup -> background (profile is loaded in the popup, which has the FS-access gesture)
   | { t: 'run'; siteId: string; profile: Profile; resume: SerializedFile; exclude?: string[]; credentials?: Credentials } // exclude = job ids any account applied to (registry)
   // popup -> background: abandon the current run (queue + alarm + worker tab)
-  | { t: 'stop' }
+  | { t: 'stop'; siteId?: string } // no site = stop EVERYTHING
   // popup -> background: the user logged the next account in — continue the paused run
-  | { t: 'resume' }
+  | { t: 'resume'; siteId?: string } // no site = resume every paused run
   // popup -> background: Instahyre applies in-page in the user's logged-in tab (no worker window).
   // want = profile.want, so cards are filtered the same way every other pack filters jobs — Instahyre's
   // own "matching" queue is not a title filter, and the full search board has none at all.
-  | { t: 'runInstahyre'; want?: Want }
+  | { t: 'runInstahyre'; want?: Want; repeatEveryMinutes?: number }
+  | { t: 'instahyre-alive'; where: string }
+  | { t: 'debug-lines'; lines: string[] } // a page script's log lines, for the on-disk log // the page loop is working (skipping, paging) — a heartbeat, not an apply
   // background -> instahyre content script: run the in-page apply loop
   | { t: 'instahyre-apply'; want?: Want }
   // background -> instahyre content script: STOP the in-page loop. The loop runs in the page, so

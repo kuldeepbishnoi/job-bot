@@ -56,7 +56,9 @@ describe('lever extract (real apply-page fixture)', () => {
     await fill(doc, byId('name')!, resolve(byId('name')!, profile, job));
     expect((controlsNamed(doc, 'name')[0] as HTMLInputElement).value).toBe('Kuldeep Bishnoi');
     const visa = fields.find((f) => /visa sponsorship/i.test(f.label))!;
-    const ans = resolve(visa, profile, job, optionsFor(doc, visa));
+    // A home-country job: for this posting's own Kuala Lumpur an Indian applicant DOES need a visa
+    // (tests/work-country.test.ts) — here we are testing the radio mapping, not the country rule.
+    const ans = resolve(visa, profile, { ...job, locations: ['Bengaluru, India'] }, optionsFor(doc, visa));
     expect(ans).toEqual({ kind: 'choice', values: ['NO'] });
     await fill(doc, visa, ans);
     const radios = controlsNamed(doc, visa.id) as HTMLInputElement[];
@@ -181,5 +183,14 @@ describe('lever: the Anchorage apply page answers every required question', () =
       .filter((f) => resolve(f, anchorageProfile, sgJob, optionsFor(anchorageDoc, f)).kind === 'unknown')
       .map((f) => f.label);
     expect(unanswered).toEqual([]);
+  });
+});
+
+describe('lever — the browser refusing a field is named, not "no confirmation" (#2026-10-05 Palantir)', () => {
+  it('names an invalid required control by its question', async () => {
+    const { invalidFields } = await import('@/ats/lever');
+    const doc = new DOMParser().parseFromString(`<form id="application-form"><li class="application-question"><div class="application-label">Date ✱</div><input name="eeo[date]" required></li><li class="application-question"><div class="application-label">Name</div><input name="eeo[name]" value="K B" required></li></form>`, 'text/html');
+    expect(invalidFields(doc)[0]).toMatch(/^Date/);
+    expect(invalidFields(doc)).toHaveLength(1);
   });
 });

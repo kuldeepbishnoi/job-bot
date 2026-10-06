@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as lv from '@/ats/lever';
-import { click, waitFor, describeAnswer } from '@/ats/dom';
+import { materialize, click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
@@ -68,7 +68,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         continue;
       }
       try {
-        await lv.fill(document, field, answer, resume);
+        await lv.fill(document, field, materialize(answer), resume);
         filled.push({ field, answer });
       } catch (e) {
         log('fill FAILED', field.id, (e as Error).message);
@@ -101,8 +101,16 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     if (outcome === 'captcha') return parked('hCaptcha challenge shown — solve it and click Submit yourself');
     if (outcome?.startsWith('error:')) return parked(`Lever rejected the form: ${outcome.slice(6)}`);
     // No signal within the wait: the navigation usually killed us before this point; if we are
-    // still here, tell the orchestrator so it checks the tab URL.
-    return { status: 'error', note: 'no confirmation after submit (still on the apply page)', filled: records() };
+    // still here, say what the page shows. An hCaptcha challenge that is mounted but not yet laid out
+    // was the likeliest cause on 2026-10-04 (matchgroup) and is the user's to solve.
+    const challenge = document.querySelector('iframe[src*="hcaptcha.com"][src*="challenge"], iframe[title*="hCaptcha challenge" i]');
+    if (challenge) return parked('hCaptcha challenge after Submit — solve it and click Submit yourself');
+    const invalid = lv.invalidFields(document);
+    if (invalid.length) {
+      log('the browser refused these fields', invalid);
+      return parked(`the form refused these fields (browser validation): ${invalid.join(' | ').slice(0, 400)}`);
+    }
+    return { status: 'error', note: 'no confirmation after submit (still on the apply page, no captcha or form error shown)', filled: records() };
   } catch (e) {
     log('apply error', (e as Error).message);
     return { status: 'error', note: String((e as Error).message), filled: records() };

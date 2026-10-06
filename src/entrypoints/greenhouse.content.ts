@@ -2,7 +2,7 @@ import { defineContentScript } from 'wxt/sandbox';
 import { withIntent } from '@/engine/matcher';
 import { resolve, guessAnswer } from '@/engine/resolver';
 import * as gh from '@/ats/greenhouse';
-import { click, waitFor, describeAnswer } from '@/ats/dom';
+import { materialize, click, waitFor, describeAnswer } from '@/ats/dom';
 import { deserializeFile } from '@/platform/serialized-file';
 import type { ApplyOutcome, Msg, OtpOutcome } from '@/platform/messaging';
 import type { AppliedField, Answer, Field } from '@/engine/types';
@@ -33,7 +33,7 @@ export default defineContentScript({
         // `ready` is the point of the handshake: the embed's bootstrap document answers a ping too,
         // and it is replaced moments later. Only a document that actually holds the form can be
         // filled, so say which one this is rather than just "a script is here".
-        respond({ pong: true, ready: gh.submitButton(document) !== null, confirmed: gh.confirmed(document), why: location.href });
+        respond({ pong: true, ready: gh.submitButton(document) !== null, confirmed: gh.confirmed(document), otp: gh.needsOtp(document), why: location.href });
         return true;
       }
       if (msg.t === 'apply') {
@@ -101,7 +101,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         return null; // skip optional/unknown
       }
       try {
-        await gh.fill(document, field, answer, resume);
+        await gh.fill(document, field, materialize(answer), resume);
         filled.push({ field, answer });
         log('filled', field.id);
       } catch (e) {
@@ -132,7 +132,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
       for (const { field, answer } of reverted) {
         log('re-filling reverted field', field.id);
         try {
-          await gh.fill(document, field, answer, resume);
+          await gh.fill(document, field, materialize(answer), resume);
         } catch (e) {
           log('re-fill FAILED', field.id, (e as Error).message);
         }
@@ -142,7 +142,7 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
         const answer = resolve(field, msg.profile, msg.job, await gh.optionsFor(document, field));
         if (answer.kind === 'unknown') continue;
         try {
-          await gh.fill(document, field, answer, resume);
+          await gh.fill(document, field, materialize(answer), resume);
           filled.push({ field, answer });
           failed.splice(i, 1);
           log('recovered previously-failed field', field.id);
@@ -188,6 +188,11 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
     }
 
     log('all fields processed, clicking submit');
+    // Say so BEFORE the click, durably: on Datadog the embed replaces this document the instant the
+    // submit is accepted, so the reply below never arrives. Without this the background took the
+    // closed port for a frame swap mid-fill, filled the fresh form and submitted AGAIN — every
+    // Datadog job on 2026-10-04 was applied to twice (two "Thank you for applying" emails each).
+    await chrome.storage.local.set({ [submitClickedKey(msg.job.id)]: { at: Date.now(), filled: records() } });
     click(gh.submitButton(document)!);
     return { ...(await afterSubmit(msg.job.id)), filled: records() };
   } catch (e) {
@@ -196,11 +201,18 @@ async function applyForm(msg: Extract<Msg, { t: 'apply' }>): Promise<ApplyOutcom
   }
 }
 
+/** Shared with app/ports.ts: the marker that a submit was clicked for this job. */
+function submitClickedKey(jobId: string): string {
+  return `submit_clicked:${jobId}`;
+}
+
 async function doOtp(code: string, autoSubmit: boolean): Promise<OtpOutcome> {
   try {
     await gh.fillOtp(document, code);
     if (!autoSubmit) return { status: 'ready' };
-    click(gh.submitButton(document)!);
+    // Some code steps submit by themselves once the 8th character lands; else press their button.
+    const btn = await waitFor(() => gh.otpSubmitButton(document) ?? (gh.confirmed(document) ? ('done' as const) : null), 5000).catch(() => null);
+    if (btn && btn !== 'done') click(btn);
     const ok = await waitForConfirm();
     return ok ? { status: 'submitted' } : { status: 'error', note: 'no confirmation after OTP submit' };
   } catch (e) {

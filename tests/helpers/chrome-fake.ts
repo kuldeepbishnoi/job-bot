@@ -4,7 +4,7 @@
 type Listener = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void;
 
 export interface ChromeFake {
-  storage: { local: { get(k?: string | string[]): Promise<Record<string, unknown>>; set(o: Record<string, unknown>): Promise<void>; remove(k: string | string[]): Promise<void>; clear(): Promise<void> }; onChanged: { addListener(fn: Listener): void; removeListener(fn: Listener): void } };
+  storage: { local: { get(k?: string | string[] | null): Promise<Record<string, unknown>>; set(o: Record<string, unknown>): Promise<void>; remove(k: string | string[]): Promise<void>; clear(): Promise<void> }; onChanged: { addListener(fn: Listener): void; removeListener(fn: Listener): void } };
   /** Test-only: peek at the raw map. */
   _data: Map<string, unknown>;
 }
@@ -21,7 +21,7 @@ export function installChromeFake(): ChromeFake {
     storage: {
       local: {
         async get(k) {
-          const keys = k === undefined ? [...data.keys()] : Array.isArray(k) ? k : [k];
+          const keys = k === undefined || k === null ? [...data.keys()] : Array.isArray(k) ? k : [k];
           const out: Record<string, unknown> = {};
           for (const key of keys) if (data.has(key)) out[key] = clone(data.get(key));
           return out;

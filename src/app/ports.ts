@@ -4,14 +4,15 @@ import { getOtp, seenOtps, getLoginCode, seenLoginCodes } from '../platform/gmai
 import { isPassportUrl } from '../ats/passport';
 import type { LoginOutcome } from '../platform/messaging';
 import { record, appliedIds, saveProgress, getProgress } from '../platform/store';
-import { writeRecord } from '../platform/fs-config';
+import { writeRecord, appendLogLines } from '../platform/fs-config';
 import { sendToTab, send, type ApplyOutcome, type OtpOutcome } from '../platform/messaging';
 import type { Site } from '../sites';
+import { siteById } from '../sites';
 import { NOT_LOGGED_IN } from '../sites/site';
 import type { Profile } from '../config/schema';
 import type { Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
-import { dlog, elog } from '../platform/debug-log';
+import { dlog, elog, takePendingLines } from '../platform/debug-log';
 import * as observe from './observe';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -73,6 +74,15 @@ async function outcomeAfterPortClosed(site: Site, tabId: number, jobId: string, 
   return { status: 'submitted', note: `submitted — page moved on to ${url}`, ...(filled ? { filled } : {}) };
 }
 
+/** The content script's "I clicked Submit for this job" marker (greenhouse.content.ts), consumed once. */
+async function submitClicked(jobId: string): Promise<{ filled?: ApplyOutcome['filled'] } | null> {
+  const key = `submit_clicked:${jobId}`;
+  const got = (await chrome.storage.local.get(key).catch(() => ({}))) as Record<string, { at: number; filled?: ApplyOutcome['filled'] } | undefined>;
+  const mark = got[key];
+  await chrome.storage.local.remove(key).catch(() => {});
+  return mark && Date.now() - mark.at < 10 * 60_000 ? mark : null;
+}
+
 /** A closed port can mean the document was replaced mid-apply (the Greenhouse embed does exactly
  *  that). That is recoverable — but only after proving we would not be applying twice. So: wait for
  *  the real form frame again, ask it whether this application is already confirmed, and retry ONLY
@@ -107,11 +117,21 @@ async function retryAfterFrameSwap(
 
 // Concrete ports, assembled from platform adapters. This is the "Main" seam (Ch26):
 // the dirty wiring that hands effects to the pure runner. Nothing else builds these.
-export function chromePorts(): RunPorts {
+/** Which worker a site applies in. Sites run in parallel, one lane each — except sites whose apply
+ *  emails a one-time code to the shared inbox: Greenhouse's code names no job, so two Greenhouse
+ *  sites at once could swap codes (invariant 8). They share the 'greenhouse' lane and take turns. */
+export function laneFor(siteId: string): string {
+  const site = siteById(siteId);
+  return site?.ats === 'greenhouse' ? 'greenhouse' : siteId;
+}
+
+export function chromePorts(siteId?: string): RunPorts {
+  const lane = siteId ? laneFor(siteId) : 'default';
   return {
+    forSite: (id: string) => chromePorts(id),
     discover: (site, profile) => site.discover(profile),
     appliedIds,
-    openJob,
+    openJob: (url) => openJob(url, lane),
     apply: async (site, tabId, profile, job, resume) => {
       const onLogin = async (): Promise<boolean> => !!site.isLoginPage?.((await chrome.tabs.get(tabId).catch(() => null))?.url ?? '');
       if (await onLogin()) throw new Error(`${NOT_LOGGED_IN}: ${site.label} sent the apply page to sign-in`);
@@ -122,6 +142,7 @@ export function chromePorts(): RunPorts {
       });
       const ctx = { jobId: job.id, siteId: site.id };
       elog('info', 'apply', `${job.id} ${job.title}`, { url: job.url }, ctx);
+      await chrome.storage.local.remove(`submit_clicked:${job.id}`).catch(() => {}); // only THIS attempt's click counts
       try {
         const out = await withTimeout(
           sendToTab<ApplyOutcome>(tabId, { t: 'apply', profile, job, resume, autoSubmit: profile.auto_submit }),
@@ -132,6 +153,21 @@ export function chromePorts(): RunPorts {
         return out;
       } catch (e) {
         elog('warn', 'apply', `${job.id} port closed: ${(e as Error).message}`, undefined, ctx);
+        // Submit was already clicked → the closed port IS the submit landing. Never refill: that
+        // was a second application to the same job (2026-10-04, every Datadog job twice).
+        const clicked = await submitClicked(job.id);
+        if (clicked) {
+          // The replacement page may be Greenhouse's emailed-code step rather than a confirmation:
+          // then the application is NOT done — hand it to the OTP path instead of calling it applied.
+          const next = await waitForFrame(tabId, 12).then(() => sendToTab<{ otp?: boolean }>(tabId, { t: 'ping' })).catch(() => null);
+          if (next?.otp) {
+            elog('info', 'outcome', `${job.id} submit landed on the emailed-code step`, undefined, ctx);
+            return { status: 'needs_otp', ...(clicked.filled ? { filled: clicked.filled } : {}) };
+          }
+          const out: ApplyOutcome = { status: 'submitted', note: 'submitted — the form was replaced right after Submit (the ATS moved on)', ...(clicked.filled ? { filled: clicked.filled } : {}) };
+          elog('info', 'outcome', `${job.id} submitted (port closed after the submit click)`, undefined, ctx);
+          return out;
+        }
         const retried = await retryAfterFrameSwap(site, tabId, profile, job, resume, ctx);
         if (retried) return retried;
         const out = await outcomeAfterPortClosed(site, tabId, job.id, e);
@@ -184,16 +220,17 @@ export function chromePorts(): RunPorts {
     },
     record: async (app) => {
       await record(app); // chrome.storage (store strips the screenshot dataURL)
-      await writeRecord(app); // full record to the profile folder on disk
+      await writeRecord(app); // full record to the profile folder on disk (else ~/Downloads/jobbot)
+      await appendLogLines(await takePendingLines()).catch(() => {}); // and the complete log so far
     },
     progress: (done, total, current) => {
       void send({ t: 'progress', done, total, current }).catch(() => {}); // reaches the popup if open
-      void saveProgress({ done, total, current, phase: 'running', at: Date.now() }); // survives popup close
+      void saveProgress({ done, total, current, phase: 'running', at: Date.now() }, siteId); // survives popup close
     },
     cleanup: async () => {
-      await closeWorker();
-      const p = await getProgress();
-      if (p) await saveProgress({ ...p, phase: 'done', at: Date.now() });
+      await closeWorker(lane);
+      const p = await getProgress(siteId);
+      if (p) await saveProgress({ ...p, phase: 'done', at: Date.now() }, siteId);
       await send({ t: 'runDone' }).catch(() => {});
     },
     today: () => new Date().toISOString().slice(0, 10),

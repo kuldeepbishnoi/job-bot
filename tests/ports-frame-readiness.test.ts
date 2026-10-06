@@ -6,10 +6,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sent: { msg: { t: string } }[] = [];
 let replies: (Record<string, unknown> | null)[] = [];
+const store = new Map<string, unknown>();
+let onApply: () => void = () => {};
 vi.mock('@/platform/messaging', async (orig) => ({
   ...(await orig<typeof import('@/platform/messaging')>()),
   sendToTab: async (_tabId: number, msg: { t: string }) => {
     sent.push({ msg });
+    if (msg.t === 'apply') onApply();
     const next = replies.shift();
     if (next === null) throw new Error('Could not establish connection');
     return next ?? { pong: true, ready: true };
@@ -27,7 +30,16 @@ const resume = { name: 'cv.pdf', type: 'application/pdf', dataBase64: '' };
 beforeEach(() => {
   sent.length = 0;
   replies = [];
-  (globalThis as unknown as { chrome: unknown }).chrome = { tabs: { get: async () => ({ windowId: 1 }), captureVisibleTab: async () => null }, storage: { local: { get: async () => ({}), remove: async () => {} } } };
+  store.clear();
+  onApply = () => {};
+  (globalThis as unknown as { chrome: unknown }).chrome = {
+    tabs: { get: async () => ({ windowId: 1 }), captureVisibleTab: async () => null },
+    storage: { local: {
+      get: async (k: string) => (store.has(k) ? { [k]: store.get(k) } : {}),
+      set: async (o: Record<string, unknown>) => void Object.entries(o).forEach(([k, v]) => store.set(k, v)),
+      remove: async (k: string) => void store.delete(k),
+    } },
+  };
 });
 
 describe('the apply handshake waits for the FORM, not for any script', () => {
@@ -74,5 +86,30 @@ describe('a document replaced mid-apply is recovered, not lost', () => {
     const out = await chromePorts().apply(site, 1, profile, job, resume);
     expect(out.status).toBe('submitted');
     expect(sent.filter((s) => s.msg.t === 'apply')).toHaveLength(1); // never applied twice
+  });
+
+  it('never refills after the Submit click — the closed port IS the submit (#regression 2026-10-04: every Datadog job applied to twice)', async () => {
+    // The content script marks the click, then Greenhouse swaps in a fresh, unconfirmed form.
+    onApply = () => void store.set(`submit_clicked:${job.id}`, { at: Date.now(), filled: [] });
+    replies = [{ pong: true, ready: true }, null, { pong: true, ready: true }, { pong: true, ready: true, otp: false, confirmed: false }];
+    const out = await chromePorts().apply(site, 1, profile, job, resume);
+    expect(out.status).toBe('submitted');
+    expect(sent.filter((s) => s.msg.t === 'apply')).toHaveLength(1);
+    expect(store.has(`submit_clicked:${job.id}`)).toBe(false); // consumed once
+  });
+
+  it('a submit that lands on the emailed-code step goes to the OTP path, not "applied"', async () => {
+    onApply = () => void store.set(`submit_clicked:${job.id}`, { at: Date.now() });
+    replies = [{ pong: true, ready: true }, null, { pong: true, ready: true }, { pong: true, ready: true, otp: true }];
+    const out = await chromePorts().apply(site, 1, profile, job, resume);
+    expect(out.status).toBe('needs_otp');
+    expect(sent.filter((s) => s.msg.t === 'apply')).toHaveLength(1);
+  });
+
+  it('a stale marker from an earlier attempt does not count', async () => {
+    store.set(`submit_clicked:${job.id}`, { at: Date.now() }); // left over — cleared at apply start
+    replies = [{ pong: true, ready: true }, null, { pong: true, ready: true }, { pong: true, ready: true, confirmed: false }, { status: 'submitted', filled: [] }];
+    await chromePorts().apply(site, 1, profile, job, resume);
+    expect(sent.filter((s) => s.msg.t === 'apply')).toHaveLength(2); // a genuine mid-fill swap is still recovered
   });
 });

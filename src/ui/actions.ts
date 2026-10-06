@@ -13,6 +13,8 @@ import { requestHosts } from './facts';
 export interface StartResult {
   readonly ok: boolean;
   readonly error?: string;
+  /** Started fine but not now — e.g. queued behind the run in progress. */
+  readonly note?: string;
 }
 
 export interface StartOptions {
@@ -63,7 +65,7 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
       // want.titles_any/titles_none: Instahyre's own "matching" queue and its full search board
       // both offer plenty of non-engineering roles, and neither is filtered by us without this.
       const { profile } = await resolveRunInputs({ allowFolder: true });
-      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre', want: profile.want });
+      const res = await send<{ ok: boolean; error?: string }>({ t: 'runInstahyre', want: profile.want, repeatEveryMinutes: profile.repeat_every_minutes });
       return res ?? { ok: false, error: 'no answer from the background' };
     }
 
@@ -91,16 +93,17 @@ export async function startSite(pack: SitePack, opts: StartOptions = {}): Promis
     // from repeating a job, and accounts.csv (when present) lets rotation log the next one in.
     const exclude = [...(await readRegistry().catch(() => new Set<string>()))];
     const credentials = await loadCredentials().catch(() => undefined);
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'run', siteId: pack.id, profile, resume, exclude, credentials });
+    const res = await send<{ ok: boolean; error?: string; note?: string }>({ t: 'run', siteId: pack.id, profile, resume, exclude, credentials });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
 }
 
-export async function stopRuns(): Promise<StartResult> {
+/** Stop one site (its card's button), or — with no site — everything. */
+export async function stopRuns(siteId?: string): Promise<StartResult> {
   try {
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'stop' });
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'stop', ...(siteId ? { siteId } : {}) });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
@@ -108,9 +111,9 @@ export async function stopRuns(): Promise<StartResult> {
 }
 
 /** Account rotation parked the run until the next login happened; the user says "go". */
-export async function resumeRun(): Promise<StartResult> {
+export async function resumeRun(siteId?: string): Promise<StartResult> {
   try {
-    const res = await send<{ ok: boolean; error?: string }>({ t: 'resume' });
+    const res = await send<{ ok: boolean; error?: string }>({ t: 'resume', ...(siteId ? { siteId } : {}) });
     return res ?? { ok: false, error: 'no answer from the background' };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

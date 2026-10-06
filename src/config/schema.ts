@@ -78,6 +78,9 @@ export const ProfileSchema = z.object({
   resume: z.string().min(1),
   want: WantSchema.default({}),
   answers: AnswersSchema.default({}),
+  // Years per technology, from the résumé's dated roles — "How many years with <X>?" reads these
+  // (engine/skills.ts); a technology not listed is answered 0, never the career total.
+  skills: z.record(z.number().nonnegative()).default({}),
   // Exact-question-text → answer, for rare one-offs the intent rules don't cover.
   overrides: z.record(AnswerValue).default({}),
   // park = stop and ask; skip = leave it (submit may fail); guess = pick the safe obvious option
@@ -91,6 +94,10 @@ export const ProfileSchema = z.object({
   // ATSes enforce no daily cap of their own — deleting this line must not mean "apply to
   // everything discovered". Set `max_per_run: 0` to genuinely lift the limit.
   max_per_run: z.number().int().nonnegative().default(50),
+  // Never stop (owner, 2026-10-04: "it should keep on applying … it should not stop ever"): when a
+  // site runs out of jobs, look again this many minutes later for new postings, until Stop. 0 = off
+  // (a run ends when its queue does). Applied jobs are always excluded, so a repeat only finds new ones.
+  repeat_every_minutes: z.number().int().nonnegative().default(0),
   // Careers/search URLs the apply-jobs skill walks; hosts map to site packs (unknown → build one).
   careers: z.array(z.string().url()).default([]),
   // Multi-account: every login you apply from (one Chrome profile each, all sharing this folder).

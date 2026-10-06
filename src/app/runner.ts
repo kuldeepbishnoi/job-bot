@@ -9,6 +9,9 @@ import { selectJobs } from '../engine/select-jobs';
 // no chrome, no DOM, no network here, so it's unit-testable with fakes. Main (background)
 // supplies the concrete ports. This is the Dependency Rule: details plug into policy.
 export interface RunPorts {
+  /** The same ports bound to another site's worker lane — a finished run hands the worker on to a
+   *  queued site through this. Fakes may omit it (they reuse themselves). */
+  forSite?(siteId: string): RunPorts;
   discover(site: Site, profile: Profile): Promise<Job[]>;
   appliedIds(): Promise<Set<string>>;
   openJob(url: string): Promise<number>; // -> tabId
@@ -60,11 +63,19 @@ export async function applyOne(
   ports: RunPorts,
 ): Promise<Application> {
   try {
-    const tabId = await ports.openJob(job.url);
+    let tabId = await ports.openJob(job.url);
     // Snapshot the codes already in Gmail BEFORE we submit — the fresh code this apply triggers
     // isn't there yet, so anything we see now is a stale leftover to exclude when polling.
     const staleCodes = await ports.seenOtps().catch(() => [] as string[]);
-    const res = await ports.apply(site, tabId, profile, job, resume);
+    let res: Awaited<ReturnType<RunPorts['apply']>>;
+    try {
+      res = await ports.apply(site, tabId, profile, job, resume);
+    } catch (e) {
+      // The company's own careers page never showed a form: apply on the ATS's standalone one.
+      if (!job.fallbackUrl || !/never became ready|form was not there|never rendered/i.test((e as Error).message)) throw e;
+      tabId = await ports.openJob(job.fallbackUrl);
+      res = await ports.apply(site, tabId, profile, { ...job, url: job.fallbackUrl }, resume);
+    }
     // Snapshot the form once it's filled — the confirmation/OTP screen if we submitted,
     // otherwise the filled form. Best-effort: a capture failure must never fail the apply.
     const shot = await ports.capture(tabId, { siteId: site.id, jobId: job.id, label: res.status === 'submitted' ? 'submitted' : 'filled' }).catch(() => null);

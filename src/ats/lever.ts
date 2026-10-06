@@ -187,6 +187,22 @@ export function validationError(doc: Document): string | null {
   return el ? labelText(el) : null;
 }
 
+/** Fields the BROWSER refuses (HTML5 constraint validation): Lever blocks the submit with a native
+ *  tooltip, not a DOM message, so a bad value was invisible — 5 Palantir submits sat on the page with
+ *  "no confirmation" because a Date box held "N/A". Names each invalid control by its question. */
+export function invalidFields(doc: Document): string[] {
+  const form = doc.querySelector<HTMLFormElement>('form#application-form, form');
+  if (!form) return [];
+  const out = new Set<string>();
+  for (const el of Array.from(form.querySelectorAll<HTMLInputElement>('input, select, textarea'))) {
+    if (el.type === 'hidden' || el.checkValidity?.() !== false) continue;
+    const q = el.closest('.application-question, li, .application-field');
+    const label = q?.querySelector('.application-label, label, .text') ?? null;
+    out.add(`${(label ? labelText(label) : el.name).replace(/✱/g, '').trim().slice(0, 90)}${el.validationMessage ? ` (${el.validationMessage})` : ''}`);
+  }
+  return [...out];
+}
+
 /** An hCaptcha challenge that became visible = a human must solve it (we never touch it). */
 export function captchaShown(doc: Document): boolean {
   return Array.from(doc.querySelectorAll<HTMLIFrameElement>('iframe[src*="hcaptcha.com"]')).some((f) => {
