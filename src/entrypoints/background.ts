@@ -10,7 +10,7 @@ import { dailySchedule, siteIdFromAlarm } from '@/platform/schedule';
 import type { Msg } from '@/platform/messaging';
 import * as observe from '@/app/observe';
 import { appendEvents } from '@/platform/data/events';
-import { dlog } from '@/platform/debug-log';
+import { dlog, appendPendingLines } from '@/platform/debug-log';
 import { syncSeed } from '@/platform/data/profile-store';
 import { initSelfUpdate, checkForUpdate, resumeAfterRestart, SELF_UPDATE_ALARM } from '@/app/self-update';
 
@@ -118,6 +118,10 @@ export default defineBackground(() => {
     if (msg.t === 'instahyre-applied') {
       void recordInstahyreApplied(msg.job);
       return; // fire-and-forget
+    }
+    if (msg.t === 'debug-lines') {
+      void appendPendingLines(msg.lines);
+      return;
     }
     if (msg.t === 'instahyre-alive') {
       void instahyreAlive();

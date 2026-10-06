@@ -54,7 +54,8 @@ export type Msg =
   // want = profile.want, so cards are filtered the same way every other pack filters jobs — Instahyre's
   // own "matching" queue is not a title filter, and the full search board has none at all.
   | { t: 'runInstahyre'; want?: Want; repeatEveryMinutes?: number }
-  | { t: 'instahyre-alive'; where: string } // the page loop is working (skipping, paging) — a heartbeat, not an apply
+  | { t: 'instahyre-alive'; where: string }
+  | { t: 'debug-lines'; lines: string[] } // a page script's log lines, for the on-disk log // the page loop is working (skipping, paging) — a heartbeat, not an apply
   // background -> instahyre content script: run the in-page apply loop
   | { t: 'instahyre-apply'; want?: Want }
   // background -> instahyre content script: STOP the in-page loop. The loop runs in the page, so
