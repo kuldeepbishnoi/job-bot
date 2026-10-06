@@ -197,6 +197,19 @@ export async function appliedIds(): Promise<Set<string>> {
   return ids;
 }
 
+/** Jobs this site PARKED after \`since\` (epoch ms): they wait on an answer only the user can give,
+ *  so a repeat run that re-fills them every 30 min just repeats the park (Lever: the same 139 jobs,
+ *  all night, 2026-10-05). Failed ones are not here — a failure is usually transient, retry it. */
+export async function parkedSince(siteId: string, since: number): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const a of await readAll()) {
+    if (a.company !== siteId || a.status !== 'parked') continue;
+    const at = Date.parse(a.at ?? a.date);
+    if (Number.isFinite(at) && at > since) out.add(a.jobId);
+  }
+  return out;
+}
+
 export async function parked(): Promise<Application[]> {
   return (await readAll()).filter((a) => a.status === 'parked');
 }

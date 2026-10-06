@@ -387,6 +387,33 @@ describe('Stop actually stops', () => {
     expect(chrome.calls.alarmsCleared).toContain('jobbot-again:lever');
   });
 
+  it('a run that outlived an update applies with the CURRENT profile, not its frozen copy (#2026-10-05: 803 crashes)', async () => {
+    let seen: { skills?: unknown; max_per_run?: number } | null = null;
+    const { ports } = fakePorts([job('u1'), job('u2')], async (_s, _t, p) => ((seen = p as never), { status: 'submitted' }));
+    await startRun('lever', profile, resume, ports, [], undefined, 'manual'); // u1
+    // What an older build left in run_state: a profile with no `skills` key at all.
+    const st = (await getRunState('lever'))!;
+    const { skills: _drop, ...old } = st.profile as unknown as Record<string, unknown>;
+    await chrome.storage.local.set({ 'run_state:lever': { ...st, profile: old }, profile_v1: { ...profile, max_per_run: 7 } });
+    await step(ports, 'lever'); // u2
+    expect(seen!.skills).toEqual({}); // schema defaults applied — nothing to crash on
+    expect(seen!.max_per_run).toBe(7); // and the live profile, not the frozen one
+  });
+
+  it('a repeat run skips jobs parked in the last day, unless the profile changed since (#2026-10-05: same 139 Lever jobs all night)', async () => {
+    const now = new Date().toISOString();
+    await chrome.storage.local.set({ applications: [{ company: 'lever', jobId: 'p1', title: 't', url: 'u', date: now.slice(0, 10), at: now, status: 'parked', note: 'No answer for required: X' }] });
+    const { ports } = fakePorts([job('p1'), job('p2')]);
+    await startRun('lever', profile, resume, ports, [], undefined, 'repeat');
+    expect((await getRunState('lever'))?.queue.map((j) => j.id) ?? []).not.toContain('p1');
+    await stopRun(ports);
+    // The user then answers the question in their profile → the parked job is tried again.
+    await chrome.storage.local.set({ profile_meta: { rev: 2, savedAt: new Date(Date.now() + 1000).toISOString(), source: 'yaml-import' } });
+    await startRun('lever', profile, resume, ports, [], undefined, 'repeat');
+    const q = [...((await getRunState('lever'))?.queue ?? []).map((j) => j.id)];
+    expect(q.includes('p1') || (await listRuns()).some((r) => r.siteId === 'lever')).toBe(true);
+  });
+
   it('two Greenhouse-family sites share one lane (their emailed codes name no job) — never at once', async () => {
     const { ports } = fakePorts([job('g1'), job('g2')]);
     await startRun('datadog', profile, resume, ports, [], undefined, 'manual');

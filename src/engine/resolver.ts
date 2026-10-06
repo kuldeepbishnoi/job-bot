@@ -89,8 +89,8 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   }
 
   // "Have you used / Do you have experience with <X>?" yes/no from the same table.
-  if ((!intent || intent === 'answers.skills_experience' || intent === 'answers.years_of_experience') && Object.keys(profile.skills).length && YESNO(options)) {
-    const has = hasSkill(field.label, profile.skills);
+  if ((!intent || intent === 'answers.skills_experience' || intent === 'answers.years_of_experience') && Object.keys(profile.skills ?? {}).length && YESNO(options)) {
+    const has = hasSkill(field.label, profile.skills ?? {});
     if (has !== null && !/\d+\s*\+?\s*(?:or more\s+)?years?/i.test(field.label)) return toAnswer(has, field, options);
   }
 
@@ -103,8 +103,8 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
   }
 
   // "How many years WITH <X>?" — that skill's years, not the career total (engine/skills.ts).
-  if ((intent === 'answers.years_of_experience' || intent === 'answers.exact_years_of_experience') && Object.keys(profile.skills).length) {
-    const y = skillYears(field.label, profile.skills);
+  if ((intent === 'answers.years_of_experience' || intent === 'answers.exact_years_of_experience') && Object.keys(profile.skills ?? {}).length) {
+    const y = skillYears(field.label, profile.skills ?? {});
     if (y !== null) return toAnswer(y, { ...field, intent: 'answers.exact_years_of_experience' }, options);
   }
   // 3. derived answers: salary components in the unit the label names, notice period as days,
@@ -162,6 +162,9 @@ export function resolve(field: Field, profile: Profile, job: Job, options: reado
     if (typeof own === 'string' && own && !matchOptions(options, [own]).length) {
       const other = options.find((o) => /\b(not listed|other|none of the above|not in (the )?list)\b/i.test(o));
       if (other) return { kind: 'choice', values: [other] };
+      // A long searchable list (Greenhouse School: thousands, the first page shown) — hand the
+      // adapter our value; it searches for it, then for the list's "Other" entry.
+      if (options.length >= 25) return { kind: 'choice', values: [own] };
     }
   }
 

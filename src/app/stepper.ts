@@ -1,14 +1,14 @@
 import type { RunPorts } from './runner';
 import { applyOne } from './runner';
 import { siteById } from '../sites';
-import type { Profile } from '../config/schema';
+import { parseProfile, type Profile } from '../config/schema';
 import type { Site } from '../sites';
 import { NOT_LOGGED_IN } from '../sites/site';
 import type { RunState } from '../platform/store';
 import type { Application, Job } from '../engine/types';
 import type { SerializedFile } from '../platform/serialized-file';
 import { selectJobs, spreadAcrossEmployers } from '../engine/select-jobs';
-import { saveRunState, getRunState, clearRunState, listRunStates, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount } from '../platform/store';
+import { saveRunState, getRunState, clearRunState, listRunStates, getProgress, appliedTodayCount, saveProgress, getAccount, setAccount, parkedSince } from '../platform/store';
 import { passwordFor, accountsFor, credentialsFor } from '../platform/credentials';
 import { readRegistry } from '../platform/fs-config';
 import { accountsAtLimitToday } from '../platform/store';
@@ -136,6 +136,13 @@ export async function startRun(
   // gesture-only APIs are the picker and requestPermission, neither of which this touches.
   const registry = exclude.length ? exclude : [...(await readRegistry().catch(() => new Set<string>()))];
   const already = new Set([...(await ports.appliedIds()), ...registry]);
+  // A repeat run skips what parked in the last day — unless the profile changed since, which is
+  // exactly what lets a parked job succeed (the user answered the question it parked on).
+  if (trigger === 'repeat') {
+    const meta = (await chrome.storage.local.get('profile_meta'))['profile_meta'] as { savedAt?: string } | undefined;
+    const since = Math.max(Date.now() - 24 * 3600_000, Date.parse(meta?.savedAt ?? '') || 0);
+    for (const id of await parkedSince(siteId, since)) already.add(id);
+  }
   // Spread before capping: the cap takes the head of the queue, and a multi-company pack discovers
   // alphabetically, so an uninterleaved queue sends every application of a capped run to whichever
   // employer sorts first.
@@ -275,13 +282,14 @@ export async function step(ports: RunPorts, siteId?: string): Promise<void> {
     if (limit && (await appliedTodayCount(await getAccount(), site.id)) >= limit) return rotateAccount(site, state, ports, `limit ${limit}/day reached on ${site.id}`);
 
     const job = state.queue[state.cursor]!;
+    const profile = await currentProfile(state.profile);
     ports.progress(state.cursor, state.queue.length, job.title);
     await observe.runStep(runId, { jobId: job.id, title: job.title, step: 'apply', since: Date.now() });
     // One job can never hold the run forever. ports.apply caps the content script, but openJob, the
     // OTP poll and a frame retry sit outside it, and a step that hangs blocks every later job: the
     // watchdog cannot help, because it politely returns while `stepping` is true.
     const result = await withDeadline(
-      applyOne(site, job, state.profile, state.resume, ports),
+      applyOne(site, job, profile, state.resume, ports),
       JOB_DEADLINE_MS,
       () => mkFailed(site, job, ports, `gave up after ${Math.round(JOB_DEADLINE_MS / 60_000)} min on this job — moving to the next`),
     );
@@ -313,6 +321,25 @@ export async function step(ports: RunPorts, siteId?: string): Promise<void> {
     setTimeout(() => void step(ports, sid), PACE_MS);
   } finally {
     stepping.delete(sid);
+  }
+}
+
+/** The profile a step applies with: the CURRENT saved one (dashboard / profile.yaml seed), parsed
+ *  through the schema — never the frozen copy in run_state alone. A run that outlived an update
+ *  carried a profile saved before \`skills\` existed, and every Greenhouse/Lever job crashed with
+ *  "Cannot convert undefined or null to object" (803 jobs, 2026-10-05). Re-parsing applies new
+ *  defaults; reading the live profile makes an edit reach a run already in progress. */
+async function currentProfile(frozen: Profile): Promise<Profile> {
+  try {
+    const live = (await chrome.storage.local.get('profile_v1'))['profile_v1'];
+    if (live) return { ...parseProfile(live), resume: frozen.resume }; // the run's résumé stays the run's
+  } catch {
+    /* an invalid saved profile — fall back to the run's own copy */
+  }
+  try {
+    return parseProfile(frozen);
+  } catch {
+    return frozen;
   }
 }
 
@@ -431,7 +458,7 @@ export async function runAgain(ports: RunPorts, siteId: string): Promise<void> {
   const q = (await chrome.storage.local.get(againKey(siteId)))[againKey(siteId)] as QueuedRun | undefined;
   if (!q) return; // Stop cleared it
   await chrome.storage.local.remove(againKey(siteId));
-  await startRun(q.siteId, q.profile, q.resume, bound(ports, siteId), q.exclude, q.credentials, 'repeat', { detachFirstStep: true, queueIfBusy: true }).catch(async (e: Error) => {
+  await startRun(q.siteId, await currentProfile(q.profile), q.resume, bound(ports, siteId), q.exclude, q.credentials, 'repeat', { detachFirstStep: true, queueIfBusy: true }).catch(async (e: Error) => {
     // Discovery down, say — never let one bad round end "forever": try again next interval.
     await observe.event('warn', 'run', `${siteId}: repeat could not start (${e.message}) — retrying in ${q.profile.repeat_every_minutes} min`, undefined, { siteId });
     await chrome.storage.local.set({ [againKey(siteId)]: q });
